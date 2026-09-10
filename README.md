@@ -28,7 +28,7 @@ Set `NEXT_PUBLIC_API_URL` in `frontend/.env.local` to the backend URL when it is
 
 ## Vercel deployment
 
-The Vercel project should use `frontend` as its **Root Directory**. Vercel will detect Next.js and use `npm run build` automatically.
+The root `vercel.json` defines two services: `frontend` (Next.js) and `backend` (FastAPI). Import the repository as a multi-service deployment so Vercel uses that configuration. The backend is available through `/api/backend/*`, while all other routes go to the frontend.
 
 Add this environment variable in the Vercel project settings:
 
@@ -36,4 +36,4 @@ Add this environment variable in the Vercel project settings:
 NEXT_PUBLIC_API_URL=https://your-deployed-backend.example.com
 ```
 
-The FastAPI backend must be deployed separately on a Python-capable host, and its CORS configuration must include the deployed Vercel URL.
+Configure the backend service environment variables from `backend/.env.example`. Its CORS configuration must include the deployed Vercel URL. If the platform provides a separate backend service URL, use that URL for `NEXT_PUBLIC_API_URL`; otherwise use the `/api/backend` route exposed by the multi-service deployment.
