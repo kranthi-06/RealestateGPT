@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.db
+*.sqlite3
+.env
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+htmlcov/
+.coverage

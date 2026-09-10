@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.db
+*.sqlite3
+.env
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.vercel/
+frontend/.env*
+frontend/*.log
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/.pnpm-debug.log*
+
+# Miscellaneous
+*.pem
+*.tsbuildinfo
+.DS_Store
+frontend/.git-backup/

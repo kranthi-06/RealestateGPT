@@ -1,0 +1,1 @@
+"""RealEstateGPT - Finance services (EMI, affordability, investment analysis)."""

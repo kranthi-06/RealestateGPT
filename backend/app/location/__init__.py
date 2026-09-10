@@ -1,0 +1,1 @@
+"""RealEstateGPT - Location intelligence (distance, nearby places, map abstraction)."""
