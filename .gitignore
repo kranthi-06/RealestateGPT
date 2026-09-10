@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *.db
 *.sqlite3
+*-shm
+*-wal
 .env
 .venv/
 venv/
@@ -25,6 +27,7 @@ frontend/npm-debug.log*
 frontend/yarn-debug.log*
 frontend/yarn-error.log*
 frontend/.pnpm-debug.log*
+backend/*.log
 
 # Miscellaneous
 *.pem
