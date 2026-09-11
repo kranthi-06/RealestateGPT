@@ -4,8 +4,8 @@ Provider abstraction around text embeddings.
 - local:   lightweight hashed TF-IDF vectors computed in-process (fully offline)
 - openai:  remote embeddings via OpenAI-compatible API when configured
 
-pgvector can back the `local` vectors in PostgreSQL via a JSON-encoded float
-array; with SQLite we compute cosine similarity in Python.
+Vectors are currently computed in process; a future embedding persistence
+implementation must use MongoDB-compatible storage and remain optional.
 """
 
 from __future__ import annotations

@@ -2,11 +2,13 @@
 
 import logging
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
 from app.core.config import settings
-from app.core.database import engine, Base
+from app.core.database import close_connection, connect, ensure_indexes
 from app.api.v1 import ai, auth, properties, saved, health, admin, locations
 
 # Configure logging
@@ -19,19 +21,21 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan: startup and shutdown."""
-    logger.info(f"Starting {settings.APP_NAME} ({settings.APP_ENV})")
-    # Create all tables
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database tables created/verified")
+    """Application lifespan: verify MongoDB connectivity and indexes; clean shutdown."""
+    logger.info("Starting %s (%s)", settings.APP_NAME, settings.APP_ENV)
+    # Fail fast when the production database is misconfigured or unreachable.
+    connect()
+    ensure_indexes()
+    logger.info("MongoDB connected, schema indexes ensured")
     yield
-    logger.info(f"Shutting down {settings.APP_NAME}")
+    close_connection()
+    logger.info("Shutting down %s", settings.APP_NAME)
 
 
 app = FastAPI(
     title=settings.APP_NAME,
     description="AI-powered real estate decision platform",
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -50,7 +54,7 @@ app.add_middleware(
 # Global exception handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    logger.error("Unhandled exception: %s", exc, exc_info=True)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "An internal error occurred. Please try again later."},
@@ -71,7 +75,7 @@ app.include_router(locations.router, prefix=settings.API_V1_PREFIX)
 async def root():
     return {
         "name": settings.APP_NAME,
-        "version": "1.0.0",
+        "version": "1.1.0",
         "docs": "/docs",
         "health": f"{settings.API_V1_PREFIX}/health",
     }

@@ -1,7 +1,6 @@
 """RealEstateGPT - Admin API routes"""
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
 from typing import Optional
 from app.core.database import get_db
 from app.core.security import get_current_admin
@@ -17,7 +16,7 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 @router.get("/stats", response_model=AdminStatsResponse)
 async def get_admin_stats(
     current_user: User = Depends(get_current_admin),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ):
     """Get admin dashboard statistics."""
     prop_repo = PropertyRepository(db)
@@ -43,7 +42,7 @@ async def verify_property(
     property_id: int,
     status: str = Query("verified", pattern="^(verified|unverified|rejected)$"),
     current_user: User = Depends(get_current_admin),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ):
     """Verify or reject a property listing."""
     prop_repo = PropertyRepository(db)

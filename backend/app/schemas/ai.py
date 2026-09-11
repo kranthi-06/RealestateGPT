@@ -1,6 +1,6 @@
 """RealEstateGPT - AI schemas: parsed queries, scoring, assistant."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List
 from datetime import datetime
 
@@ -20,15 +20,34 @@ class ParsedQuery(BaseModel):
     property_type: Optional[str] = None
     listing_type: str = "sale"
     bedrooms: Optional[int] = Field(None, ge=0, le=20)
+    bathrooms: Optional[int] = Field(None, ge=0, le=20)
     min_price: Optional[float] = Field(None, ge=0)
     max_price: Optional[float] = Field(None, ge=0)
     min_area: Optional[float] = Field(None, ge=0)
     max_area: Optional[float] = Field(None, ge=0)
     furnishing: Optional[str] = None
+    amenities: List[str] = Field(default_factory=list, max_length=20)
     nearby_requirements: List[NearbyRequirement] = []
+    transport_requirement: Optional[str] = None
+    commute_destination: Optional[str] = Field(default=None, max_length=500)
+    commute_max_minutes: Optional[int] = Field(default=None, gt=0, le=240)
     lifestyle: List[str] = []  # family, student, investor, pet_friendly, senior...
     intent: str = "home_purchase"  # home_purchase | rental | investment | unknown
     keywords: List[str] = []  # salient tokens for semantic search
+
+    @model_validator(mode="after")
+    def validate_price_range(self) -> "ParsedQuery":
+        if self.min_price is not None and self.max_price is not None and self.min_price > self.max_price:
+            raise ValueError("min_price cannot exceed max_price")
+        return self
+
+
+class SearchIntent(ParsedQuery):
+    """Typed, validated intent used by the discovery pipeline.
+
+    This object carries declarative filters only. It is never interpreted as a
+    MongoDB query and cannot contain MongoDB operators.
+    """
 
 
 class ScoreComponent(BaseModel):
@@ -80,6 +99,7 @@ class AiSearchResponse(BaseModel):
     results: List[ScoredProperty] = []
     exceeded: bool = False  # when available candidates < limit
     warning: Optional[str] = None
+    metrics: dict = Field(default_factory=dict)
 
 
 # ─── Assistant ────────────────────────────────────────────────────────
@@ -112,7 +132,7 @@ class AssistantResponse(BaseModel):
     tool_calls: List[ToolCallRecord] = []
     parsed_query: Optional[ParsedQuery] = None
     results: List[ScoredProperty] = []
-    provider: str  # offline | openai
+    provider: str  # groq
     warnings: List[str] = []
 
 

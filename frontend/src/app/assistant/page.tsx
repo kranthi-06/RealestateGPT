@@ -91,12 +91,14 @@ export default function AssistantPage() {
                   <p className="text-xs font-semibold line-clamp-2">{property.title}</p>
                   <p className="mt-1 text-sm font-bold text-primary">{formatPrice(property.price)}</p>
                   <p className="text-xs text-muted-foreground">{property.overall_score}% match · {property.locality || property.city}</p>
+                  {property.positive_factors[0] ? <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-300">Why: {property.positive_factors[0]}</p> : null}
                 </Link>)}
               </div> : null}
+              {message.response?.citations.length ? <p className="mt-2 text-xs text-muted-foreground">Verified platform records: {message.response.citations.map((citation) => citation.label).join(" · ")}</p> : null}
             </div>
           ))}
         </div>}
-        {sending && <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Checking matching listings…</div>}
+        {sending && <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Searching verified listings and checking location context…</div>}
         {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
         <form onSubmit={(event) => send(event)} className="mt-6 flex gap-2 border-t pt-4">
           <Input value={text} onChange={(event) => setText(event.target.value)} placeholder="Ask for a property, budget, or location…" disabled={sending} />

@@ -1,6 +1,5 @@
 """RealEstateGPT - Authentication service"""
 
-from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.repositories.user_repo import UserRepository
 from app.core.security import verify_password, create_access_token
@@ -8,7 +7,7 @@ from app.schemas import UserRegister, UserLogin, TokenResponse, UserResponse
 
 
 class AuthService:
-    def __init__(self, db: Session):
+    def __init__(self, db):
         self.repo = UserRepository(db)
 
     def register(self, data: UserRegister) -> TokenResponse:

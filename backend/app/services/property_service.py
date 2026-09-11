@@ -1,15 +1,15 @@
 """RealEstateGPT - Property service"""
 
-from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.repositories.property_repo import PropertyRepository
 from app.repositories.saved_repo import SavedRepository
-from app.schemas import PropertyResponse, PropertyListResponse, PropertyCardResponse
+from app.models.property import Property
+from app.schemas import PropertyCreate, PropertyResponse, PropertyListResponse, PropertyCardResponse, PropertyUpdate
 from typing import Optional, List
 
 
 class PropertyService:
-    def __init__(self, db: Session):
+    def __init__(self, db):
         self.repo = PropertyRepository(db)
         self.saved_repo = SavedRepository(db)
 
@@ -22,6 +22,35 @@ class PropertyService:
         if user_id:
             response.is_saved = self.saved_repo.is_saved(user_id, property_id)
         return response
+
+    def create_property(self, data: PropertyCreate) -> PropertyResponse:
+        payload = data.model_dump()
+        if not payload.get("slug"):
+            from app.services.property_ingestion_service import _slug
+            payload["slug"] = _slug(f"{payload['source']}-{payload.get('source_id') or payload['title']}")
+        property_ = Property.model_validate(payload)
+        property_.data_quality_score = self._quality_score(property_)
+        return PropertyResponse.model_validate(self.repo.create_property(property_))
+
+    def update_property(self, property_id: int, data: PropertyUpdate) -> PropertyResponse:
+        updates = data.model_dump(exclude_unset=True)
+        updated = self.repo.update_property(property_id, updates)
+        if not updated:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Property not found")
+        updated.data_quality_score = self._quality_score(updated)
+        updated = self.repo.update_property(property_id, {"data_quality_score": updated.data_quality_score}) or updated
+        return PropertyResponse.model_validate(updated)
+
+    def delete_property(self, property_id: int) -> None:
+        if not self.repo.delete_property(property_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Property not found")
+
+    @staticmethod
+    def _quality_score(property_: Property) -> float:
+        values = [property_.title, property_.price, property_.property_type, property_.city,
+                  property_.source, property_.source_type, property_.source_id,
+                  property_.latitude, property_.longitude, property_.area]
+        return round(sum(value is not None and value != "" for value in values) / len(values) * 100, 1)
 
     def get_property_by_slug(self, slug: str, user_id: Optional[int] = None) -> PropertyResponse:
         prop = self.repo.get_by_slug(slug)

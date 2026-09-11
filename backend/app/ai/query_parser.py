@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import List, Optional
 
-from app.schemas.ai import NearbyRequirement, ParsedQuery
+from app.schemas.ai import NearbyRequirement, SearchIntent
 from app.ai.embeddings import tokenize
 
 # ─── Knowledge tables ──────────────────────────────────────────────────
@@ -97,13 +97,13 @@ def _extract_price(text: str) -> dict:
     low = text.lower()
 
     m = re.search(
-        rf"(?:under|below|less than|upto|up to|within|max(?:imum)? of?)\s*{_NUM}\s*(lakhs?|lacs?|crores?|cr|million|m|L)?",
+        rf"(?:under|below|less than|upto|up to|within|max(?:imum)? of?)\s*(?:₹|inr)?\s*{_NUM}\s*(lakhs?|lacs?|crores?|cr|million|m|l)?",
         low)
     if m:
         result["max_price"] = _apply_unit(_to_number(m.group(1)), (m.group(2) or "").lower())
 
     m = re.search(
-        rf"(?:above|over|more than|beyond|min(?:imum)? of?)\s*{_NUM}\s*(lakhs?|lacs?|crores?|cr|million|m|L)?",
+        rf"(?:above|over|more than|beyond|min(?:imum)? of?)\s*(?:₹|inr)?\s*{_NUM}\s*(lakhs?|lacs?|crores?|cr|million|m|l)?",
         low)
     if m:
         result["min_price"] = _apply_unit(_to_number(m.group(1)), (m.group(2) or "").lower())
@@ -230,20 +230,34 @@ def _extract_furnishing(text: str) -> Optional[str]:
 
 def _extract_area(text: str) -> dict:
     result: dict = {}
-    m = re.search(r"(?:min|above|over|more than)\s*(\d+)\s*(?:sq\.?\s*ft|sqft|sqm|sq\.m)", text.lower())
+    m = re.search(r"(?:min|above|over|more than)\s*(\d+(?:\.\d+)?)\s*(sq\.?\s*ft|sqft|square\s*feet|sqm|sq\.m)", text.lower())
     if m:
-        result["min_area"] = float(m.group(1))
-    m = re.search(r"(?:max|under|below|less than)\s*(\d+)\s*(?:sq\.?\s*ft|sqft|sqm|sq\.m)", text.lower())
+        result["min_area"] = _area_to_sqft(float(m.group(1)), m.group(2))
+    m = re.search(r"(?:max|under|below|less than)\s*(\d+(?:\.\d+)?)\s*(sq\.?\s*ft|sqft|square\s*feet|sqm|sq\.m)", text.lower())
     if m:
-        result["max_area"] = float(m.group(1))
-    m = re.search(r"between\s*(\d+)\s*(?:sq\.?\s*ft|sqft|sqm|sq\.m)\s*(?:and|to|-)\s*(\d+)\s*(?:sq\.?\s*ft|sqft|sqm|sq\.m)", text.lower())
+        result["max_area"] = _area_to_sqft(float(m.group(1)), m.group(2))
+    m = re.search(r"between\s*(\d+(?:\.\d+)?)\s*(sq\.?\s*ft|sqft|square\s*feet|sqm|sq\.m)\s*(?:and|to|-)\s*(\d+(?:\.\d+)?)\s*(sq\.?\s*ft|sqft|square\s*feet|sqm|sq\.m)", text.lower())
     if m:
-        result["min_area"] = float(m.group(1))
-        result["max_area"] = float(m.group(2))
+        result["min_area"] = _area_to_sqft(float(m.group(1)), m.group(2))
+        result["max_area"] = _area_to_sqft(float(m.group(3)), m.group(4))
     return result
 
 
-def parse_query(text: str) -> ParsedQuery:
+def _area_to_sqft(value: float, unit: str) -> float:
+    return round(value * 10.7639, 2) if "sqm" in unit or "sq.m" in unit else value
+
+
+def _extract_commute(text: str) -> dict:
+    match = re.search(r"(?:within|under|less than)\s*(\d+)\s*(?:minutes?|mins?)\s+(?:of|from|to)\s+(.+?)(?:[,.]|$)", text.lower())
+    if not match:
+        return {}
+    destination = match.group(2).strip()
+    if not destination or len(destination) > 500:
+        return {}
+    return {"commute_max_minutes": int(match.group(1)), "commute_destination": destination}
+
+
+def parse_query(text: str) -> SearchIntent:
     """Extract a validated ParsedQuery from a natural-language property request."""
     raw = (text or "").strip()
     lowered = raw.lower()
@@ -258,6 +272,7 @@ def parse_query(text: str) -> ParsedQuery:
     ptype = _extract_property_type(lowered)
     furnishing = _extract_furnishing(lowered)
     area = _extract_area(lowered)
+    commute = _extract_commute(lowered)
 
     listing_type = "rent" if intent == "rental" else "sale"
     if intent == "unknown" and (bedrooms or city or price.get("max_price") or ptype):
@@ -283,7 +298,7 @@ def parse_query(text: str) -> ParsedQuery:
         for item in nearby
     ]
 
-    return ParsedQuery(
+    return SearchIntent(
         raw_text=raw,
         city=city,
         locality=locality,
@@ -296,6 +311,8 @@ def parse_query(text: str) -> ParsedQuery:
         max_area=area.get("max_area"),
         furnishing=furnishing,
         nearby_requirements=nearby_requirements,
+        transport_requirement="metro" if any(item.type == "metro" for item in nearby_requirements) else None,
+        **commute,
         lifestyle=lifestyle,
         intent=intent,
         keywords=keywords[:24],

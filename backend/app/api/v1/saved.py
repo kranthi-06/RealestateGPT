@@ -1,7 +1,6 @@
 """RealEstateGPT - Saved items API routes"""
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -24,7 +23,7 @@ router = APIRouter(prefix="/saved", tags=["Saved"])
 async def save_property(
     data: SavePropertyRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ):
     """Save a property to the user's collection."""
     # Verify property exists
@@ -41,7 +40,7 @@ async def save_property(
 @router.get("/properties", response_model=List[SavedPropertyResponse])
 async def get_saved_properties(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ):
     """Get all saved properties."""
     repo = SavedRepository(db)
@@ -62,7 +61,7 @@ async def get_saved_properties(
 async def unsave_property(
     property_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ):
     """Remove a property from saved collection."""
     repo = SavedRepository(db)
@@ -78,7 +77,7 @@ async def unsave_property(
 async def save_search(
     data: SaveSearchRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ):
     """Save a search configuration."""
     repo = SavedRepository(db)
@@ -103,7 +102,7 @@ async def save_search(
 @router.get("/searches", response_model=List[SavedSearchResponse])
 async def get_saved_searches(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ):
     """Get all saved searches."""
     repo = SavedRepository(db)
@@ -114,7 +113,7 @@ async def get_saved_searches(
 async def delete_saved_search(
     search_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ):
     """Delete a saved search."""
     repo = SavedRepository(db)
@@ -130,7 +129,7 @@ async def delete_saved_search(
 async def create_comparison(
     data: ComparisonCreateRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ):
     """Create a property comparison set (2-4 properties)."""
     prop_repo = PropertyRepository(db)
@@ -156,7 +155,7 @@ async def create_comparison(
 @router.get("/comparisons", response_model=List[ComparisonResponse])
 async def list_comparisons(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ):
     """Get all comparison sets."""
     repo = SavedRepository(db)
@@ -180,7 +179,7 @@ async def list_comparisons(
 async def get_comparison(
     comparison_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ):
     """Get a specific comparison with full property details."""
     repo = SavedRepository(db)
@@ -204,7 +203,7 @@ async def get_comparison(
 async def delete_comparison(
     comparison_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db = Depends(get_db),
 ):
     """Delete a comparison."""
     repo = SavedRepository(db)

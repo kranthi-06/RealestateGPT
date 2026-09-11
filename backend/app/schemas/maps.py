@@ -14,9 +14,17 @@ class LivePlace(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     rating: Optional[float] = None
+    rating_count: Optional[int] = None
     maps_url: Optional[str] = None
     photo_resource: Optional[str] = None
     attributions: list[str] = []
+    distance_km: Optional[float] = None
+    travel_minutes: Optional[float] = None
+    travel_mode: Optional[str] = None
+    photo_url: Optional[str] = None
+    website_url: Optional[str] = None
+    phone_number: Optional[str] = None
+    opening_hours: list[str] = []
 
 class LiveNearbyResponse(BaseModel):
     property_id: int
@@ -36,4 +44,16 @@ class RouteResponse(BaseModel):
     distance_km: float
     duration_minutes: float
     mode: str
+    provider: str
+
+
+class GeocodeRequest(BaseModel):
+    address: str = Field(min_length=3, max_length=500)
+
+
+class GeocodeResponse(BaseModel):
+    formatted_address: str
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    place_id: Optional[str] = None
     provider: str

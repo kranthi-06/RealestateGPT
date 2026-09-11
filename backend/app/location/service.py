@@ -1,8 +1,8 @@
 """RealEstateGPT - Location intelligence service.
 
-Maps providers are abstracted (OsmProvider stub etc.); distance math is
-deterministic haversine. Nearby POIs are stored in the database so business
-logic never depends on a third-party provider at runtime.
+All live POIs come from the configured LocationProvider. The legacy
+``nearby_places`` collection is not read by this service, so seeded records can
+never be mixed with provider results.
 """
 
 from __future__ import annotations
@@ -10,14 +10,11 @@ from __future__ import annotations
 import math
 from typing import Dict, List, Optional
 
-from sqlalchemy.orm import Session
-
-from app.models.platform import NearbyPlace
+from app.providers.location import get_location_provider
+from app.repositories.property_repo import PropertyRepository
 
 PLACE_CATEGORIES = {
     "metro": "transport",
-    "transport": "transport",
-    "airport": "transport",
     "hospital": "healthcare",
     "school": "education",
     "college": "education",
@@ -28,7 +25,7 @@ PLACE_CATEGORIES = {
 }
 
 CATEGORY_LABELS = {
-    "metro": "Metro", "transport": "Public transport", "airport": "Airport",
+    "metro": "Metro",
     "hospital": "Hospital", "school": "School", "college": "College",
     "supermarket": "Supermarket", "mall": "Shopping", "park": "Park",
     "it_park": "IT Park",
@@ -46,7 +43,7 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def estimate_drive_min(distance_km: float, place_type: str = "") -> Optional[float]:
-    """Rough drive-time estimate for illustration (city-average speeds)."""
+    """City-average drive-time estimate (clearly labeled as an estimate)."""
     if distance_km is None:
         return None
     if place_type == "airport":
@@ -59,64 +56,40 @@ def estimate_drive_min(distance_km: float, place_type: str = "") -> Optional[flo
 
 
 class LocationService:
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db) -> None:
         self.db = db
+        self.properties_repo = PropertyRepository(db)
+        self.provider = get_location_provider()
 
-    def list_for_property(self, property_id: int, city: Optional[str] = None) -> List[NearbyPlace]:
-        query = self.db.query(NearbyPlace)
-        if city:
-            query = query.filter(NearbyPlace.city.ilike(f"%{city}%"))
-        places = query.all()
-        prop = None
-        if property_id:
-            from app.models.property import Property
-            prop = self.db.query(Property).filter(Property.id == property_id).first()
-        if prop and prop.latitude and prop.longitude:
-            return places
-        # Property without coordinates still returns all seeds for the city (distances omitted).
-        return places
+    def _property(self, property_id: int):
+        return self.properties_repo.get_by_id(property_id, include_inactive=True)
+
+    def list_for_property(self, property_id: int, city: Optional[str] = None) -> List[dict]:
+        """Return only current provider POIs; ``city`` is retained for API compatibility."""
+        prop = self._property(property_id) if property_id else None
+        if not prop or prop.latitude is None or prop.longitude is None:
+            return []
+        places: List[dict] = []
+        for place_type in CATEGORY_LABELS:
+            places.extend(self.provider.nearby(prop.latitude, prop.longitude, place_type, 3.0))
+        return sorted(places, key=lambda item: item.get("distance_km", float("inf")))
 
     def nearby(self, property_id: int, place_type: str, radius_km: float = 3.0) -> List[dict]:
         prop = self._property(property_id)
-        if not prop or not prop.latitude or not prop.longitude:
+        if not prop or prop.latitude is None or prop.longitude is None:
             return []
-        rows = (
-            self.db.query(NearbyPlace)
-            .filter(
-                NearbyPlace.place_type == place_type,
-                NearbyPlace.city.ilike(f"%{prop.city}%"),
-            )
-            .all()
-        )
-        results = []
-        for place in rows:
-            dist = haversine_km(prop.latitude, prop.longitude, place.latitude, place.longitude)
-            if dist <= radius_km:
-                results.append({
-                    "id": place.id,
-                    "name": place.name,
-                    "place_type": place.place_type,
-                    "category": place.category,
-                    "locality": place.locality,
-                    "city": place.city,
-                    "distance_km": dist,
-                    "estimated_drive_min": estimate_drive_min(dist, place.place_type),
-                })
-        results.sort(key=lambda r: r["distance_km"])
-        return results
+        return self.provider.nearby(prop.latitude, prop.longitude, place_type, radius_km)
 
     def nearby_by_type_map(self, property_id: int) -> Dict[str, float]:
         """Nearest distance per place type (for scoring connectivity)."""
         prop = self._property(property_id)
         result: Dict[str, float] = {}
-        if not prop or not prop.latitude or not prop.longitude:
+        if not prop or prop.latitude is None or prop.longitude is None:
             return result
-        rows = self.db.query(NearbyPlace).filter(NearbyPlace.city.ilike(f"%{prop.city}%")).all()
-        for place in rows:
-            dist = haversine_km(prop.latitude, prop.longitude, place.latitude, place.longitude)
-            current = result.get(place.place_type)
-            if current is None or dist < current:
-                result[place.place_type] = round(dist, 3)
+        for place_type in CATEGORY_LABELS:
+            places = self.provider.nearby(prop.latitude, prop.longitude, place_type, 5.0)
+            if places and places[0].get("distance_km") is not None:
+                result[place_type] = float(places[0]["distance_km"])
         return result
 
     def property_context(self, property_id: int) -> dict:
@@ -124,7 +97,6 @@ class LocationService:
         prop = self._property(property_id)
         if not prop:
             return {}
-        nearby_map = self.nearby_by_type_map(property_id)
         categories = []
         all_places: List[dict] = []
         for ptype, label in CATEGORY_LABELS.items():
@@ -148,7 +120,3 @@ class LocationService:
             "categories": categories,
             "all_places": all_places[:40],
         }
-
-    def _property(self, property_id: int):
-        from app.models.property import Property
-        return self.db.query(Property).filter(Property.id == property_id).first()

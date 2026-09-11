@@ -2,7 +2,6 @@
 
 from pydantic_settings import BaseSettings
 from typing import List, Optional
-import os
 import json
 
 
@@ -15,8 +14,13 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     API_V1_PREFIX: str = "/api/v1"
 
-    # Database
-    DATABASE_URL: str = "sqlite:///./realestate_gpt.db"
+    # MongoDB Atlas
+    MONGODB_URI: str = ""  # required in production, e.g. mongodb+srv://user:pass@cluster0.xxxxx.mongodb.net/
+    MONGODB_DATABASE: str = "realestate_gpt"
+    MONGODB_CONNECT_TIMEOUT_MS: int = 10_000
+    MONGODB_SERVER_SELECTION_TIMEOUT_MS: int = 10_000
+    MONGODB_SOCKET_TIMEOUT_MS: int = 30_000
+    MONGODB_MAX_POOL_SIZE: int = 20
 
     # Security
     SECRET_KEY: str = "change-this-in-production"
@@ -32,20 +36,25 @@ class Settings(BaseSettings):
     RATE_LIMIT_WINDOW_SECONDS: int = 60
     RATE_LIMIT_AUTH_REQUESTS: int = 10  # stricter for /auth endpoints
 
-    # AI provider
-    #   offline = deterministic grounded responses, no external API required
-    #   openai  = OpenAI-compatible chat completions (works with OpenAI, Ollama, etc.)
+    # AI provider: offline | groq
     AI_PROVIDER: str = "offline"
-    AI_API_KEY: Optional[str] = None
-    AI_MODEL: str = "gpt-4o-mini"
-    AI_BASE_URL: Optional[str] = None  # e.g. http://localhost:11434/v1 for Ollama
+    GROQ_API_KEY: Optional[str] = None
+    GROQ_MODEL: str = "qwen/qwen3.8-27b"  # verified in docs/AI_MODEL_SELECTION.md
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
     AI_TIMEOUT_SECONDS: int = 60
+    AI_MAX_TOKENS: int = 1200
+    MAX_AGENT_STEPS: int = 3
+    MAX_TOOL_CALLS: int = 5
+    AI_RATE_LIMIT_REQUESTS: int = 12
+    AI_RATE_LIMIT_WINDOW_SECONDS: int = 60
 
     # Embeddings
     #   local  = lightweight hashed TF-IDF vectors, works fully offline
-    #   openai = remote embeddings via API
+    #   openai = remote embeddings via an OpenAI-compatible API
     EMBEDDING_PROVIDER: str = "local"
     EMBEDDING_MODEL: str = "text-embedding-3-small"
+    AI_API_KEY: Optional[str] = None  # legacy: OpenAI-compatible embeddings key
+    AI_BASE_URL: Optional[str] = None
 
     # Recommendation scoring weights (must sum to 100)
     SCORING_WEIGHTS_JSON: str = (
@@ -66,8 +75,16 @@ class Settings(BaseSettings):
     S3_ACCESS_KEY: Optional[str] = None
     S3_SECRET_KEY: Optional[str] = None
 
-    # Google Maps Platform. The server key is strictly backend-only.
-    MAPS_PROVIDER: str = "none"  # none | google
+    # Location intelligence
+    #   osm    = OpenStreetMap (Nominatim + Overpass + OSRM) - default, no billing
+    #   google = Google Maps Platform (requires Google Cloud billing)
+    LOCATION_PROVIDER: str = "osm"
+    NOMINATIM_BASE_URL: str = "https://nominatim.openstreetmap.org"
+    OVERPASS_URL: str = "https://overpass-api.de/api/interpreter"
+    OSRM_BASE_URL: str = "https://router.project-osrm.org"
+    NOMINATIM_USER_AGENT: str = "RealEstateGPT/1.0"
+    OSM_TIMEOUT_SECONDS: int = 15
+    MAPS_PROVIDER: str = "none"  # google | none (optional, requires billing)
     GOOGLE_MAPS_SERVER_KEY: Optional[str] = None
     GOOGLE_MAPS_TIMEOUT_SECONDS: int = 10
 
@@ -77,10 +94,6 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> List[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
-
-    @property
-    def is_sqlite(self) -> bool:
-        return self.DATABASE_URL.startswith("sqlite")
 
     @property
     def scoring_weights(self) -> dict:
@@ -103,7 +116,7 @@ class Settings(BaseSettings):
     @property
     def ai_configured(self) -> bool:
         """True when a real LLM API is available for generative responses."""
-        return self.AI_PROVIDER == "openai" and bool(self.AI_API_KEY)
+        return self.AI_PROVIDER == "groq" and bool(self.GROQ_API_KEY)
 
     model_config = {
         "env_file": ".env",

@@ -9,9 +9,11 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import PropertyCard from "@/components/property-card";
+import { NearbyPlaces } from "@/components/nearby-places";
+import { RealEstateMap } from "@/components/real-estate-map";
 import { propertiesApi, savedApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import type { Property } from "@/lib/types";
+import type { LivePlace, Property } from "@/lib/types";
 import {
   formatPrice, formatArea, formatPricePerSqft, getPropertyTypeLabel,
   getFurnishingLabel, capitalize,
@@ -26,6 +28,7 @@ export default function PropertyDetailPage() {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [property, setProperty] = useState<Property | null>(null);
+  const [nearbyPlaces, setNearbyPlaces] = useState<LivePlace[]>([]);
   const [similar, setSimilar] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSaved, setIsSaved] = useState(false);
@@ -205,6 +208,18 @@ export default function PropertyDetailPage() {
               </div>
             </Card>
           )}
+
+          <Card className="p-5 border-border/60">
+            <div className="mb-4">
+              <h2 className="font-semibold text-lg">Location & nearby places</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Explore this property&apos;s location and live nearby places from OpenStreetMap.</p>
+            </div>
+            <RealEstateMap markers={[
+              { id: property.id, latitude: property.latitude, longitude: property.longitude, title: property.title, kind: "property" },
+              ...nearbyPlaces.map((place) => ({ id: place.place_id || place.name, latitude: place.latitude, longitude: place.longitude, title: place.name, subtitle: place.distance_km != null ? `${place.distance_km.toFixed(1)} km` : undefined, kind: "place" as const })),
+            ]} />
+            <div className="mt-5"><NearbyPlaces propertyId={property.id} onPlacesChange={setNearbyPlaces} /></div>
+          </Card>
         </div>
 
         {/* Sidebar */}

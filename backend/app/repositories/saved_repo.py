@@ -1,156 +1,154 @@
-"""RealEstateGPT - Saved items repository"""
+"""RealEstateGPT - Saved items repository (MongoDB).
 
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func
-from app.models.saved import SavedProperty, SavedSearch, Comparison, SearchHistory
-from app.models.property import Property
+Enforces ownership in every query: user-scoped reads/writes. Saved property
+documents are enriched with the full property card when requested.
+"""
+
+from datetime import datetime, timezone
 from typing import List, Optional
+
+from pymongo.database import Database
+
+from app.core.database import next_id
+from app.models.saved import SavedProperty, SavedSearch, Comparison, SearchHistory
+
+
+def _utcnow():
+    return datetime.now(timezone.utc)
 
 
 class SavedRepository:
-    def __init__(self, db: Session):
+    def __init__(self, db: Database):
         self.db = db
+        self.saved_props = db["saved_properties"]
+        self.searches = db["saved_searches"]
+        self.comparisons = db["comparisons"]
+        self.history = db["search_history"]
 
-    # ─── Saved Properties ────────────────────────────────
+    # ─── Saved properties ───────────────────────────────────────────────
 
-    def save_property(self, user_id: int, property_id: int, notes: str = None) -> SavedProperty:
-        existing = (
-            self.db.query(SavedProperty)
-            .filter(SavedProperty.user_id == user_id, SavedProperty.property_id == property_id)
-            .first()
+    def save_property(self, user_id: int, property_id: int, notes: Optional[str] = None) -> SavedProperty:
+        existing = self.saved_props.find_one(
+            {"user_id": user_id, "property_id": property_id}
         )
         if existing:
             if notes is not None:
-                existing.notes = notes
-                self.db.commit()
-                self.db.refresh(existing)
-            return existing
-
-        saved = SavedProperty(user_id=user_id, property_id=property_id, notes=notes)
-        self.db.add(saved)
-        self.db.commit()
-        self.db.refresh(saved)
-        return saved
+                self.saved_props.update_one(
+                    {"_id": existing["_id"]}, {"$set": {"notes": notes}}
+                )
+            return SavedProperty.from_doc(
+                self.saved_props.find_one({"_id": existing["_id"]})
+            )
+        sid = next_id(self.db, "saved_properties")
+        doc = {
+            "_id": sid, "user_id": user_id, "property_id": property_id,
+            "notes": notes, "created_at": _utcnow(),
+        }
+        self.saved_props.insert_one(doc)
+        return SavedProperty.from_doc(doc)
 
     def unsave_property(self, user_id: int, property_id: int) -> bool:
-        result = (
-            self.db.query(SavedProperty)
-            .filter(SavedProperty.user_id == user_id, SavedProperty.property_id == property_id)
-            .delete()
+        result = self.saved_props.delete_one(
+            {"user_id": user_id, "property_id": property_id}
         )
-        self.db.commit()
-        return result > 0
+        return result.deleted_count > 0
 
     def get_saved_properties(self, user_id: int) -> List[SavedProperty]:
-        return (
-            self.db.query(SavedProperty)
-            .options(joinedload(SavedProperty.property).joinedload(Property.amenities))
-            .filter(SavedProperty.user_id == user_id)
-            .order_by(SavedProperty.created_at.desc())
-            .all()
+        """Return saved properties with the joined property card attached."""
+        from app.repositories.property_repo import PropertyRepository
+
+        docs = list(
+            self.saved_props.find({"user_id": user_id}).sort("created_at", -1)
         )
+        items = [SavedProperty.from_doc(doc) for doc in docs if doc]
+        engines = PropertyRepository(self.db)
+        for item in items:
+            item.property = engines.get_by_id(item.property_id)
+        return items
 
     def is_saved(self, user_id: int, property_id: int) -> bool:
         return (
-            self.db.query(SavedProperty)
-            .filter(SavedProperty.user_id == user_id, SavedProperty.property_id == property_id)
-            .first()
-        ) is not None
+            self.saved_props.find_one({"user_id": user_id, "property_id": property_id})
+            is not None
+        )
 
     def get_saved_property_ids(self, user_id: int) -> List[int]:
-        result = (
-            self.db.query(SavedProperty.property_id)
-            .filter(SavedProperty.user_id == user_id)
-            .all()
-        )
-        return [r[0] for r in result]
+        docs = self.saved_props.find({"user_id": user_id}, {"property_id": 1})
+        return [doc["property_id"] for doc in docs]
 
     def count_saved(self, user_id: Optional[int] = None) -> int:
-        query = self.db.query(SavedProperty)
-        if user_id:
-            query = query.filter(SavedProperty.user_id == user_id)
-        return query.count()
+        query = {"user_id": user_id} if user_id else {}
+        return self.saved_props.count_documents(query)
 
-    # ─── Saved Searches ──────────────────────────────────
+    # ─── Saved searches ─────────────────────────────────────────────────
 
     def save_search(self, user_id: int, **kwargs) -> SavedSearch:
-        saved = SavedSearch(user_id=user_id, **kwargs)
-        self.db.add(saved)
-        self.db.commit()
-        self.db.refresh(saved)
-        return saved
+        sid = next_id(self.db, "saved_searches")
+        doc = {"_id": sid, "user_id": user_id, "created_at": _utcnow(), "updated_at": _utcnow()}
+        doc.update({k: v for k, v in kwargs.items() if v is not None})
+        self.searches.insert_one(doc)
+        return SavedSearch.from_doc(doc)
 
     def get_saved_searches(self, user_id: int) -> List[SavedSearch]:
-        return (
-            self.db.query(SavedSearch)
-            .filter(SavedSearch.user_id == user_id)
-            .order_by(SavedSearch.created_at.desc())
-            .all()
-        )
+        docs = self.searches.find({"user_id": user_id}).sort("created_at", -1)
+        return [SavedSearch.from_doc(doc) for doc in docs if doc]
 
     def delete_saved_search(self, user_id: int, search_id: int) -> bool:
-        result = (
-            self.db.query(SavedSearch)
-            .filter(SavedSearch.user_id == user_id, SavedSearch.id == search_id)
-            .delete()
-        )
-        self.db.commit()
-        return result > 0
+        result = self.searches.delete_one({"_id": search_id, "user_id": user_id})
+        return result.deleted_count > 0
 
     def count_saved_searches(self) -> int:
-        return self.db.query(SavedSearch).count()
+        return self.searches.count_documents({})
 
-    # ─── Comparisons ─────────────────────────────────────
+    # ─── Comparisons ────────────────────────────────────────────────────
 
-    def create_comparison(self, user_id: int, property_ids: List[int], name: str = None) -> Comparison:
-        comparison = Comparison(
-            user_id=user_id,
-            property_ids=",".join(str(pid) for pid in property_ids),
-            name=name,
-        )
-        self.db.add(comparison)
-        self.db.commit()
-        self.db.refresh(comparison)
-        return comparison
+    def create_comparison(
+        self, user_id: int, property_ids: List[int], name: Optional[str] = None
+    ) -> Comparison:
+        cid = next_id(self.db, "comparisons")
+        doc = {
+            "_id": cid,
+            "user_id": user_id,
+            "property_ids": ",".join(str(pid) for pid in property_ids),
+            "name": name,
+            "created_at": _utcnow(),
+        }
+        self.comparisons.insert_one(doc)
+        return Comparison.from_doc(doc)
 
-    def get_comparison(self, comparison_id: int, user_id: int) -> Comparison | None:
-        return (
-            self.db.query(Comparison)
-            .filter(Comparison.id == comparison_id, Comparison.user_id == user_id)
-            .first()
+    def get_comparison(self, comparison_id: int, user_id: int) -> Optional[Comparison]:
+        return Comparison.from_doc(
+            self.comparisons.find_one({"_id": comparison_id, "user_id": user_id})
         )
 
     def get_comparisons(self, user_id: int) -> List[Comparison]:
-        return (
-            self.db.query(Comparison)
-            .filter(Comparison.user_id == user_id)
-            .order_by(Comparison.created_at.desc())
-            .all()
-        )
+        docs = self.comparisons.find({"user_id": user_id}).sort("created_at", -1)
+        return [Comparison.from_doc(doc) for doc in docs if doc]
 
     def delete_comparison(self, user_id: int, comparison_id: int) -> bool:
-        result = (
-            self.db.query(Comparison)
-            .filter(Comparison.user_id == user_id, Comparison.id == comparison_id)
-            .delete()
-        )
-        self.db.commit()
-        return result > 0
+        result = self.comparisons.delete_one({"_id": comparison_id, "user_id": user_id})
+        return result.deleted_count > 0
 
     def count_comparisons(self) -> int:
-        return self.db.query(Comparison).count()
+        return self.comparisons.count_documents({})
 
-    # ─── Search History ──────────────────────────────────
+    # ─── Search history ─────────────────────────────────────────────────
 
-    def log_search(self, user_id: Optional[int], query_text: str = None, filters_json: str = None, result_count: int = None):
-        entry = SearchHistory(
-            user_id=user_id,
-            query_text=query_text,
-            filters_json=filters_json,
-            result_count=result_count,
-        )
-        self.db.add(entry)
-        self.db.commit()
+    def log_search(
+        self,
+        user_id: Optional[int],
+        query_text: Optional[str] = None,
+        filters_json: Optional[str] = None,
+        result_count: Optional[int] = None,
+    ) -> SearchHistory:
+        hid = next_id(self.db, "search_history")
+        doc = {
+            "_id": hid, "user_id": user_id, "query_text": query_text,
+            "filters_json": filters_json, "result_count": result_count,
+            "created_at": _utcnow(),
+        }
+        self.history.insert_one(doc)
+        return SearchHistory.from_doc(doc)
 
     def count_searches(self) -> int:
-        return self.db.query(SearchHistory).count()
+        return self.history.count_documents({})

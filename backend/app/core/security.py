@@ -1,12 +1,13 @@
-"""RealEstateGPT Backend - Security utilities"""
+"""RealEstateGPT Backend - Security utilities."""
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+
 import bcrypt
-from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
+from jose import JWTError, jwt
+
 from app.core.config import settings
 from app.core.database import get_db
 
@@ -46,21 +47,31 @@ def decode_token(token: str) -> dict:
         )
 
 
-async def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
-):
-    """Dependency to get the current authenticated user."""
-    from app.models.user import User
-
+def _user_id_from_token(token: str) -> int:
     payload = decode_token(token)
-    user_id: str = payload.get("sub")
-    if user_id is None:
+    sub = payload.get("sub")
+    if sub is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload",
         )
-    user = db.query(User).filter(User.id == int(user_id)).first()
+    try:
+        return int(sub)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        )
+
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db=Depends(get_db),
+):
+    """Dependency to get the current authenticated user."""
+    from app.repositories.user_repo import UserRepository
+
+    user = UserRepository(db).get_by_id(_user_id_from_token(token))
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -88,18 +99,15 @@ async def get_optional_user(
     token: Optional[str] = Depends(
         OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_PREFIX}/auth/login", auto_error=False)
     ),
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
 ):
     """Dependency that returns the user if authenticated, None otherwise."""
     if token is None:
         return None
     try:
-        from app.models.user import User
-        payload = decode_token(token)
-        user_id = payload.get("sub")
-        if user_id is None:
-            return None
-        user = db.query(User).filter(User.id == int(user_id)).first()
+        from app.repositories.user_repo import UserRepository
+
+        user = UserRepository(db).get_by_id(_user_id_from_token(token))
         return user if user and user.is_active else None
     except HTTPException:
         return None

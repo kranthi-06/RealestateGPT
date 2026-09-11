@@ -1,11 +1,10 @@
 """RealEstateGPT - Health check API routes"""
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-from sqlalchemy import text
-from app.core.database import get_db
 from datetime import datetime, timezone
+
 from app.core.config import settings
+from app.core.database import get_db, ping
 
 router = APIRouter(prefix="/health", tags=["Health"])
 
@@ -17,26 +16,26 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "service": "RealEstateGPT API",
-        "version": "1.0.0",
+        "version": "1.1.0",
     }
 
 
 @router.get("/db")
-async def database_health(db: Session = Depends(get_db)):
-    """Database health check."""
+async def database_health(db=Depends(get_db)):
+    """Database health check: reports real MongoDB connectivity (no silent fallback)."""
     try:
-        db.execute(text("SELECT 1"))
-        return {"status": "healthy", "database": "connected"}
-    except Exception as e:
-        return {"status": "unhealthy", "database": "disconnected", "error": str(e)}
+        ok = ping()
+        return {"status": "healthy" if ok else "unhealthy", "database": "mongodb"}
+    except Exception as exc:
+        return {"status": "unhealthy", "database": "mongodb", "error": str(exc)}
 
 
 @router.get("/ai")
 async def ai_health():
-    """Report the configured grounded-search/LLM capability."""
+    """Report the configured AI capability."""
     return {
         "status": "healthy",
         "provider": settings.AI_PROVIDER,
         "configured": settings.ai_configured,
-        "message": "Grounded deterministic search is available; external LLM is optional.",
+        "message": "Groq tool-calling is available only when AI_PROVIDER=groq and GROQ_API_KEY is configured.",
     }

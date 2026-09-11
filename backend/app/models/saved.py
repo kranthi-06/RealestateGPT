@@ -1,82 +1,91 @@
-"""RealEstateGPT - Saved properties, saved searches, comparisons, search history"""
+"""RealEstateGPT - Saved properties, saved searches, comparisons, search history
+domain models (MongoDB documents)."""
 
-from sqlalchemy import Column, Integer, String, Float, Text, DateTime, ForeignKey, func, JSON
-from sqlalchemy.orm import relationship
-from app.core.database import Base
+from datetime import datetime
+from typing import List, Optional
 
+from pydantic import BaseModel, Field
 
-class SavedProperty(Base):
-    __tablename__ = "saved_properties"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    property_id = Column(Integer, ForeignKey("properties.id", ondelete="CASCADE"), nullable=False, index=True)
-    notes = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-    user = relationship("User", back_populates="saved_properties")
-    property = relationship("Property", back_populates="saved_by")
-
-    def __repr__(self):
-        return f"<SavedProperty user={self.user_id} property={self.property_id}>"
+from app.models.property import Property
+from app.models.user import utcnow
 
 
-class SavedSearch(Base):
-    __tablename__ = "saved_searches"
+class SavedProperty(BaseModel):
+    id: Optional[int] = None
+    user_id: int
+    property_id: int
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=utcnow)
+    property: Optional[Property] = None  # populated by the repository when needed
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    name = Column(String(200), nullable=False)
-    city = Column(String(100), nullable=True)
-    locality = Column(String(200), nullable=True)
-    property_type = Column(String(50), nullable=True)
-    min_price = Column(Float, nullable=True)
-    max_price = Column(Float, nullable=True)
-    bedrooms = Column(Integer, nullable=True)
-    min_area = Column(Float, nullable=True)
-    max_area = Column(Float, nullable=True)
-    furnishing = Column(String(30), nullable=True)
-    query_text = Column(Text, nullable=True)
-    notify_enabled = Column(Integer, default=0)  # SQLite-compatible boolean
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-
-    user = relationship("User", back_populates="saved_searches")
-
-    def __repr__(self):
-        return f"<SavedSearch {self.name}>"
+    @classmethod
+    def from_doc(cls, doc: Optional[dict]) -> Optional["SavedProperty"]:
+        if not doc:
+            return None
+        data = dict(doc)
+        data["id"] = data.pop("_id")
+        return cls(**data)
 
 
-class Comparison(Base):
-    __tablename__ = "comparisons"
+class SavedSearch(BaseModel):
+    id: Optional[int] = None
+    user_id: int
+    name: str
+    city: Optional[str] = None
+    locality: Optional[str] = None
+    property_type: Optional[str] = None
+    min_price: Optional[float] = None
+    max_price: Optional[float] = None
+    bedrooms: Optional[int] = None
+    min_area: Optional[float] = None
+    max_area: Optional[float] = None
+    furnishing: Optional[str] = None
+    query_text: Optional[str] = None
+    notify_enabled: bool = False
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    name = Column(String(200), nullable=True)
-    property_ids = Column(String(200), nullable=False)  # comma-separated property IDs
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    @classmethod
+    def from_doc(cls, doc: Optional[dict]) -> Optional["SavedSearch"]:
+        if not doc:
+            return None
+        data = dict(doc)
+        data["id"] = data.pop("_id")
+        return cls(**data)
 
-    user = relationship("User", back_populates="comparisons")
+
+class Comparison(BaseModel):
+    id: Optional[int] = None
+    user_id: int
+    name: Optional[str] = None
+    property_ids: str = ""  # comma-separated property IDs (API contract)
+    created_at: datetime = Field(default_factory=utcnow)
 
     @property
-    def property_id_list(self):
+    def property_id_list(self) -> List[int]:
         return [int(pid.strip()) for pid in self.property_ids.split(",") if pid.strip()]
 
-    def __repr__(self):
-        return f"<Comparison {self.property_ids}>"
+    @classmethod
+    def from_doc(cls, doc: Optional[dict]) -> Optional["Comparison"]:
+        if not doc:
+            return None
+        data = dict(doc)
+        data["id"] = data.pop("_id")
+        return cls(**data)
 
 
-class SearchHistory(Base):
-    __tablename__ = "search_history"
+class SearchHistory(BaseModel):
+    id: Optional[int] = None
+    user_id: Optional[int] = None
+    query_text: Optional[str] = None
+    filters_json: Optional[str] = None  # JSON string of applied filters
+    result_count: Optional[int] = None
+    created_at: datetime = Field(default_factory=utcnow)
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
-    query_text = Column(Text, nullable=True)
-    filters_json = Column(Text, nullable=True)  # JSON string of applied filters
-    result_count = Column(Integer, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-    user = relationship("User", back_populates="search_history")
-
-    def __repr__(self):
-        return f"<SearchHistory {self.query_text[:50] if self.query_text else 'filters'}>"
+    @classmethod
+    def from_doc(cls, doc: Optional[dict]) -> Optional["SearchHistory"]:
+        if not doc:
+            return None
+        data = dict(doc)
+        data["id"] = data.pop("_id")
+        return cls(**data)

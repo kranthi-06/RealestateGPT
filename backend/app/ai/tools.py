@@ -1,8 +1,8 @@
 """RealEstateGPT - Typed AI agent tools.
 
 Every tool has a Pydantic-validated input, returns serializable output built
-from application data only, and logs to the audit trail. Tools never execute
-arbitrary code.
+from application data only. Tools never execute arbitrary code and never query
+the database directly - they delegate to repositories and services.
 """
 
 from __future__ import annotations
@@ -51,6 +51,10 @@ class DistanceInput(BaseModel):
     from_lon: float = Field(ge=-180, le=180)
     to_lat: float = Field(ge=-90, le=90)
     to_lon: float = Field(ge=-180, le=180)
+
+
+class RouteInput(DistanceInput):
+    travel_mode: str = Field(default="DRIVE", pattern="^(DRIVE|WALK|BICYCLE)$")
 
 
 class EstimateInput(BaseModel):
@@ -103,6 +107,8 @@ class Tool:
     input_model: type[BaseModel]
     requires_auth: bool
     execute: Callable[..., dict]
+
+
 def _serialize_prop(prop) -> dict:
     return {
         "id": prop.id,
@@ -119,12 +125,14 @@ def _serialize_prop(prop) -> dict:
         "city": prop.city,
         "builder_name": prop.builder_name,
         "verification_status": prop.verification_status,
+        "is_synthetic": prop.is_synthetic,
         "amenities": [a.name for a in (prop.amenities or [])],
     }
 
 
 def _tool_search(db, user, parsed: SearchInput, **kwargs) -> dict:
     from app.services.ai_search_service import AiSearchService
+
     filters = {
         "city": parsed.city, "locality": parsed.locality,
         "property_type": parsed.property_type, "bedrooms": parsed.bedrooms,
@@ -167,17 +175,26 @@ def _tool_nearby(db, user, parsed: NearbyInput) -> dict:
 
 
 def _tool_distance(db, user, parsed: DistanceInput) -> dict:
-    return {"distance_km": haversine_km(parsed.from_lat, parsed.from_lon,
-                                        parsed.to_lat, parsed.to_lon),
-            "formula": "haversine"}
+    return {
+        "distance_km": haversine_km(parsed.from_lat, parsed.from_lon,
+                                    parsed.to_lat, parsed.to_lon),
+        "formula": "haversine",
+    }
 
 
-def _tool_estimate(db, user, parsed: EstimateInput) -> dict:
-    finance = FinanceService(db)
+def _tool_route(db, user, parsed: RouteInput) -> dict:
+    """Route through the configured provider; never substitute a distance estimate."""
+    location = LocationService(db)
+    return location.provider.route(
+        (parsed.from_lat, parsed.from_lon), (parsed.to_lat, parsed.to_lon), parsed.travel_mode,
+    )
+
+
 def _tool_document_analysis(db, user, parsed: DocumentIdInput) -> dict:
     if not user:
         raise PermissionError("Authentication required")
     from app.repositories.platform_repo import DocumentRepository
+
     repo = DocumentRepository(db)
     doc = repo.get(parsed.document_id, user.id)
     if not doc:
@@ -187,7 +204,7 @@ def _tool_document_analysis(db, user, parsed: DocumentIdInput) -> dict:
         "filename": doc.filename,
         "status": doc.status,
         "preview": (doc.text_preview or "")[:500],
-        "note": "Deep document Q&A runs through the document pipeline (Phase 5).",
+        "note": "Deep document Q&A runs through the document pipeline (later phase).",
     }
 
 
@@ -195,6 +212,7 @@ def _tool_document_search(db, user, parsed: PropertyIdsInput) -> dict:
     if not user:
         raise PermissionError("Authentication required")
     from app.repositories.platform_repo import DocumentRepository
+
     repo = DocumentRepository(db)
     docs = repo.list_for_user(user.id)
     return {
@@ -211,6 +229,7 @@ def _tool_save_property(db, user, parsed: SavePropertyInput) -> dict:
     if not user:
         raise PermissionError("Authentication required")
     from app.repositories.saved_repo import SavedRepository
+
     repo = SavedRepository(db)
     saved = repo.save_property(user.id, parsed.property_id, parsed.notes)
     return {"id": saved.id, "property_id": parsed.property_id, "message": "Property saved"}
@@ -220,6 +239,7 @@ def _tool_save_search(db, user, parsed: SearchInput) -> dict:
     if not user:
         raise PermissionError("Authentication required")
     from app.repositories.saved_repo import SavedRepository
+
     repo = SavedRepository(db)
     saved = repo.save_search(
         user_id=user.id,
@@ -247,21 +267,24 @@ TOOLS: List[Tool] = [
     Tool("calculate_distance",
          "Haversine distance between two coordinates in km.",
          DistanceInput, False, _tool_distance),
+    Tool("calculate_route",
+         "Calculate actual provider route distance and duration between two coordinates.",
+         RouteInput, False, _tool_route),
     Tool("estimate_property_price",
          "ML estimate of a property's market price range.",
-         EstimateInput, False, _tool_estimate),
+         EstimateInput, False, lambda db, user, parsed: _tool_estimate(db, user, parsed)),
     Tool("calculate_affordability",
          "Compute affordable loan amount and EMI from monthly income.",
-         AffordInput, False, _tool_affordability),
+         AffordInput, False, lambda db, user, parsed: _tool_affordability(db, user, parsed)),
     Tool("calculate_emi",
          "Compute monthly EMI for a loan.",
-         EmiInput, False, _tool_emi),
+         EmiInput, False, lambda db, user, parsed: _tool_emi(db, user, parsed)),
     Tool("calculate_rental_yield",
          "Compute gross/net rental yield for a property.",
-         YieldInput, False, _tool_yield),
+         YieldInput, False, lambda db, user, parsed: _tool_yield(db, user, parsed)),
     Tool("calculate_roi",
          "Project investment return over N years.",
-         RoiInput, False, _tool_roi),
+         RoiInput, False, lambda db, user, parsed: _tool_roi(db, user, parsed)),
     Tool("analyze_property_document",
          "Analyze a user's uploaded property document (PDF).",
          DocumentIdInput, True, _tool_document_analysis),
@@ -299,7 +322,14 @@ def list_tool_descriptions() -> List[dict]:
          "parameters": t.input_model.model_json_schema()}
         for t in TOOLS
     ]
-    return finance.estimate(parsed.property_id)
+
+
+def _tool_estimate(db, user, parsed: EstimateInput) -> dict:
+    finance = FinanceService(db)
+    try:
+        return finance.estimate(parsed.property_id)
+    except ValueError:
+        raise ValueError("property_not_found")
 
 
 def _tool_emi(db, user, parsed: EmiInput) -> dict:

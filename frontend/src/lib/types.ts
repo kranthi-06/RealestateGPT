@@ -119,9 +119,14 @@ export interface SearchFilters {
   min_price?: number;
   max_price?: number;
   bedrooms?: number;
+  bathrooms?: number;
   min_area?: number;
   max_area?: number;
   furnishing?: string;
+  amenities?: string[];
+  latitude?: number;
+  longitude?: number;
+  radius_km?: number;
   sort_by?: string;
   sort_order?: string;
   page?: number;
@@ -156,14 +161,56 @@ export interface AiSearchResult {
   negative_factors: string[];
 }
 
-export interface AssistantResponse {
-  conversation_id: number;
-  answer: string;
-  results: AiSearchResult[];
-  provider: string;
-  warnings: string[];
+export interface SearchIntent {
+  raw_text: string;
+  city?: string | null;
+  locality?: string | null;
+  property_type?: string | null;
+  bedrooms?: number | null;
+  min_price?: number | null;
+  max_price?: number | null;
+  transport_requirement?: string | null;
+  nearby_requirements: { type: string; max_distance_km: number }[];
 }
 
+export interface DiscoverySearchResponse {
+  query: string;
+  parsed: SearchIntent;
+  total: number;
+  results: AiSearchResult[];
+  warning?: string | null;
+  metrics: Record<string, number>;
+}
+
+export interface AssistantResponse {
+    conversation_id: number;
+    answer: string;
+    results: AiSearchResult[];
+    provider: string;
+    warnings: string[];
+    citations: { source_type: string; source_id?: number | null; label: string; url?: string | null }[];
+    tool_calls: { tool: string; input: Record<string, unknown>; output_summary: string }[];
+  }
+
 export interface MapProviderStatus { configured: boolean; provider: string; message: string; }
-export interface LivePlace { place_id?: string; name: string; address?: string; rating?: number; maps_url?: string; photo_resource?: string; attributions: string[]; }
+export interface LivePlace {
+  provider: "google" | "openstreetmap";
+  place_id?: string;
+  name: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  rating?: number;
+  rating_count?: number;
+  maps_url?: string;
+  photo_resource?: string;
+  photo_url?: string;
+  attributions: string[];
+  distance_km?: number;
+  travel_minutes?: number;
+  travel_mode?: string;
+  website_url?: string;
+  phone_number?: string;
+  opening_hours?: string[];
+}
 export interface LiveNearbyResponse { property_id: number; category: string; radius_km: number; source: string; places: LivePlace[]; }

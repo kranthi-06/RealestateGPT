@@ -11,6 +11,7 @@ import type {
   AdminStats,
   User,
   AssistantResponse,
+  DiscoverySearchResponse,
   MapProviderStatus,
   LiveNearbyResponse,
 } from "./types";
@@ -165,11 +166,13 @@ export const comparisonsApi = {
 export const aiApi = {
   assistant: (data: { message: string; conversation_id?: number; property_id?: number; compare_ids?: number[] }) =>
     request<AssistantResponse>("/ai/assistant", { method: "POST", body: JSON.stringify(data) }),
+  search: (data: { query: string; limit?: number; user_filters?: Record<string, string | number | string[]> }) =>
+    request<DiscoverySearchResponse>("/ai/search", { method: "POST", body: JSON.stringify(data) }),
 };
 
 export const locationsApi = {
   status: () => request<MapProviderStatus>("/locations/status"),
-  nearby: (propertyId: number, category: string, radiusKm = 3) => request<LiveNearbyResponse>(`/locations/properties/${propertyId}/nearby?category=${encodeURIComponent(category)}&radius_km=${radiusKm}`),
+  nearby: (propertyId: number, category: string, radiusKm = 3, travelMode = "WALK") => request<LiveNearbyResponse>(`/locations/properties/${propertyId}/nearby?category=${encodeURIComponent(category)}&radius_km=${radiusKm}&travel_mode=${travelMode}`),
 };
 
 // ─── Admin ─────────────────────────────────

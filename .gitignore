@@ -34,3 +34,5 @@ backend/*.log
 *.tsbuildinfo
 .DS_Store
 frontend/.git-backup/
+vercel.env
+migration_backup/

@@ -1,4 +1,9 @@
-"""RealEstateGPT - Seed runner: populates the database with sample data"""
+"""RealEstateGPT - Seed runner: populates MongoDB Atlas with DEMO data.
+
+All seeded records are explicitly marked synthetic (``is_synthetic=True``,
+``source_type='demo'``, ``verification_status='unverified'``) and are never
+presented as verified market inventory.
+"""
 
 import sys
 import os
@@ -6,87 +11,92 @@ import os
 # Add backend to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from app.core.database import SessionLocal, engine, Base
-from app.models import User, Property, Amenity, property_amenities
+from app.core.config import settings
+from app.core.database import (
+    close_connection, connect, ensure_indexes, get_database, next_id, point,
+)
 from app.core.security import hash_password
-from app.seed.seed_data import AMENITIES, PROPERTIES
+from app.models.property import Property, Amenity
+from app.seed.seed_data import AMENITIES, PROPERTIES, _slug
 
 
 def seed_database():
-    """Seed the database with sample data."""
-    # Create tables
-    Base.metadata.create_all(bind=engine)
+    """Seed demo data into the configured MongoDB database."""
+    if not settings.MONGODB_URI:
+        raise RuntimeError("MONGODB_URI is not configured. Cannot seed.")
 
-    db = SessionLocal()
-    try:
-        # Check if already seeded
-        existing_count = db.query(Property).count()
-        if existing_count > 0:
-            print(f"Database already has {existing_count} properties. Skipping seed.")
-            return
+    connect()
+    db = get_database()
+    ensure_indexes()
 
-        print("Seeding database...")
+    if db["properties"].count_documents({}) > 0:
+        print(f"Database '{settings.MONGODB_DATABASE}' already has properties. Skipping seed.")
+        close_connection()
+        return
 
-        # 1. Create amenities
-        amenity_map = {}
-        for amenity_data in AMENITIES:
-            amenity = Amenity(**amenity_data)
-            db.add(amenity)
-            db.flush()
-            amenity_map[amenity.name] = amenity
-        print(f"  Created {len(amenity_map)} amenities")
+    print("Seeding MongoDB demo data...")
 
-        # 2. Create properties with amenities
-        for prop_data in PROPERTIES:
-            amenity_names = prop_data.pop("amenity_names", [])
-            prop = Property(**prop_data)
-            # Add amenities
-            for name in amenity_names:
-                if name in amenity_map:
-                    prop.amenities.append(amenity_map[name])
-            db.add(prop)
+    # 1. Build amenities (embedded per property; ids kept stable for typing)
+    amenity_map = {
+        a["name"]: Amenity(id=index, name=a["name"], category=a.get("category"), icon=a.get("icon"))
+        for index, a in enumerate(AMENITIES, start=1)
+    }
 
-        db.flush()
-        print(f"  Created {len(PROPERTIES)} properties")
+    # 2. Insert properties with embedded amenities + GeoJSON location
+    for data in PROPERTIES:
+        item = dict(data)
+        amenity_names = item.pop("amenity_names", [])
+        title = item.get("title", "Untitled property")
+        if "slug" not in item or not item["slug"]:
+            item["slug"] = _slug(title)
+        pid = next_id(db, "properties")
+        prop = Property.model_validate({
+            **item,
+            "id": pid,
+            "is_synthetic": True,
+            "source": "seed_data",
+            "source_type": "demo",
+            "verification_status": "unverified",
+            "data_quality_score": 0.0,
+            "amenities": [amenity_map[name].model_dump() for name in amenity_names if name in amenity_map],
+        })
+        if prop.latitude is not None and prop.longitude is not None:
+            prop.location = point(prop.latitude, prop.longitude)
+        doc = prop.model_dump(exclude={"id"}, exclude_none=True)
+        db["properties"].insert_one({"_id": pid, **doc})
+    print(f"  Seeded {len(PROPERTIES)} demo properties")
 
-        # 3. Create admin user
-        admin = User(
-            email="admin@realestate-gpt.com",
-            full_name="Admin User",
-            hashed_password=hash_password("Admin@123"),
-            role="admin",
-            is_active=True,
-            is_email_verified=True,
-        )
-        db.add(admin)
+    # 3. Admin + demo users (demo credentials are for development only)
+    admin_id = next_id(db, "users")
+    db["users"].insert_one({
+        "_id": admin_id,
+        "email": "admin@realestate-gpt.com",
+        "full_name": "Admin User",
+        "hashed_password": hash_password("Admin@123"),
+        "role": "admin",
+        "is_active": True,
+        "is_email_verified": True,
+    })
+    demo_id = next_id(db, "users")
+    db["users"].insert_one({
+        "_id": demo_id,
+        "email": "demo@realestate-gpt.com",
+        "full_name": "Demo User",
+        "hashed_password": hash_password("Demo@123"),
+        "role": "user",
+        "is_active": True,
+        "is_email_verified": True,
+        "preferred_cities": "Hyderabad,Bangalore",
+        "budget_min": 5000000,
+        "budget_max": 15000000,
+    })
+    print("  Seeded admin and demo users")
+    print("\nDefault demo accounts (development only):")
+    print("  Admin: admin@realestate-gpt.com / Admin@123")
+    print("  Demo:  demo@realestate-gpt.com / Demo@123")
 
-        # 4. Create demo user
-        demo_user = User(
-            email="demo@realestate-gpt.com",
-            full_name="Demo User",
-            hashed_password=hash_password("Demo@123"),
-            role="user",
-            is_active=True,
-            is_email_verified=True,
-            preferred_cities="Hyderabad,Bangalore",
-            budget_min=5000000,
-            budget_max=15000000,
-        )
-        db.add(demo_user)
-
-        db.commit()
-        print("  Created admin and demo users")
-        print(f"\nSeed complete! {len(PROPERTIES)} properties, {len(amenity_map)} amenities, 2 users")
-        print("\nDefault accounts:")
-        print("  Admin: admin@realestate-gpt.com / Admin@123")
-        print("  Demo:  demo@realestate-gpt.com / Demo@123")
-
-    except Exception as e:
-        db.rollback()
-        print(f"Error seeding database: {e}")
-        raise
-    finally:
-        db.close()
+    close_connection()
+    print("Seed complete.")
 
 
 if __name__ == "__main__":
