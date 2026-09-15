@@ -1,12 +1,15 @@
 """Small, provider-isolated Groq OpenAI-compatible gateway."""
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any, Protocol
 
 import httpx
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class AIError(RuntimeError):
@@ -81,19 +84,29 @@ class GroqProvider:
 
     def _request(self, payload: dict[str, Any]) -> dict:
         started = time.perf_counter()
-        try:
-            with httpx.Client(timeout=settings.AI_TIMEOUT_SECONDS, transport=self.transport) as client:
-                response = client.post(f"{self.base_url}/chat/completions", headers=self.headers, json=payload)
-        except httpx.TimeoutException as exc:
-            raise AITimeoutError("Groq request timed out") from exc
-        except httpx.HTTPError as exc:
-            raise AIError("Groq request failed") from exc
-        if response.status_code in (401, 403):
-            raise AIAuthenticationError("Groq authentication failed")
-        if response.status_code == 429:
-            raise AIRateLimitError("Groq is rate limiting requests")
-        if response.status_code >= 400:
-            raise AIError(f"Groq returned HTTP {response.status_code}")
+        attempts = 0
+        while True:
+            attempts += 1
+            try:
+                with httpx.Client(timeout=settings.AI_TIMEOUT_SECONDS, transport=self.transport) as client:
+                    response = client.post(f"{self.base_url}/chat/completions", headers=self.headers, json=payload)
+            except httpx.TimeoutException as exc:
+                raise AITimeoutError("Groq request timed out") from exc
+            except httpx.HTTPError as exc:
+                raise AIError("Groq request failed") from exc
+            if response.status_code in (401, 403):
+                raise AIAuthenticationError("Groq authentication failed")
+            if response.status_code == 429:
+                # Bounded single retry for the same provider; never a substitute.
+                if attempts < 2:
+                    logger.warning("groq_rate_limited attempt=%s retrying", attempts)
+                    time.sleep(2.0 * attempts)
+                    continue
+                raise AIRateLimitError("Groq is rate limiting requests")
+            if response.status_code >= 400:
+                logger.error("groq_http_error status=%s detail=%s", response.status_code, response.text[:500])
+                raise AIError(f"Groq returned HTTP {response.status_code}")
+            break
         try:
             body = response.json()
             message = body["choices"][0]["message"]

@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import PropertyCard from "@/components/property-card";
 import { NearbyPlaces } from "@/components/nearby-places";
 import { RealEstateMap } from "@/components/real-estate-map";
+import { FinanceInsights } from "@/components/finance-insights";
 import { propertiesApi, savedApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { LivePlace, Property } from "@/lib/types";
@@ -294,20 +295,8 @@ export default function PropertyDetailPage() {
             </div>
           </Card>
 
-          {/* Info badge */}
-          <Card className="p-4 border-border/60 bg-amber-50/50 dark:bg-amber-950/20 border-amber-200/50">
-            <div className="flex gap-2">
-              <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
-                  AI Analysis Coming Soon
-                </p>
-                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                  Price estimation, location intelligence, and AI recommendations will be available in Phase 2.
-                </p>
-              </div>
-            </div>
-          </Card>
+          {/* Financial intelligence - deterministic, catalogue-derived */}
+          <FinanceInsights propertyId={property.id} listedPrice={property.price} />
         </div>
       </div>
 

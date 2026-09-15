@@ -36,8 +36,8 @@ class Settings(BaseSettings):
     RATE_LIMIT_WINDOW_SECONDS: int = 60
     RATE_LIMIT_AUTH_REQUESTS: int = 10  # stricter for /auth endpoints
 
-    # AI provider: offline | groq
-    AI_PROVIDER: str = "offline"
+    # AI provider: groq (the only supported production provider)
+    AI_PROVIDER: str = "groq"
     GROQ_API_KEY: Optional[str] = None
     GROQ_MODEL: str = "qwen/qwen3.8-27b"  # verified in docs/AI_MODEL_SELECTION.md
     GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
@@ -117,6 +117,28 @@ class Settings(BaseSettings):
     def ai_configured(self) -> bool:
         """True when a real LLM API is available for generative responses."""
         return self.AI_PROVIDER == "groq" and bool(self.GROQ_API_KEY)
+
+    def validate_runtime(self) -> list[str]:
+        """Fail-fast configuration checks. Returns a list of problems.
+
+        Called once at application startup. Development environments keep the
+        friendly defaults documented in ``.env.example``; any other environment
+        must not run with placeholder secrets or a missing database.
+        """
+        problems: list[str] = []
+        env = self.APP_ENV.strip().lower()
+        if not self.MONGODB_URI:
+            problems.append("MONGODB_URI is not configured.")
+        if env != "development":
+            if not self.SECRET_KEY or len(self.SECRET_KEY) < 16 or self.SECRET_KEY in {
+                "change-this-in-production", "change-this-to-a-random-secret-key-in-production",
+            }:
+                problems.append("SECRET_KEY must be a long random value outside development.")
+            if not self.ai_configured:
+                problems.append("AI_PROVIDER=groq and GROQ_API_KEY are required outside development.")
+            if not (self.LOCATION_PROVIDER.strip().lower() in {"osm", "google"}):
+                problems.append("LOCATION_PROVIDER must be a configured provider.")
+        return problems
 
     model_config = {
         "env_file": ".env",

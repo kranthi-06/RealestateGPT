@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
@@ -10,6 +11,8 @@ from app.ai.gateway import AIValidationError, GroqProvider
 from app.ai.tool_registry import ToolRegistry
 from app.core.config import settings
 from app.schemas.ai import Citation, ScoredProperty, ToolCallRecord
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are RealEstateGPT's property assistant. You may use only the supplied tools.
 MongoDB and configured location tools are authoritative. Never invent, estimate, or infer property facts,
@@ -65,7 +68,12 @@ class GroqToolCallingAgent:
             for call in calls:
                 function = call.get("function") or {}
                 name, arguments = function.get("name"), function.get("arguments", "{}")
-                result, _ = self.registry.execute(self.db, self.user, name, arguments)
+                try:
+                    result, _ = self.registry.execute(self.db, self.user, name, arguments)
+                    logger.info("tool_call tool=%s status=ok", name)
+                except Exception:
+                    logger.warning("tool_call tool=%s status=error", name)
+                    raise
                 if name == "search_properties":
                     search_payload = result
                 records.append(ToolCallRecord(tool=name, input=self._safe_input(arguments), output_summary=self._summary(name, result)))
@@ -73,14 +81,66 @@ class GroqToolCallingAgent:
                                  "content": json.dumps(result, default=str, separators=(",", ":"))})
         else:
             raise AIValidationError("The AI agent reached its maximum steps")
-        messages.append({"role": "system", "content": "Return JSON only: answer, property_ids, follow_up_suggestions. property_ids must be IDs from tool results only."})
-        final = self.provider.generate_structured(messages, "grounded_assistant_response", FinalAnswer.model_json_schema())
+        # The final answer must be a raw JSON object. The model sometimes leaks
+        # a second `<tool_call>` here; strip tool-call context and retry once
+        # with a stricter schema when Groq rejects the JSON shape.
+        final_messages: list[dict] = []
+        for item in messages:
+            if item.get("role") not in {"system", "user", "assistant", "tool"}:
+                continue
+            kept = {"role": item.get("role"), "content": item.get("content") or ""}
+            if item.get("role") == "tool":
+                # Groq validates that tool messages carry their call id.
+                kept["tool_call_id"] = item.get("tool_call_id", "")
+            final_messages.append(kept)
+        final_messages.append({
+            "role": "system",
+            "content": (
+                "CRITICAL: DO NOT use <tool_call> tags. You must output the FINAL ANSWER as a raw JSON object "
+                "only containing keys: answer (string), property_ids (array of ints from tool results only), "
+                "follow_up_suggestions (array of 0-3 strings). "
+                f"Exact JSON schema: {json.dumps({key: schema for key, schema in FinalAnswer.model_json_schema().get('properties', {}).items()}, default=str)}"
+            ),
+        })
+        total_provider_ms_preexisting = total_provider_ms
+        final = self._final_answer(final_messages)
         total_provider_ms += final["latency_ms"]
         try:
             final_answer = FinalAnswer.model_validate_json(final["message"].get("content") or "{}")
         except (ValidationError, ValueError) as exc:
-            raise AIValidationError("Groq returned an invalid structured assistant response") from exc
+            if not final.get("_retried"):
+                logger.warning("invalid_structured_final_answer retrying")
+                rebased_messages = messages + [
+                    {"role": "assistant", "content": (final["message"].get("content") or "")[:1500]},
+                    {"role": "system", "content": (
+                        "Your previous output was not valid JSON and was rejected. Respond ONLY with a raw JSON "
+                        "object with keys: answer, property_ids, follow_up_suggestions. No tags, no markdown, no text "
+                        "outside the JSON object."
+                    )},
+                ]
+                retry_final_messages: list[dict] = []
+                for item in rebased_messages:
+                    if item.get("role") not in {"system", "user", "assistant", "tool"}:
+                        continue
+                    kept = {"role": item.get("role"), "content": item.get("content") or ""}
+                    if item.get("role") == "tool":
+                        kept["tool_call_id"] = item.get("tool_call_id", "")
+                    retry_final_messages.append(kept)
+                retried = self._final_answer(retry_final_messages, retried=True)
+                total_provider_ms = total_provider_ms_preexisting + retried["latency_ms"]
+                try:
+                    final_answer = FinalAnswer.model_validate_json(retried["message"].get("content") or "{}")
+                except (ValidationError, ValueError) as retry_exc:
+                    raise AIValidationError("Groq returned an invalid structured assistant response") from retry_exc
+            else:
+                raise AIValidationError("Groq returned an invalid structured assistant response") from exc
         return self._ground(final_answer, search_payload, records, total_provider_ms)
+
+    def _final_answer(self, messages: list[dict], retried: bool = False) -> dict:
+        """Single structured-completion request; returns raw provider output."""
+        final = self.provider.generate_structured(messages, "grounded_assistant_response", FinalAnswer.model_json_schema())
+        final["_retried"] = retried
+        return final
 
     @staticmethod
     def _safe_input(raw: str | dict) -> dict:

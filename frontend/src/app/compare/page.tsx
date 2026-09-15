@@ -42,13 +42,9 @@ function ComparePageContent() {
           return;
         }
 
-        // Fetch properties individually since we don't have a bulk fetch endpoint right now
-        const fetchedProperties = await Promise.all(
-          ids.map(id => propertiesApi.get(id).catch(() => null))
-        );
-        
-        const validProperties = fetchedProperties.filter((p): p is Property => p !== null);
-        setProperties(validProperties);
+        // Single bounded round-trip for the full comparison set.
+        const fetchedProperties = await propertiesApi.bulk(ids);
+        setProperties(fetchedProperties);
       } catch {
         setError("Failed to fetch properties for comparison.");
       } finally {

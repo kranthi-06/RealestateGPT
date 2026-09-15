@@ -32,6 +32,7 @@ export interface Property {
   description?: string | null;
   slug: string;
   price: number;
+  currency?: string | null;
   price_per_sqft?: number | null;
   maintenance_charge?: number | null;
   property_type: string;
@@ -58,6 +59,7 @@ export interface Property {
   builder_name?: string | null;
   project_name?: string | null;
   source?: string | null;
+  source_type?: string | null;
   verification_status: string;
   is_featured: boolean;
   is_synthetic: boolean;
@@ -214,3 +216,107 @@ export interface LivePlace {
   opening_hours?: string[];
 }
 export interface LiveNearbyResponse { property_id: number; category: string; radius_km: number; source: string; places: LivePlace[]; }
+
+// ─── Finance ────────────────────────────────────────────
+
+export interface EmiResult {
+  monthly_emi: number;
+  total_interest: number;
+  total_repayment: number;
+  annual_interest_rate: number;
+  tenure_years: number;
+  principal: number;
+  formula: string;
+}
+
+export interface AffordabilityResult {
+  max_monthly_emi: number;
+  max_loan_amount: number;
+  max_property_price: number;
+  recommended_emi: number;
+  emi_to_income_ratio: number;
+  assumptions: string[];
+  affordable: boolean;
+}
+
+export interface RentalYield {
+  gross_yield_pct: number;
+  net_yield_pct: number;
+  annual_rent: number;
+  annual_expenses: number;
+  monthly_equivalent_rent: number;
+  note: string;
+}
+
+export interface Roi {
+  initial_yield_pct: number;
+  annual_net_rent: number;
+  total_investment: number;
+  final_property_value: number;
+  total_return_pct: number;
+  annualized_return_pct: number;
+  projections: { year: number; property_value: number; cumulative_rent_net: number; total_return_pct: number }[];
+  note: string;
+}
+
+export interface PriceEstimate {
+  property_id: number;
+  estimated_price: number;
+  lower_bound: number;
+  upper_bound: number;
+  price_per_sqft?: number | null;
+  listed_price?: number | null;
+  model_version: string;
+  mae?: number | null;
+  rmse?: number | null;
+  r2?: number | null;
+  sample_size: number;
+  label: string;
+}
+
+export interface PriceFairness {
+  property_id: number;
+  listed_price: number;
+  estimated_price: number;
+  lower_bound: number;
+  upper_bound: number;
+  verdict: string;
+  verdict_label: string;
+  diff_pct: number;
+  reasons: string[];
+  comparables_median_price?: number | null;
+  listed_price_per_sqft?: number | null;
+  comparables_price_per_sqft?: number | null;
+}
+
+// ─── Admin ──────────────────────────────────────────────
+
+export interface AdminUser {
+  id: number;
+  email: string;
+  full_name: string;
+  role: string;
+  is_active: boolean;
+  is_email_verified: boolean;
+  created_at: string;
+}
+
+export interface AuditLog {
+  id: number;
+  user_id?: number | null;
+  action: string;
+  entity?: string | null;
+  entity_id?: number | null;
+  detail?: Record<string, unknown> | null;
+  ip_address?: string | null;
+  created_at: string;
+}
+
+export interface AdminAiUsage {
+  total_messages: number;
+  total_conversations: number;
+  tool_calls: number;
+  offline_mode: boolean;
+  provider: string;
+  by_action: Record<string, number>;
+}

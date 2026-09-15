@@ -39,3 +39,13 @@ async def ai_health():
         "configured": settings.ai_configured,
         "message": "Groq tool-calling is available only when AI_PROVIDER=groq and GROQ_API_KEY is configured.",
     }
+@router.get("/location")
+async def location_health():
+    """Report the configured location provider (OSM in production)."""
+    from app.providers.location import get_location_provider
+
+    try:
+        provider = get_location_provider()
+    except Exception as exc:  # noqa: BLE001 - controlled configuration failure
+        return {"status": "unhealthy", "error": str(exc)}
+    return {"status": "healthy", "provider": provider.name, "configured": True}

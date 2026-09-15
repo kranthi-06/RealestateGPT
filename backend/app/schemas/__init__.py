@@ -369,6 +369,10 @@ class ComparisonResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PropertyBulkRequest(BaseModel):
+    property_ids: List[int] = Field(..., min_length=1, max_length=12)
+
+
 # ─── Admin Schemas ───────────────────────────────────────
 
 class AdminStatsResponse(BaseModel):

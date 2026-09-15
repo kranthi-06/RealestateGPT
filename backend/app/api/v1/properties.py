@@ -5,10 +5,34 @@ from typing import Optional, List
 from app.core.database import get_db
 from app.core.security import get_current_admin, get_optional_user
 from app.services.property_service import PropertyService
-from app.schemas import PropertyCreate, PropertyResponse, PropertyListResponse, PropertyCardResponse, PropertyUpdate
+from app.schemas import PropertyCreate, PropertyResponse, PropertyListResponse, PropertyCardResponse, PropertyUpdate, PropertyBulkRequest
 from app.models.user import User
 
 router = APIRouter(prefix="/properties", tags=["Properties"])
+
+
+@router.post("/bulk", response_model=List[PropertyCardResponse])
+async def get_properties_bulk(
+    data: PropertyBulkRequest,
+    db = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+):
+    """Fetch multiple active property cards by ID (bounded to 12).
+
+    Used by the comparison page so it can load a set in one round trip
+    instead of one request per property.
+    """
+    service = PropertyService(db)
+    saved_ids = set()
+    if current_user:
+        from app.repositories.saved_repo import SavedRepository
+        saved_ids = set(SavedRepository(db).get_saved_property_ids(current_user.id))
+    items = []
+    for prop in service.repo.get_by_ids(data.property_ids):
+        resp = PropertyCardResponse.model_validate(prop)
+        resp.is_saved = prop.id in saved_ids
+        items.append(resp)
+    return items
 
 
 @router.get("", response_model=PropertyListResponse)

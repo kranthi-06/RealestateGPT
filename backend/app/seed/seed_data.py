@@ -2,7 +2,6 @@
 
 import re
 from datetime import datetime, timedelta, timezone
-import random
 
 AMENITIES = [
     {"name": "Swimming Pool", "category": "lifestyle", "icon": "waves"},
@@ -492,6 +491,6 @@ for i, p in enumerate(PROPERTIES):
     p["source"] = "seed_data"
     p["is_synthetic"] = True
     p["is_active"] = True
-    p["verification_status"] = "verified" if random.random() > 0.3 else "unverified"
+    p["verification_status"] = "unverified"
     if "is_featured" not in p:
         p["is_featured"] = False

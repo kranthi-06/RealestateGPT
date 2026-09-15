@@ -31,6 +31,11 @@ class ToolRegistry:
             "get_property": RegisteredTool("get_property", "Get verified details for specified property IDs.", application_tools.PropertyIdsInput, "get_property"),
             "nearby_places": RegisteredTool("nearby_places", "Get current provider nearby places for one property.", application_tools.NearbyInput, "find_nearby_places"),
             "route": RegisteredTool("route", "Get an actual configured-provider route between coordinates.", application_tools.RouteInput, "calculate_route"),
+            "compare_properties": RegisteredTool("compare_properties", "Compare 2-4 properties using verified catalogue records and deterministic price estimates.", application_tools.PropertyIdsInput, "compare"),
+            "calculate_affordability": RegisteredTool("calculate_affordability", "Compute affordable loan amount and EMI from monthly income (deterministic).", application_tools.AffordInput, "calculate_affordability"),
+            "calculate_emi": RegisteredTool("calculate_emi", "Compute monthly EMI for a loan (deterministic).", application_tools.EmiInput, "calculate_emi"),
+            "calculate_rental_yield": RegisteredTool("calculate_rental_yield", "Compute gross/net rental yield for a property (deterministic).", application_tools.YieldInput, "calculate_rental_yield"),
+            "calculate_roi": RegisteredTool("calculate_roi", "Project investment return over N years (deterministic).", application_tools.RoiInput, "calculate_roi"),
         }
 
     def definitions(self) -> list[dict]:

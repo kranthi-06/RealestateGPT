@@ -9,11 +9,20 @@ import type {
   Comparison,
   SearchFilters,
   AdminStats,
+  AdminUser,
+  AuditLog,
+  AdminAiUsage,
   User,
   AssistantResponse,
   DiscoverySearchResponse,
   MapProviderStatus,
   LiveNearbyResponse,
+  EmiResult,
+  AffordabilityResult,
+  PriceEstimate,
+  PriceFairness,
+  RentalYield,
+  Roi,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -104,6 +113,12 @@ export const propertiesApi = {
 
   get: (id: number) => request<Property>(`/properties/${id}`),
 
+  bulk: (property_ids: number[]) =>
+    request<Property[]>("/properties/bulk", {
+      method: "POST",
+      body: JSON.stringify({ property_ids }),
+    }),
+
   getFeatured: () => request<Property[]>("/properties/featured"),
 
   getSimilar: (id: number) => request<Property[]>(`/properties/${id}/similar`),
@@ -175,10 +190,48 @@ export const locationsApi = {
   nearby: (propertyId: number, category: string, radiusKm = 3, travelMode = "WALK") => request<LiveNearbyResponse>(`/locations/properties/${propertyId}/nearby?category=${encodeURIComponent(category)}&radius_km=${radiusKm}&travel_mode=${travelMode}`),
 };
 
+// ─── Financial intelligence ─────────────────────────────
+
+export const financeApi = {
+  emi: (data: { principal: number; annual_interest_rate: number; tenure_years: number }) =>
+    request<EmiResult>("/finance/emi", { method: "POST", body: JSON.stringify(data) }),
+  affordability: (data: {
+    monthly_income: number;
+    existing_obligations?: number;
+    down_payment?: number;
+    property_price?: number;
+    annual_interest_rate?: number;
+    tenure_years?: number;
+  }) => request<AffordabilityResult>("/finance/affordability", { method: "POST", body: JSON.stringify(data) }),
+  rentalYield: (data: { property_price: number; monthly_rent: number; annual_expenses_pct?: number }) =>
+    request<RentalYield>("/finance/rental-yield", { method: "POST", body: JSON.stringify(data) }),
+  roi: (data: { purchase_price: number; annual_rent: number; annual_expenses?: number; appreciation_pct?: number; years?: number }) =>
+    request<Roi>("/finance/roi", { method: "POST", body: JSON.stringify(data) }),
+  estimate: (propertyId: number) => request<PriceEstimate>(`/finance/properties/${propertyId}/estimate`),
+  fairness: (propertyId: number) => request<PriceFairness>(`/finance/properties/${propertyId}/fairness`),
+};
+
 // ─── Admin ─────────────────────────────────
 
 export const adminApi = {
   getStats: () => request<AdminStats>("/admin/stats"),
+  listUsers: (page = 1, pageSize = 50) =>
+    request<{ users: AdminUser[]; total: number }>(`/admin/users?page=${page}&page_size=${pageSize}`),
+  updateUser: (userId: number, updates: { role?: string; is_active?: boolean }) => {
+    const params = new URLSearchParams();
+    if (updates.role) params.append("role", updates.role);
+    if (updates.is_active !== undefined) params.append("is_active", String(updates.is_active));
+    return request<AdminUser>(`/admin/users/${userId}?${params.toString()}`, { method: "PATCH" });
+  },
+  listProperties: (page = 1, pageSize = 50, includeInactive = false) =>
+    request<{ properties: Property[]; total: number; page: number; page_size: number; total_pages: number }>(
+      `/admin/properties?page=${page}&page_size=${pageSize}&include_inactive=${includeInactive}`
+    ),
+  auditLogs: (limit = 100, offset = 0) =>
+    request<AuditLog[]>(`/admin/audit-logs?limit=${limit}&offset=${offset}`),
+  aiUsage: () => request<AdminAiUsage>("/admin/ai-usage"),
+  verifyProperty: (propertyId: number, status: string) =>
+    request<{ message: string }>(`/admin/properties/${propertyId}/verify?status=${encodeURIComponent(status)}`, { method: "PUT" }),
 };
 
 // ─── Health ────────────────────────────────
