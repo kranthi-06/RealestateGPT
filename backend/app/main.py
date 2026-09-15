@@ -42,6 +42,23 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down %s", settings.APP_NAME)
 
 
+from starlette.types import ASGIApp, Receive, Scope, Send
+
+class StripVercelPrefixMiddleware:
+    """Strips the /api/backend prefix passed by Vercel rewrites before routing."""
+    def __init__(self, app: ASGIApp):
+        self.app = app
+        self.prefix = "/api/backend"
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] in ("http", "websocket") and scope["path"].startswith(self.prefix):
+            scope["path"] = scope["path"][len(self.prefix):]
+            if scope.get("raw_path"):
+                prefix_bytes = self.prefix.encode("ascii")
+                if scope["raw_path"].startswith(prefix_bytes):
+                    scope["raw_path"] = scope["raw_path"][len(prefix_bytes):]
+        await self.app(scope, receive, send)
+
 app = FastAPI(
     title=settings.APP_NAME,
     description="AI-powered real estate decision platform",
@@ -50,6 +67,9 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+# Fix Vercel routing paths
+app.add_middleware(StripVercelPrefixMiddleware)
 
 # CORS middleware
 app.add_middleware(
