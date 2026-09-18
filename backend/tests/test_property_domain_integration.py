@@ -29,7 +29,7 @@ def _property(label: str, *, price: float = 7_500_000, bedrooms: int = 3, locali
         latitude=17.4435 + bedrooms / 10_000, longitude=78.3772 + bedrooms / 10_000,
         amenities=[Amenity(name="Gym"), Amenity(name="Parking")],
         source="integration_test", source_type="demo", source_id=token,
-        verification_status="unverified", is_synthetic=True,
+        verification_status="unverified", is_synthetic=True, status='active',
     )
 
 
@@ -106,6 +106,7 @@ def test_admin_mutation_api_contract_and_authorization(repository):
         "property_type": "apartment", "listing_type": "sale", "city": "Hyderabad",
         "source": "integration_test", "source_type": "demo", "source_id": uuid4().hex,
         "latitude": 17.4435, "longitude": 78.3772, "images": ["https://example.test/property.jpg"],
+        "status": "active"
     }
     with TestClient(app) as client:
         unauthenticated = client.post("/api/v1/properties", json=payload)

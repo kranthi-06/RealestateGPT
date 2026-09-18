@@ -31,7 +31,7 @@ def discovery_db():
             bathrooms=2, area=1300, city="Hyderabad", locality="HITEC City",
             latitude=17.4435 + bedrooms / 10000, longitude=78.3772 + bedrooms / 10000,
             source="discovery_test", source_type="demo", source_id=f"{token}-{bedrooms}",
-            is_synthetic=True, verification_status="unverified", data_quality_score=90,
+            is_synthetic=True, status='active', verification_status="unverified", data_quality_score=90,
         )
         ids.append(repo.create_property(prop).id)
     yield db

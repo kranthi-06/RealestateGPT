@@ -30,6 +30,9 @@ class PropertyService:
             payload["slug"] = _slug(f"{payload['source']}-{payload.get('source_id') or payload['title']}")
         property_ = Property.model_validate(payload)
         property_.data_quality_score = self._quality_score(property_)
+        if property_.status == 'unknown':
+            property_.status = 'active'
+
         return PropertyResponse.model_validate(self.repo.create_property(property_))
 
     def update_property(self, property_id: int, data: PropertyUpdate) -> PropertyResponse:

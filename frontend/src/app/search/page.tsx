@@ -4,91 +4,119 @@ import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import PropertyCard from "@/components/property-card";
 import { propertiesApi } from "@/lib/api";
-import type { PropertyListResponse, SearchFilters } from "@/lib/types";
+import type { SearchFilters, SearchSectionsResponse, Property } from "@/lib/types";
 import {
-  Search, SlidersHorizontal, ChevronLeft, ChevronRight, X, Building2, Loader2,
+  Search, SlidersHorizontal, MapPin, Building2, Loader2, Navigation
 } from "lucide-react";
 
-const CITIES = ["Hyderabad", "Bangalore", "Mumbai", "Pune", "Chennai", "Gurgaon", "Greater Noida", "Kolkata"];
-const PROPERTY_TYPES = ["apartment", "villa", "plot", "house"];
-const FURNISHING_OPTIONS = ["furnished", "semi-furnished", "unfurnished"];
-const SORT_OPTIONS = [
-  { value: "created_at:desc", label: "Newest First" },
-  { value: "price:asc", label: "Price: Low to High" },
-  { value: "price:desc", label: "Price: High to Low" },
-  { value: "area_sqft:desc", label: "Area: Largest First" },
-];
+// For dynamic section display
+function SearchSections({ sections, onCompareToggle, compareIds }: { sections: any[], onCompareToggle: any, compareIds: Set<number> }) {
+  if (!sections || sections.length === 0) return null;
+  
+  return (
+    <div className="space-y-12">
+      {sections.map((section, idx) => (
+        <div key={section.id || idx}>
+          <div className="flex items-end justify-between mb-6">
+             <div>
+                <h2 className="text-2xl font-bold tracking-tight text-foreground">{section.title}</h2>
+                <p className="text-sm text-muted-foreground mt-1">{section.count} properties available</p>
+             </div>
+             {section.count > 4 && (
+                <Button variant="link" className="text-primary pr-0">View all {section.title}</Button>
+             )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {section.items.map((property: Property) => (
+              <PropertyCard
+                key={property.id}
+                property={property}
+                onCompareToggle={onCompareToggle}
+                isCompareSelected={compareIds.has(property.id)}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function SearchPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<PropertyListResponse | null>(null);
-  const [showFilters, setShowFilters] = useState(false);
+  const [sectionsData, setSectionsData] = useState<SearchSectionsResponse | null>(null);
+  
+  // Location states
+  const [locationDenied, setLocationDenied] = useState(false);
+  const [userCoords, setUserCoords] = useState<{lat: number, lng: number} | null>(null);
 
-  // Filters state from URL
   const [filters, setFilters] = useState<SearchFilters>({
     q: searchParams.get("q") || "",
-    city: searchParams.get("city") || "",
-    property_type: searchParams.get("property_type") || "",
-    min_price: searchParams.get("min_price") ? Number(searchParams.get("min_price")) : undefined,
-    max_price: searchParams.get("max_price") ? Number(searchParams.get("max_price")) : undefined,
-    bedrooms: searchParams.get("bedrooms") ? Number(searchParams.get("bedrooms")) : undefined,
-    furnishing: searchParams.get("furnishing") || "",
-    sort_by: "created_at",
-    sort_order: "desc",
-    page: 1,
-    page_size: 12,
   });
 
-  // Compare state
   const [compareIds, setCompareIds] = useState<Set<number>>(new Set());
+
+  const requestLocation = () => {
+    if (!navigator.geolocation) {
+       setLocationDenied(true);
+       return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocationDenied(false);
+      },
+      () => {
+        setLocationDenied(true);
+      }
+    );
+  };
 
   const fetchProperties = useCallback(async () => {
     setLoading(true);
     try {
-      const cleanFilters: SearchFilters = {};
+      const cleanFilters: Record<string, any> = {};
       Object.entries(filters).forEach(([k, v]) => {
         if (v !== undefined && v !== null && v !== "") {
-          (cleanFilters as Record<string, unknown>)[k] = v;
+           cleanFilters[k] = v;
         }
       });
-      const result = await propertiesApi.list(cleanFilters);
-      setData(result);
+      if (userCoords) {
+         cleanFilters.latitude = userCoords.lat;
+         cleanFilters.longitude = userCoords.lng;
+         cleanFilters.radius_km = 5.0; // default near me radius
+      }
+      
+      // We call our new sections API via a direct fetch since it might not be in our api client yet
+      const queryParams = new URLSearchParams();
+      Object.entries(cleanFilters).forEach(([k, v]) => queryParams.append(k, String(v)));
+      
+      const token = typeof window !== 'undefined' ? localStorage.getItem("auth_token") : null;
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}/search/sections?${queryParams.toString()}`, { headers });
+      if (!res.ok) throw new Error("Failed to fetch sections");
+      const result = await res.json();
+      setSectionsData(result);
     } catch (err) {
       console.error("Search failed:", err);
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [filters, userCoords]);
 
   useEffect(() => {
     void Promise.resolve().then(fetchProperties);
   }, [fetchProperties]);
-
-  const updateFilter = (key: string, value: string | number | null | undefined) => {
-    setFilters((prev) => ({
-      ...prev,
-      [key]: value === null ? undefined : value,
-      page: 1,
-    }));
-  };
-
-  const clearFilters = () => {
-    setFilters({ page: 1, page_size: 12, sort_by: "created_at", sort_order: "desc" });
-  };
-
-  const handleSort = (value: string | null) => {
-    const [sortBy, sortOrder] = (value || "created_at:desc").split(":");
-    setFilters((prev) => ({ ...prev, sort_by: sortBy, sort_order: sortOrder }));
-  };
 
   const toggleCompare = (id: number) => {
     setCompareIds((prev) => {
@@ -99,209 +127,115 @@ function SearchPageContent() {
     });
   };
 
-  const activeFilterCount = [filters.city, filters.property_type, filters.min_price, filters.max_price, filters.bedrooms, filters.furnishing].filter(Boolean).length;
-
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-      {/* Search Bar */}
-      <div className="flex gap-2 mb-6">
-        <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            type="text"
-            placeholder="Search properties..."
-            className="pl-10"
-            value={filters.q || ""}
-            onChange={(e) => updateFilter("q", e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && fetchProperties()}
-          />
-        </div>
-        <Button variant="outline" className="gap-2" onClick={() => setShowFilters(!showFilters)}>
-          <SlidersHorizontal className="w-4 h-4" />
-          Filters
-          {activeFilterCount > 0 && (
-            <Badge className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">{activeFilterCount}</Badge>
+    <div className="min-h-screen bg-background">
+      {/* Search Header */}
+      <div className="bg-muted/30 border-b border-border/40 py-8 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto">
+          <h1 className="text-3xl font-bold tracking-tight text-foreground mb-6">Discover Properties</h1>
+          
+          <div className="flex flex-col sm:flex-row gap-4 max-w-4xl">
+            <div className="flex-1 relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder="Search by city, locality, or landmark..."
+                className="pl-12 h-14 text-base rounded-xl shadow-sm border-border/50 bg-background focus-visible:ring-primary/20"
+                value={filters.q || ""}
+                onChange={(e) => setFilters(p => ({...p, q: e.target.value}))}
+                onKeyDown={(e) => e.key === "Enter" && fetchProperties()}
+              />
+            </div>
+            
+            <div className="flex gap-3">
+              <Button 
+                variant="outline" 
+                className="h-14 px-6 rounded-xl shadow-sm bg-background hover:bg-muted border-border/50 font-medium"
+                onClick={requestLocation}
+              >
+                <Navigation className={`w-4 h-4 mr-2 ${userCoords ? "text-primary" : "text-muted-foreground"}`} />
+                {userCoords ? "Near You" : "Use My Location"}
+              </Button>
+              
+              <Button 
+                className="h-14 px-8 rounded-xl shadow-sm font-semibold gradient-primary text-white border-0"
+                onClick={fetchProperties}
+              >
+                Search
+              </Button>
+            </div>
+          </div>
+          
+          {locationDenied && (
+             <p className="text-destructive text-sm mt-3 ml-2">Location access was denied. Enter a city or locality manually to continue.</p>
           )}
-        </Button>
+        </div>
       </div>
 
-      {/* Filters Panel */}
-      {showFilters && (
-        <Card className="p-4 mb-6 border-border/60">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <Select value={filters.city || ""} onValueChange={(v) => updateFilter("city", v === "all" ? "" : v)}>
-              <SelectTrigger><SelectValue placeholder="City" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Cities</SelectItem>
-                {CITIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-              </SelectContent>
-            </Select>
-
-            <Select value={filters.property_type || ""} onValueChange={(v) => updateFilter("property_type", v === "all" ? "" : v)}>
-              <SelectTrigger><SelectValue placeholder="Type" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                {PROPERTY_TYPES.map((t) => <SelectItem key={t} value={t} className="capitalize">{t}</SelectItem>)}
-              </SelectContent>
-            </Select>
-
-            <Select value={filters.bedrooms?.toString() || ""} onValueChange={(v) => updateFilter("bedrooms", v === "all" ? undefined : Number(v))}>
-              <SelectTrigger><SelectValue placeholder="Bedrooms" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Any BHK</SelectItem>
-                {[1, 2, 3, 4].map((b) => <SelectItem key={b} value={b.toString()}>{b} BHK</SelectItem>)}
-              </SelectContent>
-            </Select>
-
-            <Input
-              type="number"
-              placeholder="Min Price"
-              value={filters.min_price || ""}
-              onChange={(e) => updateFilter("min_price", e.target.value ? Number(e.target.value) : undefined)}
-            />
-
-            <Input
-              type="number"
-              placeholder="Max Price"
-              value={filters.max_price || ""}
-              onChange={(e) => updateFilter("max_price", e.target.value ? Number(e.target.value) : undefined)}
-            />
-
-            <Select value={filters.furnishing || ""} onValueChange={(v) => updateFilter("furnishing", v === "all" ? "" : v)}>
-              <SelectTrigger><SelectValue placeholder="Furnishing" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Any Furnishing</SelectItem>
-                {FURNISHING_OPTIONS.map((f) => <SelectItem key={f} value={f} className="capitalize">{f}</SelectItem>)}
-              </SelectContent>
-            </Select>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        {/* Compare Bar */}
+        {compareIds.size > 0 && (
+          <div className="mb-8 p-4 bg-card border shadow-sm rounded-xl flex items-center justify-between sticky top-4 z-10 backdrop-blur-md bg-opacity-90">
+            <span className="text-sm font-medium">
+              {compareIds.size} properties selected for comparison
+            </span>
+            <div className="flex gap-3">
+              <Button variant="ghost" size="sm" onClick={() => setCompareIds(new Set())}>
+                Clear
+              </Button>
+              <Button
+                size="sm"
+                className="bg-primary text-primary-foreground font-medium rounded-lg"
+                disabled={compareIds.size < 2}
+                onClick={() => router.push(`/compare?ids=${Array.from(compareIds).join(",")}`)}
+              >
+                Compare
+              </Button>
+            </div>
           </div>
+        )}
 
-          <div className="flex justify-between mt-3">
-            <Button variant="ghost" size="sm" onClick={clearFilters} className="text-muted-foreground">
-              <X className="w-3 h-3 mr-1" /> Clear All
-            </Button>
-            <Button size="sm" onClick={fetchProperties} className="gradient-primary text-white border-0">
-              Apply Filters
+        {/* Results Grid */}
+        {loading ? (
+          <div className="space-y-12">
+            <div>
+               <Skeleton className="h-8 w-48 mb-6" />
+               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                 {Array.from({ length: 4 }).map((_, i) => (
+                   <Card key={i} className="overflow-hidden rounded-xl border-border/40 shadow-sm">
+                     <Skeleton className="h-48 w-full" />
+                     <div className="p-5 space-y-4">
+                       <Skeleton className="h-5 w-3/4" />
+                       <Skeleton className="h-4 w-1/2" />
+                       <Skeleton className="h-4 w-full" />
+                     </div>
+                   </Card>
+                 ))}
+               </div>
+            </div>
+          </div>
+        ) : sectionsData && sectionsData.sections && sectionsData.sections.length > 0 ? (
+          <SearchSections sections={sectionsData.sections} onCompareToggle={toggleCompare} compareIds={compareIds} />
+        ) : (
+          <div className="text-center py-24 bg-card rounded-2xl border border-border/40 shadow-sm">
+            <Building2 className="w-16 h-16 mx-auto text-muted-foreground/30 mb-5" />
+            <h3 className="text-xl font-semibold text-foreground">No properties found</h3>
+            <p className="text-muted-foreground mt-2 max-w-sm mx-auto">We couldn't find any listings matching your criteria. Try adjusting your filters or search area.</p>
+            <Button variant="outline" className="mt-6 rounded-lg font-medium" onClick={() => {
+               setFilters({}); setUserCoords(null); setLocationDenied(false);
+            }}>
+              Clear Search
             </Button>
           </div>
-        </Card>
-      )}
-
-      {/* Compare Bar */}
-      {compareIds.size > 0 && (
-        <div className="mb-4 p-3 bg-primary/5 border border-primary/20 rounded-xl flex items-center justify-between">
-          <span className="text-sm font-medium">
-            {compareIds.size} properties selected for comparison
-          </span>
-          <div className="flex gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setCompareIds(new Set())}>
-              Clear
-            </Button>
-            <Button
-              size="sm"
-              className="gradient-primary text-white border-0"
-              disabled={compareIds.size < 2}
-              onClick={() => router.push(`/compare?ids=${Array.from(compareIds).join(",")}`)}
-            >
-              Compare ({compareIds.size})
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Results header */}
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-muted-foreground">
-          {data ? (
-            <>
-              <span className="font-semibold text-foreground">{data.total}</span> properties found
-            </>
-          ) : (
-            "Searching..."
-          )}
-        </p>
-        <Select
-          value={`${filters.sort_by}:${filters.sort_order}`}
-          onValueChange={handleSort}
-        >
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Sort by" />
-          </SelectTrigger>
-          <SelectContent>
-            {SORT_OPTIONS.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        )}
       </div>
-
-      {/* Results Grid */}
-      {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Card key={i} className="overflow-hidden">
-              <Skeleton className="h-48 w-full" />
-              <div className="p-4 space-y-3">
-                <Skeleton className="h-4 w-3/4" />
-                <Skeleton className="h-3 w-1/2" />
-                <Skeleton className="h-3 w-full" />
-              </div>
-            </Card>
-          ))}
-        </div>
-      ) : data && data.properties.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {data.properties.map((property) => (
-            <PropertyCard
-              key={property.id}
-              property={property}
-              onCompareToggle={toggleCompare}
-              isCompareSelected={compareIds.has(property.id)}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="text-center py-20">
-          <Building2 className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
-          <h3 className="text-lg font-semibold">No properties found</h3>
-          <p className="text-muted-foreground mt-1">Try adjusting your filters or search query.</p>
-          <Button variant="outline" className="mt-4" onClick={clearFilters}>
-            Clear All Filters
-          </Button>
-        </div>
-      )}
-
-      {/* Pagination */}
-      {data && data.total_pages > 1 && (
-        <div className="flex items-center justify-center gap-2 mt-8">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={data.page <= 1}
-            onClick={() => setFilters((prev) => ({ ...prev, page: (prev.page || 1) - 1 }))}
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </Button>
-          <span className="text-sm text-muted-foreground px-4">
-            Page {data.page} of {data.total_pages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={data.page >= data.total_pages}
-            onClick={() => setFilters((prev) => ({ ...prev, page: (prev.page || 1) + 1 }))}
-          >
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-        </div>
-      )}
     </div>
   );
 }
 
 export default function SearchPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin" /></div>}>
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>}>
       <SearchPageContent />
     </Suspense>
   );

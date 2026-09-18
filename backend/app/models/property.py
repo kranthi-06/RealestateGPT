@@ -7,7 +7,7 @@ powers 2dsphere geospatial queries.
 """
 
 from datetime import datetime, timezone
-from typing import List, Literal, Optional
+from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -19,6 +19,33 @@ class Amenity(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     category: Optional[str] = None
     icon: Optional[str] = None
+
+
+class PropertyImage(BaseModel):
+    url: str = Field(min_length=1, max_length=2_000)
+    category: Literal[
+        "exterior", "living_room", "bedroom", "kitchen", "bathroom", 
+        "balcony", "dining", "parking", "amenities", "floor_plan", "other"
+    ] = "other"
+    alt: Optional[str] = None
+    source: Optional[str] = None
+    source_image_id: Optional[str] = None
+    fetched_at: datetime = Field(default_factory=utcnow)
+    last_verified_at: Optional[datetime] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    display_order: int = 0
+    rights_status: Literal[
+        "source_display_allowed", "stored_with_permission", "source_only", "unknown"
+    ] = "unknown"
+
+
+class PriceHistory(BaseModel):
+    property_id: int
+    old_price: float
+    new_price: float
+    changed_at: datetime = Field(default_factory=utcnow)
+    change_type: Literal["price_increased", "price_decreased", "price_changed", "initial_listing"]
 
 
 class Property(BaseModel):
@@ -79,8 +106,13 @@ class Property(BaseModel):
 
     # ``images`` is canonical. ``image_urls`` remains a read-compatible
     # projection for the existing frontend during migration.
-    images: List[str] = Field(default_factory=list, max_length=30)
+    images: List[PropertyImage] = Field(default_factory=list, max_length=30)
     image_urls: Optional[str] = None
+
+    # Freshness / Provenance
+    first_seen_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
+    status: Literal["active", "inactive", "sold", "rented", "expired", "removed", "unknown"] = "unknown"
 
     # Timestamps
     listed_at: Optional[datetime] = None
@@ -104,15 +136,20 @@ class Property(BaseModel):
             raise ValueError("Text fields cannot be blank")
         return value
 
-    @field_validator("images")
+    @field_validator("images", mode="before")
     @classmethod
-    def validate_images(cls, values: List[str]) -> List[str]:
+    def validate_images(cls, values: List[Any]) -> List[PropertyImage]:
         cleaned = []
-        for value in values:
-            value = value.strip()
-            if not value.startswith(("https://", "http://")):
-                raise ValueError("Property images must use an http(s) URL")
-            cleaned.append(value)
+        for i, value in enumerate(values):
+            if isinstance(value, str):
+                value = value.strip()
+                if not value.startswith(("https://", "http://")):
+                    raise ValueError("Property images must use an http(s) URL")
+                cleaned.append(PropertyImage(url=value, display_order=i))
+            elif isinstance(value, dict):
+                cleaned.append(PropertyImage(**value))
+            elif isinstance(value, PropertyImage):
+                cleaned.append(value)
         return cleaned
 
     @model_validator(mode="after")
@@ -126,9 +163,9 @@ class Property(BaseModel):
         if self.area_sqft is None and self.area is not None and self.area_unit == "sqft":
             self.area_sqft = self.area
         if not self.images and self.image_urls:
-            self.images = self.image_url_list
+            self.images = [PropertyImage(url=url.strip(), display_order=i) for i, url in enumerate(self.image_url_list)]
         if self.images:
-            self.image_urls = ",".join(self.images)
+            self.image_urls = ",".join(img.url for img in self.images)
         if self.source_type == "demo":
             self.is_synthetic = True
             if self.verification_status == "verified":

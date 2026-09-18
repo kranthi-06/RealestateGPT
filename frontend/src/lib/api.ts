@@ -64,7 +64,11 @@ async function request<T>(
     let message = "Request failed";
     try {
       const data = await res.json();
-      message = data.detail || data.message || message;
+      if (data.detail && typeof data.detail === "object" && data.detail.message) {
+        message = data.detail.message;
+      } else {
+        message = data.detail || data.message || message;
+      }
     } catch {
       // ignore parse errors
     }

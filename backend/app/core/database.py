@@ -127,10 +127,14 @@ def ensure_indexes() -> None:
     properties.create_index("created_at")
     properties.create_index("updated_at")
     properties.create_index("is_active")
+    properties.create_index("status")
+    properties.create_index("last_seen_at")
+    properties.create_index("last_verified_at")
     properties.create_index("verification_status")
     properties.create_index("listing_type")
     properties.create_index("amenities.name")
     properties.create_index("source")
+    properties.create_index("source_id")
     properties.create_index(
         [("source", 1), ("source_id", 1)], unique=True,
         partialFilterExpression={"source_id": {"$exists": True}}, name="source_source_id_unique",
@@ -138,6 +142,8 @@ def ensure_indexes() -> None:
     properties.create_index(
         [("city", 1), ("property_type", 1), ("bedrooms", 1), ("price", 1)]
     )
+    
+    db["price_history"].create_index([("property_id", 1), ("changed_at", -1)])
 
     db["saved_properties"].create_index(
         [("user_id", 1), ("property_id", 1)], unique=True

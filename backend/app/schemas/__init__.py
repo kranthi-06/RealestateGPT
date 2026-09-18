@@ -173,6 +173,20 @@ class PropertyUpdate(BaseModel):
         return [value.strip() for value in values] if values is not None else values
 
 
+class PropertyImageResponse(BaseModel):
+    url: str
+    category: str = 'other'
+    alt: Optional[str] = None
+    source: Optional[str] = None
+    source_image_id: Optional[str] = None
+    fetched_at: datetime
+    last_verified_at: Optional[datetime] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    display_order: int = 0
+    rights_status: str = 'unknown'
+    model_config = {'from_attributes': True}
+
 class PropertyResponse(BaseModel):
     id: int
     title: str
@@ -217,7 +231,7 @@ class PropertyResponse(BaseModel):
     is_featured: bool
     is_synthetic: bool
     image_urls: Optional[str] = None
-    images: List[str] = Field(default_factory=list)
+    images: List[PropertyImageResponse] = Field(default_factory=list)
     amenities: List[AmenityResponse] = Field(default_factory=list)
     listed_at: Optional[datetime] = None
     created_at: datetime
@@ -233,6 +247,16 @@ class PropertyListResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+
+class SearchSection(BaseModel):
+    id: str
+    title: str
+    count: int
+    items: List['PropertyCardResponse']
+    next_cursor: Optional[str] = None
+
+class SearchSectionsResponse(BaseModel):
+    sections: List[SearchSection]
 
 
 class PropertyCardResponse(BaseModel):

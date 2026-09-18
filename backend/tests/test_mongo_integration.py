@@ -69,7 +69,7 @@ def test_property_repository_search(mongo):
         locality="HITEC City",
         latitude=17.4435,
         longitude=78.3772,
-        is_synthetic=True,
+        is_synthetic=True, status='active',
         source="seed_data",
         source_type="demo",
     )

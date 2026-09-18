@@ -26,6 +26,20 @@ export interface Amenity {
   icon?: string | null;
 }
 
+export interface PropertyImage {
+  url: string;
+  category: string;
+  alt?: string | null;
+  source?: string | null;
+  source_image_id?: string | null;
+  fetched_at: string;
+  last_verified_at?: string | null;
+  width?: number | null;
+  height?: number | null;
+  display_order: number;
+  rights_status: string;
+}
+
 export interface Property {
   id: number;
   title: string;
@@ -59,17 +73,37 @@ export interface Property {
   builder_name?: string | null;
   project_name?: string | null;
   source?: string | null;
+  source_id?: string | null;
+  source_url?: string | null;
   source_type?: string | null;
+  first_seen_at?: string | null;
+  last_seen_at?: string | null;
+  last_verified_at?: string | null;
+  status?: string;
   verification_status: string;
   is_featured: boolean;
   is_synthetic: boolean;
   image_urls?: string | null;
+  images?: PropertyImage[];
   amenities: Amenity[];
   listed_at?: string | null;
   created_at: string;
   updated_at: string;
   is_saved?: boolean | null;
 }
+
+export interface SearchSection {
+  id: string;
+  title: string;
+  count: number;
+  items: Property[];
+  next_cursor?: string | null;
+}
+
+export interface SearchSectionsResponse {
+  sections: SearchSection[];
+}
+
 
 export interface PropertyListResponse {
   properties: Property[];

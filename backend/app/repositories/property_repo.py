@@ -50,7 +50,7 @@ class PropertyRepository:
         return [Property.from_doc(doc) for doc in docs if doc]
 
     def list_active(self, listing_type: Optional[str] = None, limit: Optional[int] = None) -> List[Property]:
-        query: dict = {"is_active": True}
+        query: dict = {"is_active": True, "status": "active"}
         if listing_type:
             query["listing_type"] = listing_type
         cursor = self.coll.find(query)
@@ -121,7 +121,7 @@ class PropertyRepository:
             "exclude_id": None,
         }
         filters = {**defaults, **filters}
-        query: dict = {"is_active": True}
+        query: dict = {"is_active": True, "status": "active"}
         q, city, locality = filters["q"], filters["city"], filters["locality"]
 
         if q:
@@ -285,6 +285,16 @@ class PropertyRepository:
         property_.id = uid
         data = property_.model_dump(exclude={"id"}, exclude_none=True)
         self.coll.insert_one({"_id": uid, **data})
+        
+        if property_.price:
+            self.db["price_history"].insert_one({
+                "property_id": uid,
+                "old_price": property_.price,
+                "new_price": property_.price,
+                "changed_at": property_.updated_at,
+                "change_type": "initial_listing"
+            })
+            
         return property_
 
     insert = create_property  # compatibility for existing seed tooling
@@ -297,8 +307,12 @@ class PropertyRepository:
         current = self.coll.find_one({"_id": property_id, "is_active": True})
         if not current:
             return None
+            
+        old_price = current.get("price")
+        
         merged = {**current, **updates, "_id": property_id}
-        merged["updated_at"] = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        merged["updated_at"] = now
         candidate = Property.from_doc(merged)
         assert candidate is not None
         data = candidate.model_dump(exclude={"id"}, exclude_none=True)
@@ -306,6 +320,18 @@ class PropertyRepository:
             {"_id": property_id, "is_active": True}, {"$set": data},
             return_document=ReturnDocument.AFTER,
         )
+        
+        new_price = updated.get("price")
+        if old_price and new_price and old_price != new_price:
+            change_type = "price_increased" if new_price > old_price else "price_decreased"
+            self.db["price_history"].insert_one({
+                "property_id": property_id,
+                "old_price": old_price,
+                "new_price": new_price,
+                "changed_at": now,
+                "change_type": change_type
+            })
+            
         return Property.from_doc(updated)
 
     def delete_property(self, property_id: int) -> bool:
