@@ -140,10 +140,28 @@ def ensure_indexes() -> None:
         partialFilterExpression={"source_id": {"$exists": True}}, name="source_source_id_unique",
     )
     properties.create_index(
+        [("source", 1), ("source_listing_id", 1)], unique=True,
+        partialFilterExpression={"source_listing_id": {"$exists": True}}, name="source_source_listing_id_unique",
+    )
+    properties.create_index(
         [("city", 1), ("property_type", 1), ("bedrooms", 1), ("price", 1)]
     )
-    
+    properties.create_index("first_seen_at")
+    properties.create_index("rent_amount")
+    properties.create_index("transaction_type")
+    properties.create_index("stale_at")
+    properties.create_index("expired_at")
+
     db["price_history"].create_index([("property_id", 1), ("changed_at", -1)])
+    db["price_history"].create_index("change_type")
+
+    db["geocode_cache"].create_index("address", unique=True)
+    db["geocode_queue"].create_index([("status", 1), ("created_at", 1)])
+    db["geocode_queue"].create_index([("property_id", 1), ("status", 1)])
+
+    db["worker_runs"].create_index([("worker_name", 1), ("started_at", -1)])
+    db["worker_runs"].create_index("status")
+    db["dedup_reviews"].create_index([("status", 1), ("created_at", -1)])
 
     db["saved_properties"].create_index(
         [("user_id", 1), ("property_id", 1)], unique=True

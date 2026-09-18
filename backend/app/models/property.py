@@ -49,6 +49,8 @@ class PriceHistory(BaseModel):
 
 
 class Property(BaseModel):
+    model_config = {"populate_by_name": True}
+
     id: Optional[int] = None
     title: str = Field(min_length=5, max_length=500)
     description: Optional[str] = Field(default=None, max_length=10_000)
@@ -57,8 +59,14 @@ class Property(BaseModel):
     currency: str = Field(default="INR", min_length=3, max_length=3)
     price_per_sqft: Optional[float] = None
     maintenance_charge: Optional[float] = None
+    maintenance: Optional[float] = None  # canonical alias; synced from maintenance_charge
+    security_deposit: Optional[float] = None
+    brokerage: Optional[float] = None
+    rent_amount: Optional[float] = Field(default=None, gt=0)
+    rent_period: Optional[str] = Field(default=None, max_length=50)
     property_type: str = Field(min_length=1, max_length=50)
     listing_type: Literal["sale", "rent"] = "sale"
+    transaction_type: Optional[str] = Field(default=None, max_length=10)  # synced from listing_type
     bedrooms: Optional[int] = Field(default=None, ge=0, le=20)
     bathrooms: Optional[int] = Field(default=None, ge=0, le=20)
     balconies: Optional[int] = None
@@ -82,9 +90,11 @@ class Property(BaseModel):
     city: str = Field(min_length=1, max_length=100)
     state: Optional[str] = None
     pincode: Optional[str] = None
+    postal_code: Optional[str] = None  # canonical alias; synced from pincode
     latitude: Optional[float] = Field(default=None, ge=-90, le=90)
     longitude: Optional[float] = Field(default=None, ge=-180, le=180)
     location: Optional[dict] = None  # GeoJSON Point for 2dsphere
+    location_source: Optional[str] = None  # osm | provider | admin
 
     # Builder / project
     builder_name: Optional[str] = None
@@ -95,6 +105,7 @@ class Property(BaseModel):
     source_type: Literal["licensed_feed", "partner_api", "admin", "user", "demo"]
     source_url: Optional[str] = Field(default=None, max_length=2_000)
     source_id: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    source_listing_id: Optional[str] = Field(default=None, min_length=1, max_length=255)  # canonical
     last_verified_at: Optional[datetime] = None
     data_quality_score: float = Field(default=0.0, ge=0, le=100)
 
@@ -112,7 +123,10 @@ class Property(BaseModel):
     # Freshness / Provenance
     first_seen_at: Optional[datetime] = None
     last_seen_at: Optional[datetime] = None
-    status: Literal["active", "inactive", "sold", "rented", "expired", "removed", "unknown"] = "unknown"
+    status: Literal["active", "stale", "inactive", "sold", "rented", "expired", "removed", "unknown"] = "unknown"
+    stale_at: Optional[datetime] = None    # first observed transition to stale
+    expired_at: Optional[datetime] = None  # provider absence exceeded the expiry window
+    duplicate_of: Optional[int] = None     # id of the canonical listing when merged
 
     # Timestamps
     listed_at: Optional[datetime] = None
@@ -162,6 +176,25 @@ class Property(BaseModel):
             self.area, self.area_unit = self.area_sqft, "sqft"
         if self.area_sqft is None and self.area is not None and self.area_unit == "sqft":
             self.area_sqft = self.area
+        # Canonical alias syncs (backward compatible with pre-migration records).
+        if self.source_listing_id and not self.source_id:
+            self.source_id = self.source_listing_id
+        if self.source_id and not self.source_listing_id:
+            self.source_listing_id = self.source_id
+        if not self.transaction_type:
+            self.transaction_type = self.listing_type
+        if self.transaction_type and self.transaction_type in ("sale", "rent") and not self.listing_type:
+            self.listing_type = self.transaction_type  # defensive; listing_type has a default
+        if self.maintenance is None and self.maintenance_charge is not None:
+            self.maintenance = self.maintenance_charge
+        if self.maintenance_charge is None and self.maintenance is not None:
+            self.maintenance_charge = self.maintenance
+        if not self.postal_code and self.pincode:
+            self.postal_code = self.pincode
+        if self.postal_code and not self.pincode:
+            self.pincode = self.postal_code
+        if self.listing_type == "rent" and self.rent_amount and not self.price:
+            self.price = self.rent_amount
         if not self.images and self.image_urls:
             self.images = [PropertyImage(url=url.strip(), display_order=i) for i, url in enumerate(self.image_url_list)]
         if self.images:

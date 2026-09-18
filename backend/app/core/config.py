@@ -88,8 +88,25 @@ class Settings(BaseSettings):
     GOOGLE_MAPS_SERVER_KEY: Optional[str] = None
     GOOGLE_MAPS_TIMEOUT_SECONDS: int = 10
 
-    # Background jobs
+    # Property data providers
+    #   ""            = no provider configured (inventory stays empty; UI explains this)
+    #   admin_import  = platform admin imports an authored record file (no scraping)
+    PROPERTY_PROVIDER: str = ""  # registered adapter name, e.g. "admin_import"
+    PROPERTY_PROVIDER_FILE: Optional[str] = "./data/property_provider.jsonl"
+    PROVIDER_TIMEOUT_SECONDS: int = 30
+    PROVIDER_RETRIES: int = 2
+    PROVIDER_RETRY_BACKOFF_SECONDS: float = 2.0
+    PROVIDER_MIN_INTERVAL_SECONDS: float = 0.5  # provider rate limiting floor
+    INGESTION_BATCH_SIZE: int = 50
+    INGESTION_MAX_PAGES: int = 20
+
+    # Background jobs / workers
     REDIS_URL: Optional[str] = None
+    WORKER_RUN_SECRET: str = "change-this-worker-secret-in-production"
+    WORKER_LOCK_TTL_SECONDS: int = 900
+    # Listing freshness lifecycle
+    LISTING_STALE_AFTER_HOURS: int = 72   # active -> stale after no provider sightings
+    LISTING_EXPIRE_AFTER_DAYS: int = 21   # stale -> expired after long absence
 
     @property
     def cors_origins_list(self) -> List[str]:

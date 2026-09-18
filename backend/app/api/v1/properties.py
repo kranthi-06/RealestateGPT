@@ -5,7 +5,10 @@ from typing import Optional, List
 from app.core.database import get_db
 from app.core.security import get_current_admin, get_optional_user
 from app.services.property_service import PropertyService
-from app.schemas import PropertyCreate, PropertyResponse, PropertyListResponse, PropertyCardResponse, PropertyUpdate, PropertyBulkRequest
+from app.schemas import (
+    PropertyCreate, PropertyResponse, PropertyListResponse, PropertyCardResponse,
+    PropertyUpdate, PropertyBulkRequest, PriceIntelligenceResponse,
+)
 from app.models.user import User
 
 router = APIRouter(prefix="/properties", tags=["Properties"])
@@ -165,6 +168,18 @@ async def delete_property(
 ):
     """Soft-delete a property while retaining provenance/audit history."""
     PropertyService(db).delete_property(property_id)
+
+
+@router.get("/{property_id}/price-intelligence", response_model=PriceIntelligenceResponse)
+async def get_property_price_intelligence(
+    property_id: int,
+    db = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+):
+    """Price intelligence computed ONLY from stored, observed history."""
+    from app.services.price_intelligence_service import PriceIntelligenceService
+
+    return PriceIntelligenceService(db).get_price_intelligence(property_id)
 
 
 @router.get("/{property_id}/similar", response_model=List[PropertyCardResponse])

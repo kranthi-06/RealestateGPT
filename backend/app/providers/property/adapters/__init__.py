@@ -1,0 +1,1 @@
+"""Concrete, licensed property provider adapters."""

@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.core.database import close_connection, connect, ensure_indexes
 from app.core.logging import setup_logging
 from app.core.middleware import RequestContextMiddleware
-from app.api.v1 import ai, auth, finance, properties, saved, health, admin, locations, search
+from app.api.v1 import ai, auth, finance, properties, saved, health, admin, locations, search, workers
 
 setup_logging(debug=settings.DEBUG)
 logger = logging.getLogger(__name__)
@@ -140,6 +140,7 @@ app.include_router(admin.router, prefix=settings.API_V1_PREFIX)
 app.include_router(ai.router, prefix=settings.API_V1_PREFIX)
 app.include_router(locations.router, prefix=settings.API_V1_PREFIX)
 app.include_router(search.router, prefix=settings.API_V1_PREFIX)
+app.include_router(workers.router, prefix=settings.API_V1_PREFIX)
 
 @app.get("/")
 async def root():

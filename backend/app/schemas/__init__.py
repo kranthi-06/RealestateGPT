@@ -196,8 +196,14 @@ class PropertyResponse(BaseModel):
     currency: str = "INR"
     price_per_sqft: Optional[float] = None
     maintenance_charge: Optional[float] = None
+    maintenance: Optional[float] = None
+    security_deposit: Optional[float] = None
+    brokerage: Optional[float] = None
+    rent_amount: Optional[float] = None
+    rent_period: Optional[str] = None
     property_type: str
     listing_type: str
+    transaction_type: Optional[str] = None
     bedrooms: Optional[int] = None
     bathrooms: Optional[int] = None
     balconies: Optional[int] = None
@@ -217,15 +223,22 @@ class PropertyResponse(BaseModel):
     city: str
     state: Optional[str] = None
     pincode: Optional[str] = None
+    postal_code: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     builder_name: Optional[str] = None
     project_name: Optional[str] = None
     source: Optional[str] = None
     source_id: Optional[str] = None
+    source_listing_id: Optional[str] = None
     source_url: Optional[str] = None
     source_type: Optional[str] = None
+    first_seen_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
     last_verified_at: Optional[datetime] = None
+    status: Optional[str] = None
+    stale_at: Optional[datetime] = None
+    expired_at: Optional[datetime] = None
     data_quality_score: float = 0.0
     verification_status: str
     is_featured: bool
@@ -395,6 +408,63 @@ class ComparisonResponse(BaseModel):
 
 class PropertyBulkRequest(BaseModel):
     property_ids: List[int] = Field(..., min_length=1, max_length=12)
+
+
+# ─── Price Intelligence Schemas ────────────────────────────
+
+class PriceHistoryEntry(BaseModel):
+    changed_at: Optional[datetime] = None
+    old_price: Optional[float] = None
+    new_price: Optional[float] = None
+    change_type: Optional[str] = None
+
+
+class PriceIntelligenceResponse(BaseModel):
+    property_id: int
+    available: bool = True
+    current_price: Optional[float] = None
+    previous_price: Optional[float] = None
+    price_change_pct: Optional[float] = None
+    price_per_sqft: Optional[float] = None
+    rent_amount: Optional[float] = None
+    rent_period: Optional[str] = None
+    rent_per_sqft: Optional[float] = None
+    observations: int = 0
+    change_observations: int = 0
+    enough_history: bool = False
+    history: List[PriceHistoryEntry] = Field(default_factory=list)
+    message: Optional[str] = None
+    calculated_at: Optional[datetime] = None
+
+
+# ─── Worker / Run Schemas ──────────────────────────────────
+
+class WorkerRunResponse(BaseModel):
+    worker_name: str
+    run_id: str
+    status: str
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    duration_ms: Optional[float] = None
+    processed_count: int = 0
+    success_count: int = 0
+    failure_count: int = 0
+    skipped_count: int = 0
+    error_summary: Optional[str] = None
+    extra: dict = Field(default_factory=dict)
+
+
+class WorkerRunListResponse(BaseModel):
+    runs: List[WorkerRunResponse] = Field(default_factory=list)
+    total: int = 0
+
+
+class WorkerStatusResponse(BaseModel):
+    property_provider: str
+    property_provider_configured: bool
+    provider_message: str
+    location_provider: str
+    last_runs: dict = Field(default_factory=dict)  # worker_name -> latest run summary
 
 
 # ─── Admin Schemas ───────────────────────────────────────

@@ -1,6 +1,5 @@
 import pytest
 from datetime import datetime, timezone
-import time
 
 @pytest.fixture
 def mongo():
@@ -12,7 +11,7 @@ def mongo():
 
 from unittest.mock import MagicMock, patch
 
-from workers.geocoding_worker import run_geocoding
+from app.workers.geocoding import run_geocoding
 from app.providers.location import LocationProviderUnavailable
 
 @pytest.fixture
@@ -23,10 +22,9 @@ def test_db(mongo):
     mongo["worker_runs"].delete_many({})
     yield mongo
 
-@patch("workers.geocoding_worker.close_connection")
-@patch("workers.geocoding_worker.get_location_provider")
-@patch("workers.geocoding_worker.time.sleep", return_value=None)
-def test_geocoding_worker_processes_missing_coordinates(mock_sleep, mock_get_provider, mock_close, test_db):
+@patch("app.workers.geocoding.get_location_provider")
+@patch("app.workers.geocoding.time.sleep", return_value=None)
+def test_geocoding_worker_processes_missing_coordinates(mock_sleep, mock_get_provider, test_db):
     mock_provider = MagicMock()
     mock_provider.name = "test_provider"
     mock_provider.geocode.return_value = {"latitude": 17.1, "longitude": 78.1, "provider": "test_provider"}
@@ -38,7 +36,7 @@ def test_geocoding_worker_processes_missing_coordinates(mock_sleep, mock_get_pro
         {"_id": 3, "status": "inactive", "city": "Hyderabad", "locality": "C", "latitude": None, "longitude": None}, # Inactive
     ])
 
-    run_geocoding()
+    run_geocoding(test_db)
 
     assert mock_provider.geocode.call_count == 1
     mock_provider.geocode.assert_called_with("A, Hyderabad")
@@ -47,6 +45,7 @@ def test_geocoding_worker_processes_missing_coordinates(mock_sleep, mock_get_pro
     prop1 = test_db["properties"].find_one({"_id": 1})
     assert prop1["latitude"] == 17.1
     assert prop1["longitude"] == 78.1
+    assert prop1["location_source"] == "test_provider"
 
     # Verify cache
     cache = test_db["geocode_cache"].find_one({"address": "A, Hyderabad"})
@@ -54,10 +53,9 @@ def test_geocoding_worker_processes_missing_coordinates(mock_sleep, mock_get_pro
     assert cache["provider"] == "test_provider"
 
 
-@patch("workers.geocoding_worker.close_connection")
-@patch("workers.geocoding_worker.get_location_provider")
-@patch("workers.geocoding_worker.time.sleep", return_value=None)
-def test_geocoding_worker_uses_cache_and_does_not_repeat(mock_sleep, mock_get_provider, mock_close, test_db):
+@patch("app.workers.geocoding.get_location_provider")
+@patch("app.workers.geocoding.time.sleep", return_value=None)
+def test_geocoding_worker_uses_cache_and_does_not_repeat(mock_sleep, mock_get_provider, test_db):
     mock_provider = MagicMock()
     mock_get_provider.return_value = mock_provider
 
@@ -73,7 +71,7 @@ def test_geocoding_worker_uses_cache_and_does_not_repeat(mock_sleep, mock_get_pr
         "_id": 1, "status": "active", "city": "Hyderabad", "locality": "Cached", "latitude": None, "longitude": None
     })
 
-    run_geocoding()
+    run_geocoding(test_db)
 
     # Provider should not be called because it was cached
     mock_provider.geocode.assert_not_called()
@@ -83,10 +81,9 @@ def test_geocoding_worker_uses_cache_and_does_not_repeat(mock_sleep, mock_get_pr
     assert prop1["longitude"] == 78.2
 
 
-@patch("workers.geocoding_worker.close_connection")
-@patch("workers.geocoding_worker.get_location_provider")
-@patch("workers.geocoding_worker.time.sleep", return_value=None)
-def test_geocoding_worker_caches_failures(mock_sleep, mock_get_provider, mock_close, test_db):
+@patch("app.workers.geocoding.get_location_provider")
+@patch("app.workers.geocoding.time.sleep", return_value=None)
+def test_geocoding_worker_caches_failures(mock_sleep, mock_get_provider, test_db):
     mock_provider = MagicMock()
     mock_provider.name = "test_provider"
     mock_provider.geocode.side_effect = LocationProviderUnavailable("API error")
@@ -96,7 +93,7 @@ def test_geocoding_worker_caches_failures(mock_sleep, mock_get_provider, mock_cl
         "_id": 1, "status": "active", "city": "Hyderabad", "locality": "Fail", "latitude": None, "longitude": None
     })
 
-    run_geocoding()
+    run_geocoding(test_db)
 
     # Verify failure cached
     cache = test_db["geocode_cache"].find_one({"address": "Fail, Hyderabad"})
@@ -107,10 +104,9 @@ def test_geocoding_worker_caches_failures(mock_sleep, mock_get_provider, mock_cl
     assert prop1["latitude"] is None # Property is not updated
 
 
-@patch("workers.geocoding_worker.close_connection")
-@patch("workers.geocoding_worker.get_location_provider")
-@patch("workers.geocoding_worker.time.sleep", return_value=None)
-def test_geocoding_worker_concurrent_lock(mock_sleep, mock_get_provider, mock_close, test_db):
+@patch("app.workers.geocoding.get_location_provider")
+@patch("app.workers.geocoding.time.sleep", return_value=None)
+def test_geocoding_worker_concurrent_lock(mock_sleep, mock_get_provider, test_db):
     # Simulate an active lock
     test_db["worker_locks"].insert_one({
         "_id": "geocoding_worker_lock",
@@ -124,7 +120,35 @@ def test_geocoding_worker_concurrent_lock(mock_sleep, mock_get_provider, mock_cl
         "_id": 1, "status": "active", "city": "Hyderabad", "locality": "A", "latitude": None, "longitude": None
     })
 
-    run_geocoding()
+    run_geocoding(test_db)
 
     # Provider should not be called because worker is locked
     mock_provider.geocode.assert_not_called()
+
+
+@patch("app.workers.geocoding.get_location_provider")
+@patch("app.workers.geocoding.time.sleep", return_value=None)
+def test_geocoding_worker_consumes_queue(mock_sleep, mock_get_provider, test_db):
+    """Queue items inserted by ingestion are drained first."""
+    mock_provider = MagicMock()
+    mock_provider.name = "test_provider"
+    mock_provider.geocode.return_value = {"latitude": 17.5, "longitude": 78.5}
+    mock_get_provider.return_value = mock_provider
+
+    test_db["properties"].insert_one({
+        "_id": 11, "status": "active", "city": "Hyderabad", "locality": "Queued", "latitude": None, "longitude": None
+    })
+    test_db["geocode_queue"].insert_one({
+        "property_id": 11,
+        "address": "Queued, Hyderabad",
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc),
+    })
+
+    run_geocoding(test_db)
+
+    mock_provider.geocode.assert_called_with("Queued, Hyderabad")
+    prop = test_db["properties"].find_one({"_id": 11})
+    assert prop["latitude"] == 17.5
+    queue_item = test_db["geocode_queue"].find_one({"property_id": 11})
+    assert queue_item["status"] == "completed"
