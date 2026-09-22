@@ -6,6 +6,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      production_base_url:
+        description: "Ready Vercel deployment origin to verify"
+        required: false
+        default: "https://realestate-gpt-inky.vercel.app"
+        type: string
 
 jobs:
   backend:
@@ -114,9 +120,12 @@ jobs:
   production-verification:
     name: Production E2E (real deployment)
     runs-on: ubuntu-latest
-    # Only meaningful against a deployed environment, so it runs on demand and
-    # after every push to main rather than on pull requests.
-    if: github.event_name != 'pull_request'
+    # GitHub push completion does not prove Vercel has built and promoted that
+    # commit. Running this immediately would test the previous live artifact
+    # and produce false failures. Start it manually only after Vercel marks the
+    # corresponding production deployment Ready. A Vercel API/deployment-status
+    # integration can later make this exact-commit gate automatic.
+    if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -125,7 +134,7 @@ jobs:
       - run: pip install httpx
       - name: Verify production API
         env:
-          PRODUCTION_BASE_URL: https://realestate-gpt-inky.vercel.app
+          PRODUCTION_BASE_URL: ${{ inputs.production_base_url }}
         run: python scripts/verify_production.py --report docs/production_verification_report.json
       - uses: actions/setup-node@v4
         with:
@@ -140,7 +149,7 @@ jobs:
       - name: Playwright against the real production URL
         working-directory: frontend
         env:
-          E2E_BASE_URL: https://realestate-gpt-inky.vercel.app
+          E2E_BASE_URL: ${{ inputs.production_base_url }}
         run: npx playwright test
       - uses: actions/upload-artifact@v4
         if: always()
