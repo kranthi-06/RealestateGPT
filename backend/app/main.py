@@ -10,7 +10,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
-from app.core.database import close_connection, connect, ensure_indexes
+from app.core.database import close_connection, connect, ensure_indexes, get_database
 from app.core.logging import setup_logging
 from app.core.middleware import RequestContextMiddleware
 from app.api.v1 import ai, auth, finance, properties, saved, health, admin, locations, search, workers
@@ -19,12 +19,15 @@ setup_logging(debug=settings.DEBUG)
 logger = logging.getLogger(__name__)
 
 
-# ─── Lifecycle ──────────────────────────────────────────────────────────
+# â”€â”€â”€ Lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _validate_configuration() -> None:
     problems = settings.validate_runtime()
     if problems:
         raise RuntimeError("Invalid environment configuration: " + "; ".join(problems))
+    # Optional integrations degrade honestly instead of crashing the process.
+    for warning in settings.configuration_warnings():
+        logger.warning("configuration_warning %s", warning)
 
 
 @asynccontextmanager
@@ -36,6 +39,9 @@ async def lifespan(app: FastAPI):
     # Fail fast when the production database is misconfigured or unreachable.
     connect()
     ensure_indexes()
+    # Idempotent schema migrations for legacy records.
+    from app.migrations import run_migrations
+    run_migrations(get_database())
     logger.info("MongoDB connected, schema indexes ensured")
     yield
     close_connection()
@@ -62,7 +68,7 @@ class StripVercelPrefixMiddleware:
 app = FastAPI(
     title=settings.APP_NAME,
     description="AI-powered real estate decision platform",
-    version="1.2.0",
+    version="1.3.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -72,9 +78,11 @@ app = FastAPI(
 app.add_middleware(StripVercelPrefixMiddleware)
 
 # CORS middleware
+#   ``effective_cors_origins`` = configured origins minus any loopback origin
+#   outside development, so a deployed backend never trusts localhost.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
+    allow_origins=settings.effective_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -84,7 +92,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(RequestContextMiddleware)
 
 
-# ─── Security headers ───────────────────────────────────────────────────
+# â”€â”€â”€ Security headers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
@@ -100,10 +108,10 @@ async def security_headers(request: Request, call_next):
     return response
 
 
-# Global exception handler — typed AppError first, then generic fallback.
+# Global exception handler â€” typed AppError first, then generic fallback.
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    # Typed application errors → structured JSON response with code + message.
+    # Typed application errors â†’ structured JSON response with code + message.
     from app.core.errors import AppError
     if isinstance(exc, AppError):
         logger.warning(
@@ -114,7 +122,7 @@ async def global_exception_handler(request: Request, exc: Exception):
             status_code=exc.status_code,
             content={"code": exc.code, "message": exc.message},
         )
-    # Location-provider errors → 503 with provider context.
+    # Location-provider errors â†’ 503 with provider context.
     from app.providers.location import LocationProviderUnavailable
     if isinstance(exc, LocationProviderUnavailable):
         logger.warning("location_provider_error path=%s error=%s", request.url.path, exc)
@@ -122,7 +130,7 @@ async def global_exception_handler(request: Request, exc: Exception):
             status_code=503,
             content={"code": "LOCATION_PROVIDER_UNAVAILABLE", "message": str(exc)},
         )
-    # Everything else → generic 500 with no internal details leaked.
+    # Everything else â†’ generic 500 with no internal details leaked.
     logger.error("unhandled_exception path=%s error=%s", request.url.path, exc, exc_info=True)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -146,7 +154,7 @@ app.include_router(workers.router, prefix=settings.API_V1_PREFIX)
 async def root():
     return {
         "name": settings.APP_NAME,
-        "version": "1.2.0",
+        "version": "1.3.0",
         "docs": "/docs",
         "health": f"{settings.API_V1_PREFIX}/health",
     }

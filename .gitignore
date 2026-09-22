@@ -36,3 +36,29 @@ backend/*.log
 frontend/.git-backup/
 vercel.env
 migration_backup/
+
+# Playwright test artifacts (generated, never commit)
+frontend/test-results/
+frontend/playwright-report/
+frontend/.playwright/
+# Local verification / forensic artifacts (do not commit)
+backend/_build_src_openapi.py
+backend/_diag_ai.py
+backend/verify_mongo_plans.py
+backend/verify_ssrf.py
+scripts/dump_hex.py
+scripts/inspect_deployed_search_spec.py
+scripts/repair_mojibake.py
+
+# Next.js workspace scratch paths (do not commit)
+.next/cache/imports/
+.next/cache/trace/
+frontend/.next/cache/imports/
+
+# Production verification run artifacts (do not commit)
+docs/production_verification_before.json
+
+# Extra forensic/retry scripts (do not commit)
+scripts/repair_search_comment.py
+
+frontend/.next/cache/trace/

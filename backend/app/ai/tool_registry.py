@@ -28,6 +28,7 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._tools = {
             "search_properties": RegisteredTool("search_properties", "Search verified catalogue records using deterministic filters and ranking.", application_tools.SearchInput, "search_properties"),
+            "search_web_properties": RegisteredTool("search_web_properties", "Discover property listings from the web via the configured search provider. Results are web-discovered (not verified) and must be cited by result_id.", application_tools.SearchWebInput, "search_web_properties"),
             "get_property": RegisteredTool("get_property", "Get verified details for specified property IDs.", application_tools.PropertyIdsInput, "get_property"),
             "nearby_places": RegisteredTool("nearby_places", "Get current provider nearby places for one property.", application_tools.NearbyInput, "find_nearby_places"),
             "route": RegisteredTool("route", "Get an actual configured-provider route between coordinates.", application_tools.RouteInput, "calculate_route"),

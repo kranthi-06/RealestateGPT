@@ -6,15 +6,16 @@ import { useAuth } from "@/lib/auth-context";
 import { savedApi } from "@/lib/api";
 import type { SavedPropertyItem } from "@/lib/types";
 import PropertyCard from "@/components/property-card";
-import { Button } from "@/components/ui/button";
-import { Heart, Loader2, Search } from "lucide-react";
-import Link from "next/link";
+import { Loader2 } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
+import { ErrorState } from "@/components/error-state";
 
 export default function SavedPage() {
   const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
   const [savedProperties, setSavedProperties] = useState<SavedPropertyItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -25,10 +26,11 @@ export default function SavedPage() {
   const fetchSavedProperties = async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await savedApi.getSavedProperties();
       setSavedProperties(data);
-    } catch (err) {
-      console.error("Failed to fetch saved properties", err);
+    } catch {
+      setError("Your shortlist could not be retrieved. Your saved properties have not been changed.");
     } finally {
       setLoading(false);
     }
@@ -53,15 +55,16 @@ export default function SavedPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+    <div className="product-shell py-10 sm:py-14">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Saved Properties</h1>
-        <p className="text-muted-foreground mt-2">
-          Properties you have saved for later review.
+        <p className="eyebrow">Your shortlist</p>
+        <h1 className="product-heading mt-3 text-4xl sm:text-5xl">Saved for a closer look.</h1>
+        <p className="mt-3 text-muted-foreground">
+          Keep the homes worth comparing in one calm, personal workspace.
         </p>
       </div>
 
-      {savedProperties.length > 0 ? (
+      {error ? <ErrorState message={error} onRetry={fetchSavedProperties} /> : savedProperties.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {savedProperties.map((item) => (
             <PropertyCard
@@ -72,19 +75,7 @@ export default function SavedPage() {
           ))}
         </div>
       ) : (
-        <div className="text-center py-20 bg-card rounded-2xl border border-border/60 shadow-sm">
-          <Heart className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4" />
-          <h3 className="text-xl font-semibold">No saved properties yet</h3>
-          <p className="text-muted-foreground mt-2 max-w-sm mx-auto">
-            When you see a property you like, click the heart icon to save it here for easy access.
-          </p>
-          <Link href="/search">
-            <Button className="mt-6 gradient-primary text-white border-0">
-              <Search className="w-4 h-4 mr-2" />
-              Explore Properties
-            </Button>
-          </Link>
-        </div>
+        <EmptyState title="Your shortlist starts here." description="Save any home from search to keep the details, source, and freshness signal together for later." actionHref="/search" actionLabel="Explore properties" />
       )}
     </div>
   );

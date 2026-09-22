@@ -55,8 +55,9 @@ export default function LoginPage() {
               </div>
             )}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Email</label>
+              <label htmlFor="email" className="text-sm font-medium">Email</label>
               <Input
+                id="email"
                 type="email"
                 placeholder="you@example.com"
                 value={email}
@@ -65,9 +66,10 @@ export default function LoginPage() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Password</label>
+              <label htmlFor="password" className="text-sm font-medium">Password</label>
               <div className="relative">
                 <Input
+                  id="password"
                   type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
                   value={password}
@@ -96,29 +98,31 @@ export default function LoginPage() {
               </Link>
             </div>
 
-            <div className="border-t border-border/50 pt-4 mt-4">
-              <p className="text-xs text-muted-foreground text-center mb-2">Demo accounts:</p>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="text-xs"
-                  onClick={() => { setEmail("demo@realestate-gpt.com"); setPassword("Demo@123"); }}
-                >
-                  Demo User
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="text-xs"
-                  onClick={() => { setEmail("admin@realestate-gpt.com"); setPassword("Admin@123"); }}
-                >
-                  Admin User
-                </Button>
+            {process.env.NODE_ENV === 'development' && (
+              <div className="border-t border-border/50 pt-4 mt-4">
+                <p className="text-xs text-muted-foreground text-center mb-2">Demo accounts:</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => { setEmail("demo@realestate-gpt.com"); setPassword("Demo@123"); }}
+                  >
+                    Demo User
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => { setEmail("admin@realestate-gpt.com"); setPassword("Admin@123"); }}
+                  >
+                    Admin User
+                  </Button>
+                </div>
               </div>
-            </div>
+            )}
           </form>
         </CardContent>
       </Card>

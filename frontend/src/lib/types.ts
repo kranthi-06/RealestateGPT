@@ -49,8 +49,14 @@ export interface Property {
   currency?: string | null;
   price_per_sqft?: number | null;
   maintenance_charge?: number | null;
+  maintenance?: number | null;
+  security_deposit?: number | null;
+  brokerage?: number | null;
+  rent_amount?: number | null;
+  rent_period?: string | null;
   property_type: string;
   listing_type: string;
+  transaction_type?: string | null;
   bedrooms?: number | null;
   bathrooms?: number | null;
   balconies?: number | null;
@@ -68,18 +74,22 @@ export interface Property {
   city: string;
   state?: string | null;
   pincode?: string | null;
+  postal_code?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   builder_name?: string | null;
   project_name?: string | null;
   source?: string | null;
   source_id?: string | null;
+  source_listing_id?: string | null;
   source_url?: string | null;
   source_type?: string | null;
   first_seen_at?: string | null;
   last_seen_at?: string | null;
   last_verified_at?: string | null;
   status?: string;
+  stale_at?: string | null;
+  expired_at?: string | null;
   verification_status: string;
   is_featured: boolean;
   is_synthetic: boolean;
@@ -155,11 +165,18 @@ export interface SearchFilters {
   min_price?: number;
   max_price?: number;
   bedrooms?: number;
+  min_bedrooms?: number;
+  max_bedrooms?: number;
   bathrooms?: number;
   min_area?: number;
   max_area?: number;
   furnishing?: string;
   amenities?: string[];
+  parking?: number;
+  floor?: number;
+  min_floor?: number;
+  max_floor?: number;
+  construction_status?: string;
   latitude?: number;
   longitude?: number;
   radius_km?: number;
@@ -167,6 +184,62 @@ export interface SearchFilters {
   sort_order?: string;
   page?: number;
   page_size?: number;
+}
+
+export interface PriceHistoryEntry {
+  changed_at?: string | null;
+  old_price?: number | null;
+  new_price?: number | null;
+  change_type?: string | null;
+}
+
+export interface PriceIntelligence {
+  property_id: number;
+  available: boolean;
+  current_price?: number | null;
+  previous_price?: number | null;
+  price_change_pct?: number | null;
+  price_per_sqft?: number | null;
+  rent_amount?: number | null;
+  rent_period?: string | null;
+  rent_per_sqft?: number | null;
+  observations: number;
+  change_observations: number;
+  enough_history: boolean;
+  history: PriceHistoryEntry[];
+  message?: string | null;
+  calculated_at?: string | null;
+}
+
+export interface WorkerRun {
+  worker_name: string;
+  run_id: string;
+  status: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  duration_ms?: number | null;
+  processed_count: number;
+  success_count: number;
+  failure_count: number;
+  skipped_count: number;
+  error_summary?: string | null;
+  extra: Record<string, unknown>;
+}
+
+export interface WorkerStatus {
+  property_provider: string;
+  property_provider_configured: boolean;
+  provider_message: string;
+  location_provider: string;
+  last_runs: Record<string, {
+    status?: string;
+    started_at?: string | null;
+    processed_count?: number;
+    success_count?: number;
+    failure_count?: number;
+    skipped_count?: number;
+    error_summary?: string | null;
+  }>;
 }
 
 export interface AdminStats {
@@ -202,11 +275,16 @@ export interface SearchIntent {
   city?: string | null;
   locality?: string | null;
   property_type?: string | null;
+  listing_type?: string;
   bedrooms?: number | null;
+  bathrooms?: number | null;
   min_price?: number | null;
   max_price?: number | null;
+  furnishing?: string | null;
   transport_requirement?: string | null;
   nearby_requirements: { type: string; max_distance_km: number }[];
+  intent?: string;
+  keywords?: string[];
 }
 
 export interface DiscoverySearchResponse {
@@ -216,6 +294,79 @@ export interface DiscoverySearchResponse {
   results: AiSearchResult[];
   warning?: string | null;
   metrics: Record<string, number>;
+}
+export interface WebDiscoveryCard {
+  id: string;
+  title: string;
+  url: string;
+  source_domain: string;
+  source_name?: string | null;
+  description?: string | null;
+  price?: number | null;
+  currency?: string;
+  transaction_type?: string | null;
+  bedrooms?: number | null;
+  bathrooms?: number | null;
+  area?: number | null;
+  area_unit?: string | null;
+  area_sqft?: number | null;
+  location_text?: string | null;
+  city?: string | null;
+  locality?: string | null;
+  furnishing?: string | null;
+  image_url?: string | null;
+  confidence: number;
+  extraction_method?: string;
+  provider: string;
+  discovered_at: string;
+  page_fetched_at?: string | null;
+  page_age?: string | null;
+  freshness_label: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  rank_score?: number | null;
+  saved?: boolean;
+  verification_status: string; // "web_discovery"
+}
+
+export interface WebDiscoveryDetail extends WebDiscoveryCard {
+  query?: string | null;
+  query_hash?: string | null;
+  source_listing_id?: string | null;
+  raw_metadata_summary?: Record<string, unknown> | null;
+}
+
+export interface UnifiedSearchRequest {
+  query: string;
+  location?: { latitude?: number; longitude?: number; radius_km?: number };
+  filters?: SearchFilters;
+  include_web: boolean;
+  limit?: number;
+}
+
+export interface SearchMetadata {
+  web_search_used: boolean;
+  provider?: string | null;
+  provider_status?: string | null;
+  retrieved_at?: string | null;
+  cache_hit: boolean;
+  stale_cache_used: boolean;
+  queries_used: string[];
+  counts: Record<string, number>;
+  web_message?: string | null;
+  latency_ms?: Record<string, number>;
+}
+
+export interface UnifiedSearchResponse {
+  query: string;
+  parsed?: SearchIntent | null;
+  verified_properties: Property[];
+  verified_total: number;
+  web_discoveries: WebDiscoveryCard[];
+  web_total: number;
+  sections: SearchSection[];
+  facets: Record<string, unknown>;
+  metadata: SearchMetadata;
 }
 
 export interface AssistantResponse {

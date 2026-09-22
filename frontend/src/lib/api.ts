@@ -8,6 +8,14 @@ import type {
   SavedSearch,
   Comparison,
   SearchFilters,
+  SearchSectionsResponse,
+  SearchIntent,
+  PriceIntelligence,
+  WorkerStatus,
+  WorkerRun,
+  WebDiscoveryDetail,
+  UnifiedSearchRequest,
+  UnifiedSearchResponse,
   AdminStats,
   AdminUser,
   AuditLog,
@@ -24,11 +32,12 @@ import type {
   RentalYield,
   Roi,
 } from "./types";
+import { resolveApiBase } from "./api-base";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = resolveApiBase();
 const API_V1 = `${API_BASE}/api/v1`;
 
-class ApiError extends Error {
+export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
     super(message);
@@ -78,7 +87,7 @@ async function request<T>(
   return res.json();
 }
 
-// ─── Auth ──────────────────────────────────
+// â”€â”€â”€ Auth â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export const authApi = {
   register: (data: {
@@ -102,7 +111,7 @@ export const authApi = {
   }) => request<User>("/auth/me", { method: "PUT", body: JSON.stringify(data) }),
 };
 
-// ─── Properties ────────────────────────────
+// â”€â”€â”€ Properties â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export const propertiesApi = {
   list: (filters: SearchFilters = {}) => {
@@ -116,6 +125,9 @@ export const propertiesApi = {
   },
 
   get: (id: number) => request<Property>(`/properties/${id}`),
+
+  priceIntelligence: (id: number) =>
+    request<PriceIntelligence>(`/properties/${id}/price-intelligence`),
 
   bulk: (property_ids: number[]) =>
     request<Property[]>("/properties/bulk", {
@@ -133,7 +145,7 @@ export const propertiesApi = {
     request<string[]>(`/properties/localities?city=${encodeURIComponent(city)}`),
 };
 
-// ─── Saved ─────────────────────────────────
+// â”€â”€â”€ Saved â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export const savedApi = {
   saveProperty: (property_id: number, notes?: string) =>
@@ -163,7 +175,7 @@ export const savedApi = {
     request<{ message: string }>(`/saved/searches/${id}`, { method: "DELETE" }),
 };
 
-// ─── Comparisons ───────────────────────────
+// â”€â”€â”€ Comparisons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export const comparisonsApi = {
   create: (property_ids: number[], name?: string) =>
@@ -180,7 +192,7 @@ export const comparisonsApi = {
     request<{ message: string }>(`/saved/comparisons/${id}`, { method: "DELETE" }),
 };
 
-// ─── Grounded AI ───────────────────────────
+// â”€â”€â”€ Grounded AI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export const aiApi = {
   assistant: (data: { message: string; conversation_id?: number; property_id?: number; compare_ids?: number[] }) =>
@@ -189,12 +201,69 @@ export const aiApi = {
     request<DiscoverySearchResponse>("/ai/search", { method: "POST", body: JSON.stringify(data) }),
 };
 
+// â”€â”€â”€ Dynamic search sections + intent parsing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+export const searchApi = {
+  sections: (filters: SearchFilters) => {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") {
+        params.append(key, String(value));
+      }
+    });
+    return request<SearchSectionsResponse>(`/search/sections?${params.toString()}`);
+  },
+
+  parse: (q: string) =>
+    request<SearchIntent & { raw_text: string }>(`/search/parse?q=${encodeURIComponent(q)}`).then(
+      (res) => res,
+      (err: unknown) => {
+        // Production backends deployed behind /api/backend may not expose
+        // /search/parse yet (backend drift). When the endpoint is genuinely
+        // missing (404/405) in production, degrade gracefully to "no interpreted
+        // intent" instead of surfacing a crash. Do NOT swallow real validation
+        // errors (422) from a backend that does implement the endpoint.
+        if (err instanceof ApiError && err.status !== 200) {
+          if (err.status === 404 || err.status === 405) {
+            return null as unknown as SearchIntent & { raw_text: string };
+          }
+          throw err;
+        }
+        throw err;
+      }
+    ),
+
+  nearMe: (data: {
+    latitude: number;
+    longitude: number;
+    radius_km: number;
+    q?: string;
+    property_type?: string;
+    listing_type?: string;
+  }) => request<PropertyListResponse>("/search/near-me", { method: "POST", body: JSON.stringify(data) }),
+
+  unified: (data: UnifiedSearchRequest) =>
+    request<UnifiedSearchResponse>("/search", { method: "POST", body: JSON.stringify(data) }),
+};
+
 export const locationsApi = {
   status: () => request<MapProviderStatus>("/locations/status"),
   nearby: (propertyId: number, category: string, radiusKm = 3, travelMode = "WALK") => request<LiveNearbyResponse>(`/locations/properties/${propertyId}/nearby?category=${encodeURIComponent(category)}&radius_km=${radiusKm}&travel_mode=${travelMode}`),
 };
-
-// ─── Financial intelligence ─────────────────────────────
+export const discoveryApi = {
+  get: (discoveryId: string) =>
+    request<WebDiscoveryDetail>(`/search/discoveries/${encodeURIComponent(discoveryId)}`),
+  save: (discoveryId: string) =>
+    request<{ discovery_id: string; saved: boolean; message: string }>(
+      `/search/discoveries/${encodeURIComponent(discoveryId)}/save`,
+      { method: "POST" }
+    ),
+  unsave: (discoveryId: string) =>
+    request<{ discovery_id: string; saved: boolean; message: string }>(
+      `/search/discoveries/${encodeURIComponent(discoveryId)}/save`,
+      { method: "DELETE" }
+    ),
+};
 
 export const financeApi = {
   emi: (data: { principal: number; annual_interest_rate: number; tenure_years: number }) =>
@@ -215,7 +284,7 @@ export const financeApi = {
   fairness: (propertyId: number) => request<PriceFairness>(`/finance/properties/${propertyId}/fairness`),
 };
 
-// ─── Admin ─────────────────────────────────
+// â”€â”€â”€ Admin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export const adminApi = {
   getStats: () => request<AdminStats>("/admin/stats"),
@@ -238,10 +307,24 @@ export const adminApi = {
     request<{ message: string }>(`/admin/properties/${propertyId}/verify?status=${encodeURIComponent(status)}`, { method: "PUT" }),
 };
 
-// ─── Health ────────────────────────────────
+// â”€â”€â”€ Health â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export const healthApi = {
   check: () => request<{ status: string }>("/health"),
 };
 
-export { ApiError };
+// â”€â”€â”€ Worker scheduler / monitoring â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+export const workersApi = {
+  // No secrets are exposed to the browser; triggering runs requires an admin JWT.
+  status: () => request<WorkerStatus>("/workers/status"),
+  runs: (workerName: string, limit = 10) =>
+    request<{ runs: WorkerRun[]; total: number }>(
+      `/workers/runs?worker_name=${encodeURIComponent(workerName)}&limit=${limit}`
+    ),
+  trigger: (workerName: string) =>
+    request<Record<string, unknown>>(`/workers/run/${workerName}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }),
+};

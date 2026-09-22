@@ -16,7 +16,7 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "service": "RealEstateGPT API",
-        "version": "1.1.0",
+        "version": "1.3.0",
     }
 
 
@@ -49,3 +49,26 @@ async def location_health():
     except Exception as exc:  # noqa: BLE001 - controlled configuration failure
         return {"status": "unhealthy", "error": str(exc)}
     return {"status": "healthy", "provider": provider.name, "configured": True}
+
+
+@router.get("/web-search")
+async def web_search_health():
+    """Report web-search provider configuration + health snapshot (no secrets)."""
+    from app.providers.web_search.models import WebSearchProviderStatus
+    from app.providers.web_search.registry import web_search_health
+
+    snapshot = web_search_health().snapshot()
+    if not settings.web_search_configured:
+        snapshot.status = "not_configured"
+    elif not settings.WEB_DISCOVERY_ENABLED:
+        snapshot.status = "unavailable"
+    status = snapshot.model_dump()
+    status["configured"] = settings.web_search_configured
+    status["enabled"] = settings.WEB_DISCOVERY_ENABLED
+    if not settings.web_search_configured:
+        status["message"] = "Web discovery is not configured yet."
+    elif not settings.WEB_DISCOVERY_ENABLED:
+        status["message"] = "Web discovery is disabled by WEB_DISCOVERY_ENABLED=false."
+    else:
+        status["message"] = "Provider status is derived from live request metrics."
+    return status

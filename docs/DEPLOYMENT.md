@@ -53,10 +53,18 @@ All `/api/backend/*` requests are rewritten to the Python backend.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `NEXT_PUBLIC_API_URL` | ✅ | Backend API URL (e.g., `https://your-app.vercel.app`) |
+| `NEXT_PUBLIC_API_URL` | ✅ | Backend service base: `https://your-app.vercel.app/api/backend` |
 
 > **⚠️ Security**: Never prefix backend secrets with `NEXT_PUBLIC_`.
 > Only `NEXT_PUBLIC_API_URL` should be browser-visible.
+
+### API base convention
+
+`NEXT_PUBLIC_API_URL` is the base before `/api/v1`; `frontend/src/lib/api.ts`
+is the sole browser client that appends `/api/v1`. For this multi-service
+Vercel project its production value is
+`https://realestate-gpt-inky.vercel.app/api/backend`. Browser callers must not
+assemble `/api/v1` or `/api/backend` URLs independently.
 
 ---
 
@@ -75,6 +83,7 @@ vercel env add MONGODB_URI production
 vercel env add SECRET_KEY production
 vercel env add GROQ_API_KEY production
 vercel env add NEXT_PUBLIC_API_URL production
+vercel env add CRON_SECRET production
 ```
 
 ### 3. Deploy
@@ -82,6 +91,17 @@ vercel env add NEXT_PUBLIC_API_URL production
 ```bash
 vercel --prod
 ```
+
+### Scheduled workers
+
+`vercel.json` defines two daily production-only Cron jobs: inventory at 02:15
+UTC and maintenance at 02:45 UTC. Set a long, distinct `CRON_SECRET` on the
+**backend** service. Vercel supplies it as a bearer token to the protected
+`/api/v1/workers/cron/*` routes; it is never browser-visible. The jobs reuse
+MongoDB worker leases, so a retry or a manual run cannot overlap the same
+worker. For provider workloads that exceed the Vercel function duration,
+replace only the scheduler with an external service that calls the existing
+secret-protected single-worker endpoint.
 
 ### 4. Seed Database (first deployment only)
 

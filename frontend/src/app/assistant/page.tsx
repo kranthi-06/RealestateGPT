@@ -32,7 +32,8 @@ export default function AssistantPage() {
     const prompt = new URLSearchParams(window.location.search).get("prompt")?.trim()
       || sessionStorage.getItem("assistant_draft")?.trim();
     if (prompt) {
-      queueMicrotask(() => setText(prompt));
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setText(prompt);
       sessionStorage.removeItem("assistant_draft");
     }
   }, [isAuthenticated]);
@@ -73,7 +74,7 @@ export default function AssistantPage() {
         <h1 className="text-3xl font-bold tracking-tight">Property decision assistant</h1>
         <p className="mt-2 text-muted-foreground">Search real listings conversationally. Every recommendation is grounded in platform data.</p>
       </div>
-      <Card className="min-h-[480px] border-border/60 p-4 sm:p-6">
+      <Card className="min-h-[480px] border-border/60 surface-inset p-4 sm:p-6">
         {messages.length === 0 ? (
           <div className="flex min-h-[350px] flex-col items-center justify-center text-center">
             <Brain className="mb-4 size-10 text-primary/60" />

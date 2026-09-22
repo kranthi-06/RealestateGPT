@@ -39,6 +39,16 @@ WORKER_FUNCTIONS = {
     "stale_listing_worker": ("app.workers.stale", "run_stale_detection"),
     "geocoding_worker": ("app.workers.geocoding", "run_geocoding"),
     "price_history_worker": ("app.workers.price_history", "run_price_history_normalizer"),
+    "web_discovery_cleanup": ("app.workers.web_discovery_cleanup", "run_web_discovery_cleanup"),
+    "web_discovery_refresh": ("app.workers.web_discovery_refresh", "run_web_discovery_refresh"),
+}
+
+# These jobs are intentionally bounded and run no more than once per day on
+# Vercel's free-tier-compatible Cron cadence. Each worker holds its own MongoDB
+# lease, so a retry or manual run cannot process the same work concurrently.
+CRON_JOBS = {
+    "inventory": ("property_ingestion", "property_refresh", "geocoding_worker"),
+    "maintenance": ("price_history_worker", "stale_listing_worker", "web_discovery_cleanup"),
 }
 
 
@@ -50,6 +60,21 @@ def _verify_secret(worker_secret: Optional[str], admin: Optional[User]) -> bool:
     if not expected or not secret:
         return False
     return hmac.compare_digest(secret, expected)
+
+
+def _verify_cron_secret(authorization: Optional[str]) -> bool:
+    expected = (settings.CRON_SECRET or "").strip()
+    if not expected or not authorization:
+        return False
+    scheme, _, token = authorization.partition(" ")
+    return scheme.lower() == "bearer" and hmac.compare_digest(token.strip(), expected)
+
+
+async def _run_worker_function(db, worker_name: str) -> Dict[str, Any]:
+    module_name, function_name = WORKER_FUNCTIONS[worker_name]
+    module = __import__(module_name, fromlist=[function_name])
+    fn = getattr(module, function_name)
+    return await asyncio.to_thread(fn, db)
 
 
 async def _optional_admin(user: Optional[User] = Depends(get_optional_user)) -> Optional[User]:
@@ -79,16 +104,43 @@ async def run_worker(
             detail="Missing or invalid worker secret. Set X-Worker-Secret or use an admin token.",
         )
 
-    module_name, function_name = WORKER_FUNCTIONS[worker_name]
     try:
-        module = __import__(module_name, fromlist=[function_name])
-        fn = getattr(module, function_name)
-        result = await asyncio.to_thread(fn, db)
+        result = await _run_worker_function(db, worker_name)
     except Exception:
         logger.exception("worker_trigger_failed worker=%s", worker_name)
         raise HTTPException(status_code=502, detail="Worker execution failed. Check backend logs.")
 
     return _record_run(worker_name, result)
+
+
+@router.get("/cron/{job_name}")
+async def run_cron_job(
+    job_name: str,
+    db = Depends(get_db),
+    authorization: Optional[str] = Header(None),
+):
+    """Run a bounded Vercel Cron job.
+
+    Vercel supplies ``Authorization: Bearer <CRON_SECRET>`` for production
+    cron invocations. This endpoint never accepts browser credentials and does
+    not reveal the configured secret in either responses or logs.
+    """
+    if job_name not in CRON_JOBS:
+        raise HTTPException(status_code=404, detail="Unknown cron job.")
+    if not _verify_cron_secret(authorization):
+        raise HTTPException(status_code=401, detail="Invalid cron authorization.")
+
+    runs = []
+    for worker_name in CRON_JOBS[job_name]:
+        try:
+            result = await _run_worker_function(db, worker_name)
+        except Exception:
+            logger.exception("cron_worker_failed job=%s worker=%s", job_name, worker_name)
+            # A non-2xx response makes the failure visible in Vercel's Cron
+            # logs. Locks keep any retry safe.
+            raise HTTPException(status_code=502, detail=f"Cron worker failed: {worker_name}")
+        runs.append(_record_run(worker_name, result))
+    return {"job": job_name, "runs": runs}
 
 
 @router.get("/status", response_model=WorkerStatusResponse)
@@ -119,8 +171,28 @@ async def worker_status(db = Depends(get_db)):
         property_provider_configured=configured,
         provider_message=None if configured else provider_configuration_error(),
         location_provider=settings.LOCATION_PROVIDER,
+        web_search_provider=_web_search_snapshot(),
         last_runs=last_runs,
     )
+
+
+def _web_search_snapshot() -> Dict[str, Any]:
+    """Provider health snapshot (metrics only — never the API key)."""
+    try:
+        from app.providers.web_search.registry import web_search_health
+
+        status = web_search_health().snapshot()
+        snapshot = status.model_dump()
+        snapshot["configured"] = settings.web_search_configured
+        snapshot["enabled"] = settings.WEB_DISCOVERY_ENABLED
+        return snapshot
+    except Exception as exc:  # noqa: BLE001 - status endpoint must never fail
+        return {
+            "status": "unavailable",
+            "configured": settings.web_search_configured,
+            "enabled": settings.WEB_DISCOVERY_ENABLED,
+            "error": str(exc)[:200],
+        }
 
 
 @router.get("/runs", response_model=WorkerRunListResponse)
@@ -159,15 +231,13 @@ async def worker_runs(
 
 
 def _record_run(worker_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
-    if result.get("skipped"):
-        return {
-            "worker_name": worker_name,
-            "status": "skipped",
-            "run_id": result.get("run_id"),
-            "reason": result.get("reason"),
-            "message": result.get("error_summary"),
-        }
-    return {
+    """Project a worker's summary into a JSON-safe response.
+
+    Only the worker's own non-sensitive counters/status are exposed — provider
+    credentials and raw records never appear here.
+    """
+    skip = {"error_summary"}
+    base: Dict[str, Any] = {
         "worker_name": worker_name,
         "status": result.get("status", "completed"),
         "run_id": result.get("run_id"),
@@ -175,7 +245,14 @@ def _record_run(worker_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
         "success": result.get("success", result.get("updated", 0)),
         "failure": result.get("failure", result.get("failed", 0) or result.get("rejected", 0)),
         "skipped": result.get("skipped", 0),
-        "added": result.get("added"),
-        "updated": result.get("updated"),
-        "created": result.get("created_count"),
     }
+    if result.get("skipped") is True:
+        base["reason"] = result.get("reason", "lock_busy")
+        base["message"] = result.get("error_summary")
+    # Pass through worker-specific KPIs (added/updated/stale/expired/normalised...)
+    for key, value in result.items():
+        if key in skip or key in base:
+            continue
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            base[key] = value
+    return base

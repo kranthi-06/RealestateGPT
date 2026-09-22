@@ -55,19 +55,23 @@ class LockResult:
 
 def acquire_lock(db, lock_id: str, ttl_seconds: Optional[int] = None) -> LockResult:
     """Try to acquire (or reclaim) a worker lock. Never blocks."""
-    ttl = ttl_seconds or settings.WORKER_LOCK_TTL_SECONDS
+    let_ttl = ttl_seconds or settings.WORKER_LOCK_TTL_SECONDS
     owner = uuid.uuid4().hex
     now = _utcnow()
     locks = db["worker_locks"]
 
-    # Fast path: brand-new lock document.
+    # Fast path: brand-new lock document. Lease starts immediately.
     try:
-        locks.insert_one({"_id": lock_id, "locked_until": now, "owner": owner})
+        locks.insert_one({
+            "_id": lock_id,
+            "locked_until": now + timedelta(seconds=let_ttl),
+            "owner": owner,
+        })
         return LockResult(acquired=True, owner=owner)
     except Exception:
         pass  # DuplicateKeyError -> fall through to lease check
 
-    # Lease path: reclaim when expired OR (defensive) when the owner died.
+    # Lease path: reclaim when expired.
     reclaimed = locks.find_one_and_update(
         {
             "_id": lock_id,
@@ -75,7 +79,7 @@ def acquire_lock(db, lock_id: str, ttl_seconds: Optional[int] = None) -> LockRes
         },
         {
             "$set": {
-                "locked_until": now + timedelta(seconds=ttl),
+                "locked_until": now + timedelta(seconds=let_ttl),
                 "owner": owner,
                 "recovered": True,
             }

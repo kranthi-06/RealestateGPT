@@ -36,6 +36,24 @@ npm run lint
 npm run build
 ```
 
+For browser smoke tests against an intentionally selected deployment:
+
+```text
+E2E_BASE_URL=https://your-deployment.vercel.app npx playwright test
+```
+
+The CI workflow must wait until Vercel reports that the deployment for the
+tested commit is ready before running this command. Running it immediately
+after a push can otherwise test the previous production artifact.
+
+## Local service verification
+
+Use an isolated MongoDB database for the complete backend suite; do not point
+tests at a production Atlas database. The local SearXNG compose project is
+development-only. A valid JSON response with zero results means the provider
+was reached but supplied no listings; it must not be treated as a successful
+property-inventory test.
+
 External provider and deployed Vercel checks remain separate live tests. A
 passing build alone never demonstrates deployed database, provider, or browser
 functionality.

@@ -99,6 +99,15 @@ class SavePropertyInput(BaseModel):
     property_id: int
     notes: Optional[str] = Field(None, max_length=1000)
 
+class SearchWebInput(BaseModel):
+    query: str = Field(..., min_length=1, max_length=1000)
+    city: Optional[str] = None
+    locality: Optional[str] = None
+    property_type: Optional[str] = None
+    bedrooms: Optional[int] = Field(None, ge=0, le=20)
+    min_price: Optional[float] = Field(None, ge=0)
+    max_price: Optional[float] = Field(None, ge=0)
+    limit: int = Field(8, ge=1, le=20)
 
 @dataclass
 class Tool:
@@ -172,6 +181,68 @@ def _tool_nearby(db, user, parsed: NearbyInput) -> dict:
         return {"place_type": parsed.place_type, "radius_km": parsed.radius_km, "places": places}
     context = location.property_context(parsed.property_id)
     return {"places": context.get("all_places", []), "categories": context.get("categories", [])}
+
+def _tool_search_web(db, user, parsed: SearchWebInput) -> dict:
+    """Bounded web discovery through the backend (never arbitrary browsing).
+
+    Returns normalized candidates only. The AI receives the SAME shape the
+    frontend cards use and must cite results by ``result_id`` (e.g. WEB-001).
+    """
+    from app.ai.query_parser import parse_query
+    from app.core.config import settings
+    from app.discovery.service import WebDiscoveryService
+    from app.providers.web_search.models import WebSearchNotConfiguredError, WebSearchUnavailableError
+
+    intent = parse_query(parsed.query or "")
+    if not intent.city and parsed.city:
+        intent.city = parsed.city
+    if not intent.locality and parsed.locality:
+        intent.locality = parsed.locality
+    try:
+        outcome = WebDiscoveryService(db).discover(
+            intent,
+            max_queries=settings.WEB_SEARCH_MAX_QUERIES,
+            max_results=min(parsed.limit, settings.WEB_SEARCH_MAX_RESULTS),
+            enrich=False,
+        )
+    except (WebSearchNotConfiguredError, WebSearchUnavailableError) as exc:
+        return {"status": "unavailable", "code": exc.code, "message": exc.message, "results": []}
+
+    results = []
+    for index, card in enumerate(outcome.cards[: parsed.limit]):
+        results.append({
+            "result_id": f"WEB-{index + 1:03d}",
+            "discovery_id": card.get("id"),
+            "title": card.get("title"),
+            "price": card.get("price"),
+            "currency": card.get("currency"),
+            "transaction_type": card.get("transaction_type"),
+            "bedrooms": card.get("bedrooms"),
+            "area": card.get("area"),
+            "area_unit": card.get("area_unit"),
+            "location": card.get("location_text") or card.get("locality") or card.get("city"),
+            "source": card.get("source_name") or card.get("source_domain"),
+            "source_domain": card.get("source_domain"),
+            "url": card.get("url"),
+            "description": card.get("description"),
+            "confidence": card.get("confidence"),
+            "freshness_label": card.get("freshness_label"),
+            "verification_status": "web_discovery",  # NEVER verified inventory
+        })
+    return {
+        "status": outcome.status,
+        "code": outcome.code,
+        "message": outcome.message,
+        "provider": outcome.provider,
+        "sources_searched": outcome.sources_searched,
+        "total": len(results),
+        "results": results,
+        "meta": {
+            "cache_hit": outcome.cache_hit,
+            "stale_cache_used": outcome.stale_cache_used,
+            "queries_used": outcome.queries_used,
+        },
+    }
 
 
 def _tool_distance(db, user, parsed: DistanceInput) -> dict:
@@ -255,6 +326,11 @@ TOOLS: List[Tool] = [
     Tool("search_properties",
          "Search the property catalogue with filters or natural language and return ranked matches with match scores.",
          SearchInput, False, _tool_search),
+    Tool("search_web_properties",
+         "Discover property listings from the web via the configured search provider (bounded, cached). "
+         "Results are WEB-DISCOVERED, never verified inventory; cite them by result_id (e.g. WEB-001) and "
+         "never invent prices, area, BHK or availability that the returned fields do not contain.",
+         SearchWebInput, False, _tool_search_web),
     Tool("get_property",
          "Fetch full details for one or more properties by ID.",
          PropertyIdsInput, False, _tool_get_property),

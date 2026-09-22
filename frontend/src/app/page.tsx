@@ -100,15 +100,15 @@ export default function LandingPage() {
         <div className="pointer-events-none absolute -bottom-40 left-0 size-[28rem] rounded-full bg-[#f1e4d2] blur-3xl" />
 
         <div className="relative mx-auto grid max-w-7xl gap-12 px-4 py-16 sm:px-6 sm:py-20 lg:grid-cols-[0.92fr_1.08fr] lg:items-center lg:gap-16 lg:px-8 lg:py-24">
-          <div className="max-w-xl">
-            <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-[#ced9d0] bg-white/70 px-3 py-1.5 text-xs font-semibold tracking-[0.16em] text-[#315b4b] shadow-sm uppercase">
+          <div className="max-w-xl animate-fade-in">
+            <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-[#ced9d0] bg-white/70 px-3 py-1.5 text-xs font-semibold tracking-[0.16em] text-[#315b4b] shadow-sm uppercase animate-slide-up stagger-1">
               <Sparkles className="size-3.5" />
               A calmer way to buy a home
             </div>
-            <h1 className="font-display text-5xl leading-[0.98] tracking-[-0.055em] text-[#162620] sm:text-6xl lg:text-7xl">
+            <h1 className="font-display text-5xl leading-[0.98] tracking-[-0.055em] text-[#162620] sm:text-6xl lg:text-7xl animate-slide-up stagger-2">
               The home search should start with your story.
             </h1>
-            <p className="mt-7 max-w-lg text-lg leading-8 text-[#56645e] sm:text-xl">
+            <p className="mt-7 max-w-lg text-lg leading-8 text-[#56645e] sm:text-xl animate-slide-up stagger-3">
               Tell RealEstateGPT how you want life to feel. It turns your brief into a considered shortlist—grounded in property facts and connected location data.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3 text-sm text-[#4f6158]">
@@ -125,7 +125,7 @@ export default function LandingPage() {
             </div>
           </div>
 
-          <div className="relative mx-auto w-full max-w-2xl lg:mx-0">
+          <div className="relative mx-auto w-full max-w-2xl lg:mx-0 animate-reveal stagger-3">
             <div className="absolute -inset-5 -z-10 rounded-[2.25rem] bg-[#dce9e0]/70 blur-2xl" />
             <div className="overflow-hidden rounded-[1.65rem] border border-[#d5ddd5] bg-[#fffefb] shadow-[0_28px_80px_-28px_rgba(24,49,40,0.38)]">
               <div className="flex items-center justify-between border-b border-[#e5e4de] px-5 py-4 sm:px-6">
@@ -254,7 +254,7 @@ export default function LandingPage() {
       <footer className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-10 text-sm text-[#6e7771] sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8">
         <div className="flex items-center gap-2 font-semibold text-[#2b4439]"><span className="flex size-8 items-center justify-center rounded-lg bg-[#1d3c31] text-white"><Building2 className="size-4" /></span>RealEstateGPT</div>
         <div className="flex gap-5"><Link href="/search" className="hover:text-[#1d3c31]">Explore homes</Link><Link href="/assistant" className="hover:text-[#1d3c31]">AI assistant</Link><Link href="/auth/register" className="hover:text-[#1d3c31]">Create account</Link></div>
-        <p>Demo catalogue only—not real listings.</p>
+        <p>Inventory comes from licensed property providers. Every listing is clearly marked when it is sample data.</p>
       </footer>
     </div>
   );

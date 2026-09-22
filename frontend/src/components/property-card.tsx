@@ -18,7 +18,7 @@ import {
   Clock
 } from "lucide-react";
 import type { Property } from "@/lib/types";
-import { formatPrice, formatArea, getBedroomLabel, getPropertyTypeLabel, getFurnishingLabel } from "@/lib/format";
+import { formatPrice, formatArea, getBedroomLabel } from "@/lib/format";
 import { savedApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useState, useCallback } from "react";
@@ -74,16 +74,17 @@ export default function PropertyCard({
     : (property.last_seen_at ? formatDistanceToNow(new Date(property.last_seen_at), { addSuffix: true }) : null);
 
   return (
-    <Link href={`/properties/${property.id}`} className="block h-full outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-xl">
-      <Card className="group overflow-hidden border border-border/40 bg-card hover:border-primary/30 hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all duration-300 cursor-pointer h-full flex flex-col rounded-xl">
+    <Link href={`/properties/${property.id}`} className="block h-full outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-[1.25rem]">
+      <Card className="group overflow-hidden border border-border/40 surface-raised hover:border-primary/30 hover:-translate-y-1 transition-all duration-300 cursor-pointer h-full flex flex-col rounded-[1.25rem]">
         <div className="relative h-56 bg-muted overflow-hidden">
           {primaryImage ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img 
+            <Image 
               src={primaryImage} 
               alt={property.title} 
+              width={600}
+              height={400}
               className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500 ease-out"
-              loading="lazy"
+              unoptimized
             />
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground/50 gap-2">

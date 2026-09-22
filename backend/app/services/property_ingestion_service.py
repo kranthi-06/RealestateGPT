@@ -462,8 +462,12 @@ class PropertyIngestionService:
         )
         if not address:
             return
+        now = _now()
         self.repository.db["geocode_queue"].update_one(
             {"property_id": property_.id, "status": {"$in": ["pending", "failed"]}},
-            {"$set": {"address": address, "updated_at": _now()}},
+            {
+                "$set": {"address": address, "updated_at": now},
+                "$setOnInsert": {"status": "pending", "created_at": now},
+            },
             upsert=True,
         )

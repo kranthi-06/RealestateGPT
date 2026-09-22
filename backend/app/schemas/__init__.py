@@ -462,8 +462,9 @@ class WorkerRunListResponse(BaseModel):
 class WorkerStatusResponse(BaseModel):
     property_provider: str
     property_provider_configured: bool
-    provider_message: str
-    location_provider: str
+    provider_message: str = ""
+    location_provider: str = ""
+    web_search_provider: Optional[dict] = None  # health snapshot (no secrets)
     last_runs: dict = Field(default_factory=dict)  # worker_name -> latest run summary
 
 
@@ -532,4 +533,13 @@ from app.schemas.documents_admin import (  # noqa: E402
     AdminPropertyListResponse,
     AuditLogResponse,
     AdminAiUsageResponse,
+)
+from app.schemas.discovery import (  # noqa: E402
+    SearchMetadata,
+    UnifiedSearchRequest,
+    UnifiedSearchResponse,
+    WebDiscoveryCard,
+    WebDiscoveryDetail,
+    WebDiscoveryListResponse,
+    WebDiscoverySaveResponse,
 )

@@ -1,4 +1,4 @@
-"""RealEstateGPT - Admin API routes.
+﻿"""RealEstateGPT - Admin API routes.
 
 Every route in this module requires the server-side ``admin`` role. No route
 here ever trusts a client-supplied role flag.
@@ -6,6 +6,7 @@ here ever trusts a client-supplied role flag.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -96,6 +97,55 @@ async def update_admin_user(
     return AdminUserResponse.model_validate(updated)
 
 
+@router.get("/web-discovery")
+async def admin_web_discovery_status(
+    current_user: User = Depends(get_current_admin),
+    db = Depends(get_db),
+):
+    """Admin view of the web discovery layer (sources + provider health + cache)."""
+    from app.core.config import settings
+    from app.discovery.sources import get_sources
+    from app.providers.web_search.registry import web_search_health
+
+    health = web_search_health().snapshot().model_dump()
+    health["configured"] = settings.web_search_configured
+    health["enabled"] = settings.WEB_DISCOVERY_ENABLED
+
+    sources = [
+        {
+            "name": source.name,
+            "domain": source.domain,
+            "enabled": source.enabled,
+            "discovery_allowed": source.discovery_allowed,
+            "page_fetch_allowed": source.page_fetch_allowed,
+            "requires_permission": source.requires_permission,
+            "categories": list(source.categories),
+        }
+        for source in get_sources()
+    ]
+
+    counts = {}
+    try:
+        counts["discoveries"] = db["web_property_discoveries"].count_documents({})
+        counts["cache_entries"] = db["web_search_cache"].count_documents({})
+        counts["expired_cache"] = db["web_search_cache"].count_documents({"expires_at": {"$lt": datetime.now(timezone.utc)}})
+        counts["recent_discoveries"] = db["web_property_discoveries"].count_documents({"discovered_at": {"$gt": datetime.now(timezone.utc) - timedelta(hours=24)}})
+    except Exception as exc:  # noqa: BLE001 - admin endpoint must not fail
+        counts["error"] = str(exc)[:200]
+
+    return {
+        "provider": health,
+        "sources": sources,
+        "config": {
+            "max_queries": settings.WEB_SEARCH_MAX_QUERIES,
+            "max_results": settings.WEB_SEARCH_MAX_RESULTS,
+            "cache_ttl_seconds": settings.WEB_SEARCH_CACHE_TTL_SECONDS,
+            "osm_enrich_limit": settings.WEB_DISCOVERY_OSM_ENRICH_LIMIT,
+            "allowed_domains": settings.web_search_allowed_domains,
+        },
+        "collections": counts,
+        "message": "Web discovery results are short-lived and never presented as verified inventory.",
+    }
 @router.get("/properties", response_model=AdminPropertyListResponse)
 async def list_admin_properties(
     page: int = Query(1, ge=1),

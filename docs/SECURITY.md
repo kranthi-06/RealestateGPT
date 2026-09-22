@@ -74,9 +74,12 @@ User input is never interpolated into query operators:
 | Auth | Per IP, auth endpoints | 10 req/60s | `app/core/rate_limit.py` |
 | AI | Per user ID | 12 req/60s | `app/core/ai_rate_limit.py` |
 
-All limiters are process-local (in-memory sliding window). This is sufficient
-for the current single-instance Vercel deployment. Swap to Redis-backed
-limiting only when horizontally scaling.
+All limiters are process-local (in-memory sliding window). They are a local
+development safeguard, not a deployment-wide Vercel control: concurrent
+functions and regions do not share their counters. Before exposing the service
+to meaningful unauthenticated traffic, use a shared Redis-compatible limiter
+or an equivalent managed edge rate-limit service. `REDIS_URL` remains reserved
+for that integration; no unavailable external service is silently simulated.
 
 ---
 

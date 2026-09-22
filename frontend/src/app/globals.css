@@ -51,6 +51,21 @@
 }
 
 :root {
+  /* Product surfaces: use these rather than page-specific hex colors. */
+  --surface: oklch(0.985 0.003 247);
+  --surface-elevated: oklch(1 0 0);
+  --surface-inset: oklch(0.96 0.008 247);
+  --accent-soft: oklch(0.93 0.035 154);
+  --success: oklch(0.55 0.14 154);
+  --warning: oklch(0.72 0.14 75);
+  --error: oklch(0.577 0.245 27.325);
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+  --shadow-floating: 0 18px 50px oklch(0.22 0.03 247 / 0.12);
   --background: oklch(0.985 0.002 247);
   --foreground: oklch(0.13 0.028 261);
   --card: oklch(1 0 0);
@@ -86,6 +101,10 @@
 }
 
 .dark {
+  --surface: oklch(0.14 0.022 264);
+  --surface-elevated: oklch(0.18 0.028 264);
+  --surface-inset: oklch(0.12 0.02 264);
+  --accent-soft: oklch(0.25 0.06 154);
   --background: oklch(0.12 0.02 264);
   --foreground: oklch(0.96 0.005 264);
   --card: oklch(0.16 0.025 264);
@@ -159,5 +178,128 @@
   }
   .font-display {
     font-family: var(--font-heading);
+  }
+  .product-shell { @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8; }
+  .eyebrow { @apply text-xs font-bold uppercase tracking-[0.16em] text-primary; }
+  .product-heading { font-family: var(--font-heading); @apply tracking-[-0.04em] text-foreground; }
+  .focus-ring { @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background; }
+
+  /* ─── Neumorphic surface system ─────────────────────────── */
+  .surface {
+    background: oklch(0.985 0.003 264);
+    border: 1px solid oklch(0.92 0.01 264);
+  }
+  .surface-raised {
+    background: oklch(1 0 0);
+    border: 1px solid oklch(0.93 0.01 264);
+    box-shadow:
+      6px 6px 16px oklch(0.88 0.01 264 / 0.45),
+      -4px -4px 12px oklch(1 0 0 / 0.8);
+  }
+  .surface-inset {
+    background: oklch(0.97 0.005 264);
+    box-shadow:
+      inset 2px 2px 6px oklch(0.88 0.01 264 / 0.4),
+      inset -2px -2px 6px oklch(1 0 0 / 0.7);
+  }
+  .surface-pressed {
+    background: oklch(0.975 0.004 264);
+    box-shadow:
+      inset 1px 1px 4px oklch(0.88 0.01 264 / 0.35),
+      inset -1px -1px 3px oklch(1 0 0 / 0.6);
+  }
+  .shadow-soft {
+    box-shadow:
+      0 4px 14px oklch(0.30 0.03 264 / 0.08),
+      0 1px 3px oklch(0.30 0.03 264 / 0.05);
+  }
+  .shadow-raised {
+    box-shadow:
+      0 8px 28px oklch(0.30 0.03 264 / 0.12),
+      0 2px 6px oklch(0.30 0.03 264 / 0.06);
+  }
+  .shadow-inset {
+    box-shadow:
+      inset 0 2px 4px oklch(0.30 0.03 264 / 0.06);
+  }
+  .border-soft {
+    border: 1px solid oklch(0.92 0.01 264 / 0.7);
+  }
+
+  /* Dark mode neumorphic overrides */
+  .dark .surface {
+    background: oklch(0.16 0.025 264);
+    border-color: oklch(0.22 0.03 264);
+  }
+  .dark .surface-raised {
+    background: oklch(0.18 0.028 264);
+    border-color: oklch(0.24 0.03 264);
+    box-shadow:
+      6px 6px 16px oklch(0.08 0.015 264 / 0.6),
+      -4px -4px 12px oklch(0.24 0.035 264 / 0.3);
+  }
+  .dark .surface-inset {
+    background: oklch(0.14 0.022 264);
+    box-shadow:
+      inset 2px 2px 6px oklch(0.08 0.015 264 / 0.5),
+      inset -2px -2px 6px oklch(0.22 0.03 264 / 0.3);
+  }
+
+  /* ─── Motion system ─────────────────────────────────────── */
+  .animate-fade-in {
+    animation: fadeIn 0.5s ease-out both;
+  }
+  .animate-slide-up {
+    animation: slideUp 0.6s ease-out both;
+  }
+  .animate-slide-in-right {
+    animation: slideInRight 0.5s ease-out both;
+  }
+  .animate-scale-in {
+    animation: scaleIn 0.4s ease-out both;
+  }
+  .animate-reveal {
+    animation: reveal 0.7s ease-out both;
+  }
+
+  /* Staggered children animation delays */
+  .stagger-1 { animation-delay: 0.1s; }
+  .stagger-2 { animation-delay: 0.2s; }
+  .stagger-3 { animation-delay: 0.3s; }
+  .stagger-4 { animation-delay: 0.4s; }
+  .stagger-5 { animation-delay: 0.5s; }
+}
+
+/* ─── Motion keyframes ──────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes reveal {
+  from { opacity: 0; transform: translateY(30px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ─── Accessibility: respect user motion preferences ───── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

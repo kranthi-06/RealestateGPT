@@ -7,8 +7,8 @@
 
 ```text
 Next.js 16 browser application
-  -> NEXT_PUBLIC_API_URL
-  -> FastAPI /api/v1
+  -> NEXT_PUBLIC_API_URL (the `/api/backend` service base)
+  -> centralized frontend client appends `/api/v1`
   -> service layer
   -> MongoDB repositories / external providers
   -> MongoDB Atlas, Groq, OpenStreetMap services
@@ -76,6 +76,7 @@ SECRET_KEY
 CORS_ORIGINS=https://realestate-gpt-inky.vercel.app
 AI_PROVIDER=groq                 # only after a live Groq verification
 GROQ_API_KEY                     # backend only
+CRON_SECRET                      # backend only; authorizes Vercel Cron
 LOCATION_PROVIDER=osm
 NOMINATIM_BASE_URL=https://nominatim.openstreetmap.org
 OVERPASS_URL=https://overpass-api.de/api/interpreter
@@ -90,6 +91,8 @@ NEXT_PUBLIC_API_URL=https://realestate-gpt-inky.vercel.app/api/backend
 ```
 
 Changing a `NEXT_PUBLIC_*` variable requires a new frontend build/deployment.
+The only public API variable is `NEXT_PUBLIC_API_URL`; it ends at
+`/api/backend`, while `frontend/src/lib/api.ts` owns the `/api/v1` suffix.
 
 ## Verified baseline
 

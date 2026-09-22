@@ -68,7 +68,7 @@ def _migrate_property(db, doc: dict) -> None:
         updates["listed_at"] = doc["created_at"]
     if not doc.get("rent_amount")and doc.get("listing_type") == "rent"and doc.get("price"):
         updates["rent_amount"] = doc["price"]
-    if not doc.get("location_source")and doc.get("latitude") is not Noneand doc.get("longitude") is not None:
+    if not doc.get("location_source") and doc.get("latitude") is not None and doc.get("longitude") is not None:
         updates["location_source"] = "legacy"
 
     if updates:
@@ -92,7 +92,41 @@ def _migrate_price_history(db) -> None:
             db["price_history"].update_one({"_id": doc["_id"]}, {"$set": updates})
 
 
+_COUNTER_COLLECTIONS = [
+    "properties", "users", "audit_logs", "conversations", "messages",
+    "documents", "document_chunks", "notifications", "saved_properties",
+    "saved_searches", "comparisons", "search_history", "recommendations",
+    "dedup_reviews", "worker_runs", "geocode_queue",
+]
+
+
+def repair_counters(db) -> None:
+    """Never let integer-id counters drift below the highest existing row.
+
+    Idempotent and always run: if a counter was reset (restore, manual cleanup,
+    crash) the next startup repairs it so inserts cannot collide with the
+    highest existing ``_id``. Cheap at boot scale via a single max() scan.
+    """
+    for name in _COUNTER_COLLECTIONS:
+        collection = db[name]
+        max_doc = collection.find_one(sort=[("_id", -1)])
+        if max_doc is None:
+            continue
+        max_id = max_doc.get("_id")
+        if not isinstance(max_id, int):
+            continue
+        # Ensure the counter row exists, then bump it only when it is behind.
+        db["counters"].update_one({"_id": name}, {"$setOnInsert": {"seq": 0}}, upsert=True)
+        result = db["counters"].update_one(
+            {"_id": name, "seq": {"$lt": max_id}},
+            {"$set": {"seq": max_id}},
+        )
+        if result.modified_count:
+            logger.info("counter_repaired collection=%s seq=%s", name, max_id)
+
+
 def run_migrations(db) -> None:
+    repair_counters(db)
     if _already_applied(db):
         return
     properties = db["properties"].find({})

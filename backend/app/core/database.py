@@ -166,6 +166,24 @@ def ensure_indexes() -> None:
     db["saved_properties"].create_index(
         [("user_id", 1), ("property_id", 1)], unique=True
     )
+
+    # ── Web property discovery ────────────────────────────────────────────
+    discoveries = db["web_property_discoveries"]
+    discoveries.create_index("canonical_url")
+    discoveries.create_index("source_domain")
+    discoveries.create_index("query_hash")
+    discoveries.create_index("discovered_at")
+    discoveries.create_index("expires_at", expireAfterSeconds=0)  # short-lived TTL
+    discoveries.create_index([("location", GEO_INDEX)])
+
+    cache = db["web_search_cache"]
+    cache.create_index("cache_key", unique=True)
+    cache.create_index("expires_at", expireAfterSeconds=0)
+
+    db["saved_discoveries"].create_index(
+        [("user_id", 1), ("discovery_id", 1)], unique=True
+    )
+    db["saved_discoveries"].create_index([("user_id", 1), ("created_at", -1)])
     db["saved_searches"].create_index("user_id")
     db["comparisons"].create_index("user_id")
     db["conversations"].create_index("user_id")

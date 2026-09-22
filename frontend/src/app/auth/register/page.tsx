@@ -66,8 +66,9 @@ export default function RegisterPage() {
               </div>
             )}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Full Name</label>
+              <label htmlFor="name" className="text-sm font-medium">Full Name</label>
               <Input
+                id="name"
                 placeholder="John Doe"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
@@ -76,8 +77,9 @@ export default function RegisterPage() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Email</label>
+              <label htmlFor="email" className="text-sm font-medium">Email</label>
               <Input
+                id="email"
                 type="email"
                 placeholder="you@example.com"
                 value={email}
@@ -86,9 +88,10 @@ export default function RegisterPage() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Password</label>
+              <label htmlFor="password" className="text-sm font-medium">Password</label>
               <div className="relative">
                 <Input
+                  id="password"
                   type={showPassword ? "text" : "password"}
                   placeholder="Min 8 chars, include a digit"
                   value={password}

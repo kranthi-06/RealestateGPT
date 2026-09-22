@@ -31,5 +31,15 @@
         "service": "frontend"
       }
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/v1/workers/cron/inventory",
+      "schedule": "15 2 * * *"
+    },
+    {
+      "path": "/api/v1/workers/cron/maintenance",
+      "schedule": "45 2 * * *"
+    }
   ]
 }

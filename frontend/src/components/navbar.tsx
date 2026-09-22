@@ -21,6 +21,7 @@ import {
   X,
   Sparkles,
   Shield,
+  LocateFixed,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -29,16 +30,16 @@ export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-[#dedbd1] bg-[#fbfaf7]/90 backdrop-blur-xl">
+    <header className="sticky top-0 z-50 border-b border-border/50 bg-background/85 backdrop-blur-xl">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-[4.5rem] items-center justify-between">
           {/* Logo */}
           <Link href="/" className="group flex items-center gap-2.5">
-            <div className="flex size-9 items-center justify-center rounded-xl bg-[#1d3c31] shadow-sm transition-shadow group-hover:shadow-md">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-soft transition-shadow group-hover:shadow-raised">
               <Building2 className="w-5 h-5 text-white" />
             </div>
-            <span className="text-lg font-bold tracking-tight text-[#1d3028]">
-              RealEstate<span className="text-[#6d8677]">GPT</span>
+            <span className="text-lg font-bold tracking-tight text-foreground">
+              RealEstate<span className="text-primary">GPT</span>
             </span>
           </Link>
 
@@ -46,10 +47,11 @@ export default function Navbar() {
           <nav className="hidden items-center gap-1 md:flex">
             <Link href="/search">
               <Button variant="ghost" size="sm" className="text-[#5e6d64] hover:bg-[#edf2ed] hover:text-[#1d3c31]">
-                Explore homes
+                Search
               </Button>
             </Link>
-            <Link href="/#how-it-works"><Button variant="ghost" size="sm" className="text-[#5e6d64] hover:bg-[#edf2ed] hover:text-[#1d3c31]">How it works</Button></Link>
+            <Link href="/#how-it-works"><Button variant="ghost" size="sm">Discover</Button></Link>
+            <Link href="/near-me"><Button variant="ghost" size="sm" className="gap-2"><LocateFixed className="size-4" />Near me</Button></Link>
             {isAuthenticated && (
               <Link href="/assistant">
                 <Button variant="ghost" size="sm" className="gap-2 text-[#5e6d64] hover:bg-[#edf2ed] hover:text-[#1d3c31]">
@@ -167,6 +169,7 @@ export default function Navbar() {
             >
               <Search className="w-4 h-4" /> Search Properties
             </Link>
+            <Link href="/near-me" onClick={() => setMobileOpen(false)} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent text-sm"><LocateFixed className="w-4 h-4" /> Near me</Link>
             {isAuthenticated ? (
               <>
                 <Link
@@ -186,6 +189,11 @@ export default function Navbar() {
                 <Link href="/assistant" onClick={() => setMobileOpen(false)} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent text-sm">
                   <Sparkles className="w-4 h-4" /> AI Assistant
                 </Link>
+                {user?.role === "admin" && (
+                  <Link href="/admin" onClick={() => setMobileOpen(false)} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent text-sm">
+                    <Shield className="w-4 h-4" /> Admin Dashboard
+                  </Link>
+                )}
                 <button
                   onClick={() => { logout(); setMobileOpen(false); }}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent text-sm text-destructive w-full text-left"

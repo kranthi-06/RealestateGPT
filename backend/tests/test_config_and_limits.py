@@ -46,6 +46,19 @@ def test_production_configuration_requires_groq():
     assert any("GROQ_API_KEY" in p for p in problems)
 
 
+def test_production_configuration_requires_cron_secret():
+    settings = Settings(
+        APP_ENV="production",
+        MONGODB_URI="mongodb+srv://user:pass@cluster.example.mongodb.net",
+        SECRET_KEY="a-very-long-random-secret-key-value-0123456789",
+        AI_PROVIDER="groq",
+        GROQ_API_KEY="k",
+        LOCATION_PROVIDER="osm",
+    )
+    problems = settings.validate_runtime()
+    assert any("CRON_SECRET" in p for p in problems)
+
+
 def test_rate_limiter_enforces_sliding_window():
     limiter = RateLimiter()
     for _ in range(3):

@@ -77,6 +77,10 @@ class PropertyRepository:
         max_area: Optional[float] = None,
         furnishing: Optional[str] = None,
         amenities: Optional[List[str]] = None,
+        parking: Optional[int] = None,
+        floor: Optional[int] = None,
+        min_floor: Optional[int] = None,
+        max_floor: Optional[int] = None,
         latitude: Optional[float] = None,
         longitude: Optional[float] = None,
         radius_km: Optional[float] = None,
@@ -94,6 +98,7 @@ class PropertyRepository:
             bedrooms=bedrooms, min_bedrooms=min_bedrooms, max_bedrooms=max_bedrooms,
             bathrooms=bathrooms, min_area=min_area, max_area=max_area,
             furnishing=furnishing, amenities=amenities,
+            parking=parking, floor=floor, min_floor=min_floor, max_floor=max_floor,
             latitude=latitude, longitude=longitude, radius_km=radius_km,
             construction_status=construction_status, exclude_id=exclude_id,
         )
@@ -116,7 +121,9 @@ class PropertyRepository:
             "listing_type": None, "min_price": None, "max_price": None,
             "bedrooms": None, "min_bedrooms": None, "max_bedrooms": None,
             "bathrooms": None, "min_area": None, "max_area": None,
-            "furnishing": None, "amenities": None, "latitude": None,
+            "furnishing": None, "amenities": None, "parking": None,
+            "floor": None, "min_floor": None, "max_floor": None,
+            "latitude": None,
             "longitude": None, "radius_km": None, "construction_status": None,
             "exclude_id": None,
         }
@@ -165,6 +172,17 @@ class PropertyRepository:
             query["area_sqft"] = area_range
         if filters["furnishing"]:
             query["furnishing"] = filters["furnishing"]
+        if filters["parking"] is not None:
+            query["parking"] = {"$gte": filters["parking"]}
+        if filters["floor"] is not None:
+            query["floor"] = filters["floor"]
+        elif filters["min_floor"] is not None or filters["max_floor"] is not None:
+            floor_range: dict = {}
+            if filters["min_floor"] is not None:
+                floor_range["$gte"] = filters["min_floor"]
+            if filters["max_floor"] is not None:
+                floor_range["$lte"] = filters["max_floor"]
+            query["floor"] = floor_range
         if filters["amenities"]:
             query["amenities.name"] = {"$all": [str(item).strip() for item in filters["amenities"] if str(item).strip()]}
         if filters["construction_status"]:

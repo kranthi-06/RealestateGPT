@@ -1,0 +1,152 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  backend:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      # The integration suite exercises real MongoDB behaviour (2dsphere geo
+      # queries, unique partial indexes, atomic upserts for worker locks).
+      # A throwaway service container keeps the suite deterministic instead of
+      # depending on an external Atlas cluster.
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # Production config is validated before the suite runs so a broken
+      # deployment configuration fails fast.
+      - name: Validate production configuration
+        env:
+          PYTHONPATH: .
+          APP_ENV: production
+          MONGODB_URI: mongodb://localhost:27017/realestate_gpt_test
+          SECRET_KEY: ci-only-long-random-secret-key-value-0123456789
+          GROQ_API_KEY: ci-placeholder
+          CRON_SECRET: ci-only-long-random-cron-secret-value-0123456789
+          LOCATION_PROVIDER: osm
+          CORS_ORIGINS: https://realestate-gpt-inky.vercel.app
+        run: |
+          python -c "from app.core.config import settings; p = settings.validate_runtime(); assert not p, p; assert settings.effective_cors_origins == ['https://realestate-gpt-inky.vercel.app'], settings.effective_cors_origins; print('production config OK')"
+      - name: Run tests
+        env:
+          PYTHONPATH: .
+          MONGODB_URI: mongodb://localhost:27017/realestate_gpt_test
+          MONGODB_DATABASE: realestate_gpt_test
+          APP_ENV: development
+        # No -x: every failure must be visible in one run.
+        run: pytest tests/ -q --tb=short
+
+  frontend:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: TypeScript check
+        run: npx tsc --noEmit
+      - name: Build
+        run: npm run build
+        env:
+          # The build must never bake a localhost API base into the artifact.
+          NEXT_PUBLIC_API_URL: https://realestate-gpt-inky.vercel.app/api/backend
+          NEXT_PUBLIC_SITE_URL: https://realestate-gpt-inky.vercel.app
+      - name: Guard against localhost in production artifacts
+        run: |
+          if grep -rl "localhost:8000" .next/static 2>/dev/null; then
+            echo "::error::Build artifacts reference localhost:8000 - a production build must not depend on a developer machine."
+            exit 1
+          fi
+          echo "No localhost API base baked into the production bundle."
+
+  security:
+    name: Security Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No browser-exposed secrets
+        run: |
+          # A NEXT_PUBLIC_ variable is inlined into the client bundle, so it must
+          # never carry a server credential.
+          ! grep -rnE 'NEXT_PUBLIC_[A-Z_]*(API_KEY|SECRET|TOKEN|PASSWORD)' frontend/src frontend/*.ts frontend/*.tsx 2>/dev/null || exit 1
+          echo "No NEXT_PUBLIC_ secrets found."
+      - name: No committed credentials
+        run: |
+          if grep -rnE '(GROQ_API_KEY|MONGODB_URI|SECRET_KEY|CRON_SECRET|BRAVE_SEARCH_API_KEY|WORKER_RUN_SECRET)="?[A-Za-z0-9]{8}' \
+              --include='*.py' --include='*.ts' --include='*.tsx' \
+              backend/app frontend/src 2>/dev/null; then
+            echo "::error::A credential appears to be committed."
+            exit 1
+          fi
+          echo "No committed credentials found."
+
+  production-verification:
+    name: Production E2E (real deployment)
+    runs-on: ubuntu-latest
+    # Only meaningful against a deployed environment, so it runs on demand and
+    # after every push to main rather than on pull requests.
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install httpx
+      - name: Verify production API
+        env:
+          PRODUCTION_BASE_URL: https://realestate-gpt-inky.vercel.app
+        run: python scripts/verify_production.py --report docs/production_verification_report.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend deps and Playwright browser
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Playwright against the real production URL
+        working-directory: frontend
+        env:
+          E2E_BASE_URL: https://realestate-gpt-inky.vercel.app
+        run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: production-verification
+          path: |
+            docs/production_verification_report.json
+            frontend/playwright-report
+          if-no-files-found: ignore

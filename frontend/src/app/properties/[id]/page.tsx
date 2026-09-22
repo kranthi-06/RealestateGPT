@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +13,7 @@ import PropertyCard from "@/components/property-card";
 import { NearbyPlaces } from "@/components/nearby-places";
 import { RealEstateMap } from "@/components/real-estate-map";
 import { FinanceInsights } from "@/components/finance-insights";
+import { PriceIntelligencePanel } from "@/components/price-intelligence-panel";
 import { propertiesApi, savedApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { LivePlace, Property } from "@/lib/types";
@@ -45,13 +47,12 @@ export default function PropertyDetailPage() {
 
   useEffect(() => {
     if (!propertyId) return;
-    queueMicrotask(() => {
-      setLoading(true);
-      Promise.all([propertiesApi.get(propertyId), propertiesApi.getSimilar(propertyId)])
-        .then(([prop, sim]) => { setProperty(prop); setIsSaved(prop.is_saved || false); setSimilar(sim); })
-        .catch(console.error)
-        .finally(() => setLoading(false));
-    });
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoading(true);
+    Promise.all([propertiesApi.get(propertyId), propertiesApi.getSimilar(propertyId)])
+      .then(([prop, sim]) => { setProperty(prop); setIsSaved(prop.is_saved || false); setSimilar(sim); })
+      .catch(console.error)
+      .finally(() => setLoading(false));
   }, [propertyId]);
 
   const handleSave = async () => {
@@ -149,9 +150,12 @@ export default function PropertyDetailPage() {
              >
                <ChevronLeft className="w-8 h-8" />
              </button>
-             <img 
+             <Image 
                src={images[activeImageIdx].url} 
                alt={images[activeImageIdx].alt || property.title}
+               width={1200}
+               height={800}
+               unoptimized
                className="max-h-full max-w-full object-contain" 
              />
              <button 
@@ -164,10 +168,13 @@ export default function PropertyDetailPage() {
           {/* Thumbnails below lightbox */}
           <div className="h-24 p-2 flex gap-2 overflow-x-auto justify-center bg-black/50 mt-auto">
              {images.map((img, idx) => (
-               <img 
+               <Image 
                  key={idx} 
                  src={img.url} 
                  alt="Thumbnail" 
+                 width={100}
+                 height={100}
+                 unoptimized
                  onClick={() => setActiveImageIdx(idx)}
                  className={`h-full w-24 object-cover cursor-pointer rounded border-2 transition-all ${idx === activeImageIdx ? 'border-primary opacity-100' : 'border-transparent opacity-50 hover:opacity-100'}`}
                />
@@ -194,9 +201,12 @@ export default function PropertyDetailPage() {
               >
                 {hasImages ? (
                    <>
-                     <img 
+                     <Image 
                        src={images[activeImageIdx].url} 
                        alt={property.title} 
+                       width={1200}
+                       height={800}
+                       unoptimized
                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.02]" 
                      />
                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
@@ -234,7 +244,7 @@ export default function PropertyDetailPage() {
                        className={`relative h-20 w-32 shrink-0 rounded-xl overflow-hidden cursor-pointer snap-start ${idx === activeImageIdx ? 'ring-2 ring-primary ring-offset-2' : 'opacity-70 hover:opacity-100 transition-opacity'}`}
                        onClick={() => setActiveImageIdx(idx)}
                      >
-                       <img src={img.url} alt="thumbnail" className="w-full h-full object-cover" />
+                       <Image src={img.url} alt="thumbnail" width={150} height={100} unoptimized className="w-full h-full object-cover" />
                      </div>
                    ))}
                    {images.length > 6 && (
@@ -270,9 +280,13 @@ export default function PropertyDetailPage() {
                        {property.status}
                     </Badge>
                  )}
-                 {freshnessTime && (
+                 {freshnessTime ? (
                     <span className="text-sm text-muted-foreground bg-muted px-3 py-1 rounded-full">
                       Verified {freshnessTime}
+                    </span>
+                 ) : (
+                    <span className="text-sm text-muted-foreground/80 bg-muted px-3 py-1 rounded-full">
+                      Availability not recently verified
                     </span>
                  )}
                  {property.builder_name && (
@@ -416,13 +430,11 @@ export default function PropertyDetailPage() {
 
             <FinanceInsights propertyId={property.id} listedPrice={property.price} />
             
-            {/* Price History Stub (Will populate fully when backend exposes GET /price-history) */}
-            <Card className="p-6 border shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-2xl">
-                <h3 className="font-bold text-lg mb-2">Price History</h3>
-                <div className="flex flex-col items-center justify-center py-6 text-muted-foreground text-sm text-center">
-                   <p>No recent price changes detected for this verified listing.</p>
-                </div>
-            </Card>
+            {/* Real price intelligence computed only from stored, observed history */}
+            <PriceIntelligencePanel
+              propertyId={property.id}
+              listingType={property.listing_type}
+            />
           </div>
         </div>
 
