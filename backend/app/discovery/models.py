@@ -33,6 +33,8 @@ class PropertyCandidate(BaseModel):
     currency: str = "INR"
     transaction_type: Optional[str] = None       # rent | sale
     property_type: Optional[str] = None           # apartment | villa | ...
+    category: str = "PROPERTY_SALE"
+    provenance: str = "WEB_DISCOVERY"
     bedrooms: Optional[int] = Field(default=None, ge=0, le=20)
     bathrooms: Optional[int] = Field(default=None, ge=0, le=20)
     area: Optional[float] = Field(default=None, ge=0)
@@ -46,6 +48,11 @@ class PropertyCandidate(BaseModel):
     floor: Optional[int] = None
     total_floors: Optional[int] = None
     availability: Optional[str] = None
+    price_period: Optional[str] = None            # month | night | total | unknown
+    rating: Optional[float] = Field(default=None, ge=0, le=5)
+    review_count: Optional[int] = Field(default=None, ge=0)
+    guests: Optional[int] = Field(default=None, ge=1, le=30)
+    amenities: list[str] = Field(default_factory=list)
     image_url: Optional[str] = Field(default=None, max_length=2048)
     source_listing_id: Optional[str] = None
     page_age: Optional[str] = Field(default=None, max_length=100)

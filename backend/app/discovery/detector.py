@@ -33,6 +33,11 @@ _PROPERTY_TYPE_WORDS = (
     "budget", "monthly rent", "for rent", "for sale", "rental",
 )
 
+_ACCOMMODATION_WORDS = (
+    "hotel", "hostel", "room", "stay", "nightly", "per night", "check-in",
+    "check out", "breakfast", "guest", "resort", "homestay", "vacation rental",
+)
+
 _BEDROOM_RE = re.compile(r"\b\d{1,2}\s*(?:bhk|bedroom|bed|br)\b", re.IGNORECASE)
 _RENT_RE = re.compile(r"(?:₹|rs\.?|inr|rupees)?\s*[\d.,]+\s*(?:/month|per month|monthly|/mo|pm\b)", re.IGNORECASE)
 _SALE_RE = re.compile(r"(?:₹|rs\.?|inr|rupees)?\s*[\d.,]+\s*(?:lakh|lacs?|crores?|million|cr\b)", re.IGNORECASE)
@@ -46,6 +51,11 @@ _NON_PROPERTY_WORDS = (
     "news", "guide", "blog", "article", "how to", "tips", "trending",
     "calculator", "market update", "policy", "faq",
 )
+
+# Reference/encyclopedia hosts never host listings. Rejected outright rather
+# than scored, because their numeric facts (e.g. a city's population) otherwise
+# look like price/city signals.
+_REFERENCE_HOST_RE = re.compile(r"\b(?:wikipedia|wikimedia|wikidata|britannica)\.", re.IGNORECASE)
 
 
 @dataclass
@@ -65,6 +75,12 @@ class PropertyListingDetector:
             ) if part
         ).lower()
         url = (candidate.url or "").lower()
+        if _REFERENCE_HOST_RE.search(url):
+            return DetectionResult(
+                is_property=False,
+                confidence=0.0,
+                reasons=["Reference/encyclopedia source, not a listing"],
+            )
         reasons: list[str] = []
         score = 0.0
 
@@ -106,7 +122,12 @@ class PropertyListingDetector:
         if re.search(r"for (rent|sale)\b", lowered):
             score += 0.15
             reasons.append("States rent/sale offer")
-        hits = sum(1 for word in _PROPERTY_TYPE_WORDS if word in lowered)
+        if intent is None:
+            words = _PROPERTY_TYPE_WORDS
+        else:
+            category = getattr(intent, "category", "").upper()
+            words = _ACCOMMODATION_WORDS if category not in {"PROPERTY_SALE", "PROPERTY_RENT"} else _PROPERTY_TYPE_WORDS
+        hits = sum(1 for word in words if word in lowered)
         if hits:
             score += min(0.2, hits * 0.04)
             reasons.append("Contains property terminology")

@@ -54,6 +54,9 @@ def test_production_configuration_requires_cron_secret():
         AI_PROVIDER="groq",
         GROQ_API_KEY="k",
         LOCATION_PROVIDER="osm",
+        # Explicit None keeps the test hermetic: a developer .env that happens
+        # to define CRON_SECRET must not leak into this assertion.
+        CRON_SECRET=None,
     )
     problems = settings.validate_runtime()
     assert any("CRON_SECRET" in p for p in problems)

@@ -79,7 +79,7 @@ class FakeCollection:
             d["_id"] = self._next_id
         self._next_id += 1
         self._docs.append(d)
-        return SimpleResult(1)
+        return SimpleResult(1, inserted_id=d["_id"])
 
     def find_one(self, query: Optional[dict] = None, projection: Optional[dict] = None) -> Optional[dict]:
         for doc in self._docs:
@@ -160,10 +160,11 @@ def _set_path(doc: dict, key: str, value: Any) -> None:
 
 
 class SimpleResult:
-    def __init__(self, count: int) -> None:
+    def __init__(self, count: int, inserted_id: Any = None) -> None:
         self.deleted_count = count
         self.modified_count = count
         self.upserted_id = None
+        self.inserted_id = inserted_id
 
 
 class FakeDB:

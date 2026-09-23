@@ -63,7 +63,9 @@ class WebPageEnrichmentProvider:
         ):
             return False, "domain not in WEB_SEARCH_ALLOWED_DOMAINS"
         source = get_source_by_domain(domain)
-        if source is not None and not source.page_fetch_allowed:
+        if source is None:
+            return False, "Unknown source is discovery-only; page fetching requires an explicit source policy."
+        if not source.page_fetch_allowed:
             return False, f"{source.name} does not permit automated page fetching."
         try:
             assert_safe_for_fetch(url)

@@ -80,6 +80,17 @@ def test_detector_rejects_editorial_content():
     assert detected.is_property is False
 
 
+def test_detector_rejects_encyclopedia_articles():
+    candidate = _candidate(
+        title="Hyderabad - Wikipedia",
+        description="Hyderabad population 536000000 within the city limits.",
+        url="https://en.wikipedia.org/wiki/Hyderabad",
+    )
+    detected = PropertyListingDetector().detect(candidate)
+    assert detected.is_property is False
+    assert detected.confidence == 0.0
+
+
 # ─── Validation ─────────────────────────────────────────────────────────────
 
 def _valid_candidate():
@@ -165,7 +176,7 @@ def test_fetcher_honours_source_page_fetch_policy(monkeypatch):
     assert "does not permit" in reason
 
 
-def test_fetcher_bounded_metadata_output(monkeypatch):
+def test_fetcher_blocks_unknown_domains_even_when_page_enrichment_is_enabled(monkeypatch):
     import socket as _socket
 
     from app.core.config import settings
@@ -199,10 +210,7 @@ def test_fetcher_bounded_metadata_output(monkeypatch):
 
     fetcher = WebPageEnrichmentProvider(client=FakeClient())
     metadata = fetcher.fetch("https://vendors.example.com/property/complex/x")
-    assert metadata is not None
-    assert metadata["page_title"] == "2 BHK Flat"
-    assert "length_bytes" in metadata
-    assert "<script>" not in str(metadata)  # HTML must not leak into metadata
+    assert metadata is None
 
 
 # ─── Rate limiter ───────────────────────────────────────────────────────────

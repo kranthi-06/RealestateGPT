@@ -25,19 +25,18 @@ search:
     - json
 
 engines:
-  - name: google
-    engine: google
-    shortcut: g
-    disabled: false
   - name: duckduckgo
     engine: duckduckgo
     shortcut: ddg
     disabled: false
-  - name: bing
-    engine: bing
-    shortcut: b
-    disabled: false
   - name: brave
     engine: brave
     shortcut: br
+    disabled: false
+    brave_category: search
+    time_range_support: true
+    paging: true
+  - name: startpage
+    engine: startpage
+    shortcut: sp
     disabled: false

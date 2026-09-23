@@ -171,6 +171,10 @@ def ensure_indexes() -> None:
     discoveries = db["web_property_discoveries"]
     discoveries.create_index("canonical_url")
     discoveries.create_index("source_domain")
+    discoveries.create_index("category")
+    discoveries.create_index("provenance")
+    discoveries.create_index("last_seen_at")
+    discoveries.create_index("last_checked_at")
     discoveries.create_index("query_hash")
     discoveries.create_index("discovered_at")
     discoveries.create_index("expires_at", expireAfterSeconds=0)  # short-lived TTL
@@ -179,6 +183,10 @@ def ensure_indexes() -> None:
     cache = db["web_search_cache"]
     cache.create_index("cache_key", unique=True)
     cache.create_index("expires_at", expireAfterSeconds=0)
+
+    db["discovery_runs"].create_index([("started_at", -1)])
+    db["discovery_runs"].create_index("query_hash")
+    db["source_health"].create_index("source_domain", unique=True)
 
     db["saved_discoveries"].create_index(
         [("user_id", 1), ("discovery_id", 1)], unique=True

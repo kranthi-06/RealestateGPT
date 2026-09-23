@@ -32,6 +32,8 @@ def to_doc(candidate: Any, query: str, query_hash: str) -> dict[str, Any]:
         "price": candidate.price,
         "currency": candidate.currency,
         "transaction_type": candidate.transaction_type,
+        "category": candidate.category,
+        "provenance": candidate.provenance,
         "property_type": candidate.property_type,
         "bedrooms": candidate.bedrooms,
         "bathrooms": candidate.bathrooms,
@@ -42,6 +44,11 @@ def to_doc(candidate: Any, query: str, query_hash: str) -> dict[str, Any]:
         "city": candidate.city,
         "locality": candidate.locality,
         "furnishing": candidate.furnishing,
+        "price_period": candidate.price_period,
+        "rating": candidate.rating,
+        "review_count": candidate.review_count,
+        "guests": candidate.guests,
+        "amenities": candidate.amenities,
         "image_url": candidate.image_url,
         "source_listing_id": candidate.source_listing_id,
         "extraction_method": candidate.extraction_method,
@@ -50,6 +57,8 @@ def to_doc(candidate: Any, query: str, query_hash: str) -> dict[str, Any]:
         "page_age": candidate.page_age,
         "page_fetched_at": candidate.page_fetched,
         "discovered_at": candidate.discovered_at or now,
+        "last_seen_at": now,
+        "last_checked_at": now,
         "latitude": getattr(candidate, "latitude", None),
         "longitude": getattr(candidate, "longitude", None),
         "location_source": getattr(candidate, "location_source", None),
@@ -66,11 +75,13 @@ class WebDiscoveryRepository:
         self.db = db
         self.coll = db[self.COLLECTION]
 
-    def persist(self, docs: list[dict[str, Any]]) -> int:
+    def persist(self, docs: list[dict[str, Any]]) -> tuple[int, list]:
         """Insert discovery documents; skip duplicates by canonical_url within the
         batch and against already-stored rows. Idempotent by design.
+        Returns (inserted_count, list_of_inserted_ids).
         """
         inserted = 0
+        inserted_ids = []
         existing = set()
         for doc in docs:
             url = doc.get("canonical_url") or ""
@@ -79,11 +90,12 @@ class WebDiscoveryRepository:
             if url and self.coll.find_one({"canonical_url": url}, {"_id": 1}):
                 existing.add(url)
                 continue
-            self.coll.insert_one(doc)
+            result = self.coll.insert_one(doc)
             if url:
                 existing.add(url)
             inserted += 1
-        return inserted
+            inserted_ids.append(result.inserted_id)
+        return inserted, inserted_ids
 
     def by_id(self, discovery_id: str) -> Optional[dict[str, Any]]:
         try:
@@ -100,7 +112,7 @@ class WebDiscoveryRepository:
         return self.coll.find_one({"canonical_url": canonical_url(url)})
     
     def recent(self, limit: int = 20) -> list[dict[str, Any]]:
-        return list(self.coll.find({}).sort("discovered_at", -1).limit(limit))
+        return list(self.coll.find({"expires_at": {"$gt": _utcnow()}}).sort("discovered_at", -1).limit(limit))
 
     def update_coordinates(self, discovery_id, latitude: float, longitude: float, source: str) -> bool:
         result = self.coll.update_one(

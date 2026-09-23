@@ -243,7 +243,7 @@ export const searchApi = {
   }) => request<PropertyListResponse>("/search/near-me", { method: "POST", body: JSON.stringify(data) }),
 
   unified: (data: UnifiedSearchRequest) =>
-    request<UnifiedSearchResponse>("/search", { method: "POST", body: JSON.stringify(data) }),
+    request<UnifiedSearchResponse>("/search/autonomous", { method: "POST", body: JSON.stringify(data) }),
 };
 
 export const locationsApi = {

@@ -6,6 +6,8 @@ hardcoded numbers and no fabricated sections (see search_sections_service).
 from __future__ import annotations
 
 from typing import Optional
+from datetime import datetime, timezone
+import hashlib
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -119,6 +121,7 @@ async def search_near_me(
 # ─── Unified search (verified inventory + web discoveries) ─────────────────
 
 @router.post("", response_model=UnifiedSearchResponse)
+@router.post("/autonomous", response_model=UnifiedSearchResponse)
 async def unified_search(
     data: UnifiedSearchRequest,
     db = Depends(get_db),
@@ -161,14 +164,15 @@ async def unified_search(
     web_outcome = None
     if data.include_web:
         from app.providers.web_search.limiter import get_web_search_limiter
+        from app.providers.web_search.models import WebSearchRateLimitError
 
         limiter = get_web_search_limiter()
         limiter_held = False
         try:
             limiter.acquire(user_key=f"user_{user_id or 'anonymous'}")
             limiter_held = True
-        except Exception:
-            limiter_held = False
+        except WebSearchRateLimitError as exc:
+            raise HTTPException(status_code=429, detail=exc.message)
         web_started = time.perf_counter()
         service = WebDiscoveryService(db)
         web_outcome = await asyncio.to_thread(
@@ -192,6 +196,24 @@ async def unified_search(
             "stale_cache_used": web_outcome.stale_cache_used,
             "queries_used": web_outcome.queries_used,
         }
+        # Compact operational telemetry: no token, password, or raw provider
+        # payload is persisted. It lets operators distinguish a cache hit,
+        # provider outage, or genuinely empty search without inventing data.
+        db["discovery_runs"].insert_one({
+            "query_hash": hashlib.sha256(data.query.strip().casefold().encode("utf-8")).hexdigest(),
+            "category": getattr(intent, "category", "PROPERTY_SALE"),
+            "provider": web_outcome.provider,
+            "status": web_outcome.status,
+            "code": web_outcome.code,
+            "cache_hit": web_outcome.cache_hit,
+            "stale_cache_used": web_outcome.stale_cache_used,
+            "queries_count": len(web_outcome.queries_used),
+            "sources_count": len(web_outcome.sources_searched),
+            "results_count": len(web_outcome.cards),
+            "inserted_count": web_outcome.inserted,
+            "duration_ms": web_outcome.duration_ms,
+            "started_at": datetime.now(timezone.utc),
+        })
     # 3) Verified dynamic sections (counts come from real MongoDB queries).
     section_params = {k: v for k, v in data.filters.items() if v not in (None, "")}
     section_params.setdefault("q", data.query)

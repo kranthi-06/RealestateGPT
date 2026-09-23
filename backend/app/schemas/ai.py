@@ -18,6 +18,10 @@ class ParsedQuery(BaseModel):
     city: Optional[str] = None
     locality: Optional[str] = None
     property_type: Optional[str] = None
+    # Inventory category is intentionally separate from property_type. It
+    # routes a search to the correct discovery policies without pretending a
+    # hotel is an apartment or a web result is verified inventory.
+    category: str = "PROPERTY_SALE"
     listing_type: str = "sale"
     bedrooms: Optional[int] = Field(None, ge=0, le=20)
     bathrooms: Optional[int] = Field(None, ge=0, le=20)
@@ -32,6 +36,12 @@ class ParsedQuery(BaseModel):
     commute_destination: Optional[str] = Field(default=None, max_length=500)
     commute_max_minutes: Optional[int] = Field(default=None, gt=0, le=240)
     lifestyle: List[str] = []  # family, student, investor, pet_friendly, senior...
+    guests: Optional[int] = Field(None, ge=1, le=30)
+    rooms: Optional[int] = Field(None, ge=1, le=20)
+    check_in: Optional[datetime] = None
+    check_out: Optional[datetime] = None
+    breakfast_required: Optional[bool] = None
+    cancellation_required: Optional[bool] = None
     intent: str = "home_purchase"  # home_purchase | rental | investment | unknown
     keywords: List[str] = []  # salient tokens for semantic search
 

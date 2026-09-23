@@ -305,6 +305,8 @@ export interface WebDiscoveryCard {
   price?: number | null;
   currency?: string;
   transaction_type?: string | null;
+  category?: string;
+  provenance?: string;
   bedrooms?: number | null;
   bathrooms?: number | null;
   area?: number | null;
@@ -314,6 +316,11 @@ export interface WebDiscoveryCard {
   city?: string | null;
   locality?: string | null;
   furnishing?: string | null;
+  price_period?: string | null;
+  rating?: number | null;
+  review_count?: number | null;
+  guests?: number | null;
+  amenities?: string[];
   image_url?: string | null;
   confidence: number;
   extraction_method?: string;

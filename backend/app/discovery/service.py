@@ -75,6 +75,8 @@ def doc_to_card(doc: dict[str, Any], *, saved: bool = False, rank_score: Optiona
         "price": doc.get("price"),
         "currency": doc.get("currency") or "INR",
         "transaction_type": doc.get("transaction_type"),
+        "category": doc.get("category") or "PROPERTY_SALE",
+        "provenance": doc.get("provenance") or "WEB_DISCOVERY",
         "bedrooms": doc.get("bedrooms"),
         "bathrooms": doc.get("bathrooms"),
         "area": doc.get("area"),
@@ -84,6 +86,11 @@ def doc_to_card(doc: dict[str, Any], *, saved: bool = False, rank_score: Optiona
         "city": doc.get("city"),
         "locality": doc.get("locality"),
         "furnishing": doc.get("furnishing"),
+        "price_period": doc.get("price_period"),
+        "rating": doc.get("rating"),
+        "review_count": doc.get("review_count"),
+        "guests": doc.get("guests"),
+        "amenities": doc.get("amenities") or [],
         "image_url": doc.get("image_url"),
         "confidence": doc.get("confidence") or 0.0,
         "extraction_method": doc.get("extraction_method") or "snippet",
@@ -184,10 +191,11 @@ class WebDiscoveryService:
             if stale is not None:
                 self._health.record_error(exc.code)
                 logger.warning("web_search_stale_fallback query_hash=%s error=%s", cache_key, exc.code)
+                cards = self._cards_from_stale(stale.get("results", []), intent, saved_ids, query_list)
                 return WebDiscoveryOutcome(
                     status="available", code="WEB_SEARCH_STALE",
                     message="Previously discovered results — freshness not verified. " + message,
-                    cards=self._cards_from_cached(stale.get("results", []), intent, saved_ids),
+                    cards=cards,
                     queries_used=query_list, provider=provider.name,
                     stale_cache_used=True,
                     duration_ms=round((time.perf_counter() - started) * 1000, 1),
@@ -214,7 +222,9 @@ class WebDiscoveryService:
 
         candidates: list[Any] = []
         for query, result in provider_response["items"]:
-            candidate = self.extractor.extract(result, intent_city=intent.city)
+            candidate = self.extractor.extract(
+                result, intent_city=intent.city, category=getattr(intent, "category", "PROPERTY_SALE")
+            )
             if candidate is None:
                 continue
             candidate.query = query
@@ -230,9 +240,9 @@ class WebDiscoveryService:
             detection = detector.detect(candidate, intent)
             if not detection.is_property:
                 continue
+            candidate.confidence = round(min(1.0, max(candidate.confidence, detection.confidence)), 2)
             if validate_candidate(candidate):
                 continue
-            candidate.confidence = round(min(1.0, max(candidate.confidence, detection.confidence)), 2)
             filtered.append(candidate)
         candidates = filtered
 
@@ -245,10 +255,24 @@ class WebDiscoveryService:
         ranked = ranked[: max(settings.WEB_SEARCH_MAX_RESULTS, 1)]
 
         docs = [to_doc(candidate, candidate.query or query_list[0], cache_key) for candidate in ranked]
-        inserted = self.repository.persist(docs)
+        inserted, inserted_ids = self.repository.persist(docs)
+
+        # Source health reflects actual discovery output, not a claim that any
+        # source is verified or fetch-authorized. A source with zero matching
+        # candidates is intentionally not marked as failed.
+        for domain in {doc.get("source_domain") for doc in docs if doc.get("source_domain")}:
+            self.db["source_health"].update_one(
+                {"source_domain": domain},
+                {
+                    "$set": {"last_success": _utcnow(), "status": "active"},
+                    "$inc": {"discovery_result_count": sum(1 for doc in docs if doc.get("source_domain") == domain)},
+                    "$setOnInsert": {"created_at": _utcnow()},
+                },
+                upsert=True,
+            )
 
         if enrich and ranked:
-            ids = [str(oid) for oid in self._stored_ids(docs)]
+            ids = [str(oid) for oid in inserted_ids]
             DiscoveryGeocoder(self.db, limit=settings.WEB_DISCOVERY_OSM_ENRICH_LIMIT).enrich(ids)
 
         cards: list[dict[str, Any]] = []
@@ -277,15 +301,6 @@ class WebDiscoveryService:
             inserted=inserted,
             sources_searched=[s.name for s in routed_sources],
         )
-
-    def _stored_ids(self, docs: list[dict[str, Any]]) -> list:
-        """Return _id values for persisted canonical URLs."""
-        ids: list = []
-        for doc in docs:
-            stored = self.repository.by_canonical_url(doc.get("canonical_url") or "")
-            if stored:
-                ids.append(stored["_id"])
-        return ids
 
     def _run_queries(self, provider, query_list, max_results) -> dict[str, Any]:
         """Run bounded provider searches sequentially (concurrency-safe, cost-bound)."""
@@ -326,7 +341,9 @@ class WebDiscoveryService:
                 result = WebSearchResult(**raw)
             else:
                 result = WebSearchResult(**entry)
-            candidate = self.extractor.extract(result, intent_city=intent.city)
+            candidate = self.extractor.extract(
+                result, intent_city=intent.city, category=getattr(intent, "category", "PROPERTY_SALE")
+            )
             if candidate is None:
                 continue
             candidate.query = entry.get("query") if isinstance(entry.get("query"), str) else ""
@@ -358,6 +375,86 @@ class WebDiscoveryService:
         return unique_cards
 
 
+    def _cards_from_stale(self, stale_results: list[dict[str, Any]], intent: SearchIntent, saved_ids, query_list: list[str]) -> list[dict[str, Any]]:
+        """Process stale cached provider results through the validation pipeline."""
+        from app.discovery.validation import validate_candidate
+        from app.discovery.deduplication import find_duplicates
+        from app.discovery.ranking import score_candidate
+
+        detector = PropertyListingDetector()
+        candidates: list[Any] = []
+        for entry in stale_results:
+            if not isinstance(entry, dict):
+                continue
+            raw = entry.get("result")
+            if isinstance(raw, dict):
+                result = WebSearchResult(**raw)
+            else:
+                result = WebSearchResult(**entry)
+            candidate = self.extractor.extract(
+                result, intent_city=intent.city, category=getattr(intent, "category", "PROPERTY_SALE")
+            )
+            if candidate is None:
+                continue
+            candidate.query = entry.get("query") if isinstance(entry.get("query"), str) else ""
+            candidates.append(candidate)
+
+        if settings.web_search_allowed_domains:
+            candidates = [
+                c for c in candidates
+                if is_allowed_domain(c.source_domain, settings.web_search_allowed_domains)
+            ]
+
+        filtered: list[Any] = []
+        for candidate in candidates:
+            detection = detector.detect(candidate, intent)
+            if not detection.is_property:
+                continue
+            candidate.confidence = round(min(1.0, max(candidate.confidence, detection.confidence)), 2)
+            if validate_candidate(candidate):
+                continue
+            filtered.append(candidate)
+        candidates = filtered
+
+        unique, _duplicates = find_duplicates(candidates)
+        ranked = sorted(
+            unique,
+            key=lambda c: score_candidate(c, intent, c.query or query_list[0])["score"],
+            reverse=True,
+        )
+        ranked = ranked[: max(settings.WEB_SEARCH_MAX_RESULTS, 1)]
+
+        cards: list[dict[str, Any]] = []
+        for candidate in ranked:
+            cached_doc = self.repository.by_canonical_url(candidate.url)
+            if cached_doc:
+                score = score_candidate(candidate, intent, candidate.query or "")["score"]
+                cards.append(doc_to_card(
+                    cached_doc,
+                    saved=bool(saved_ids and str(cached_doc["_id"]) in saved_ids),
+                    rank_score=score,
+                ))
+            else:
+                card = candidate.model_dump()
+                card["id"] = candidate.url
+                card["freshness_label"] = freshness_label(candidate.discovered_at, candidate.page_fetched)
+                card["verification_status"] = "web_discovery"
+                cards.append(card)
+
+        # Deduplicate cached cards by canonical URL (multiple provider queries can overlap).
+        from app.discovery.deduplication import canonical_url as _canon
+        unique_cards = []
+        seen_urls = set()
+        for card in cards:
+            key = _canon(card.get('url') or '')
+            if key and key in seen_urls:
+                continue
+            if key:
+                seen_urls.add(key)
+            unique_cards.append(card)
+        return unique_cards
+
+
 def _candidate_from_doc(doc: dict[str, Any]):
     """Rehydrate a lightweight candidate for scoring from a persisted doc."""
     from app.discovery.models import PropertyCandidate
@@ -370,6 +467,7 @@ def _candidate_from_doc(doc: dict[str, Any]):
         description=doc.get("description"),
         price=doc.get("price"),
         transaction_type=doc.get("transaction_type"),
+        category=doc.get("category") or "PROPERTY_SALE",
         bedrooms=doc.get("bedrooms"),
         area=doc.get("area"),
         area_unit=doc.get("area_unit"),

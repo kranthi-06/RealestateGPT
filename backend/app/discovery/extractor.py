@@ -31,6 +31,10 @@ class PropertyCandidateExtractor:
         r"(?:/|\sper\s|\s)?(?:month|mo|pm)\b",
         re.IGNORECASE,
     )
+    _NIGHT_RE = re.compile(
+        r"(?:₹|rs\.?|inr|rupees)?\s*([\d][\d,]*(?:\.\d+)?)\s*(?:/|\sper\s)?(?:night|nightly)\b",
+        re.IGNORECASE,
+    )
 
     _LARGE_UNIT_RE = re.compile(
         r"(?:₹|rs\.?|inr|rupees)?\s*([\d][\d,]*(?:\.\d+)?)\s*"
@@ -59,7 +63,7 @@ class PropertyCandidateExtractor:
     _SCHEMA_BEDROOM_KEYS = ("bedrooms", "numberOfBedrooms", "numberOfRooms")
     _SCHEMA_AREA_KEYS = ("floorSize", "area", "livingArea", "areaSqft")
 
-    def extract(self, result: WebSearchResult, intent_city: Optional[str] = None) -> Optional[PropertyCandidate]:
+    def extract(self, result: WebSearchResult, intent_city: Optional[str] = None, category: str = "PROPERTY_SALE") -> Optional[PropertyCandidate]:
         """Extract a candidate from one result. Returns None when unusable."""
         text = self._text(result)
         signals: set[str] = set()
@@ -93,6 +97,7 @@ class PropertyCandidateExtractor:
             price=price,
             currency=currency or "INR",
             transaction_type=transaction,
+            category=category,
             bedrooms=bedrooms,
             area=area,
             area_unit=area_unit,
@@ -130,6 +135,10 @@ class PropertyCandidateExtractor:
         rent_match = self._RENT_RE.search(text)
         if rent_match:
             return self._coerce_price(rent_match.group(1)), "INR", "rent", "snippet"
+
+        night_match = self._NIGHT_RE.search(text)
+        if night_match:
+            return self._coerce_price(night_match.group(1)), "INR", "rent", "snippet"
 
         unit_match = self._LARGE_UNIT_RE.search(text)
         if unit_match:

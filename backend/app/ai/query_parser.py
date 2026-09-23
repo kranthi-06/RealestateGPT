@@ -26,6 +26,7 @@ CITY_ALIASES = {
     "delhi": "Delhi", "new delhi": "Delhi",
     "ahmedabad": "Ahmedabad", "jaipur": "Jaipur", "indore": "Indore",
     "lucknow": "Lucknow", "kochi": "Kochi", "cochin": "Kochi",
+    "goa": "Goa",
 }
 
 LOCALITIES = {
@@ -84,6 +85,18 @@ FURNISHING_ALIASES = {"furnished": "furnished", "semi-furnished": "semi-furnishe
 INTENT_ALIASES = {
     "rent": "rental", "rental": "rental", "lease": "rental", "to-let": "rental", "on rent": "rental",
     "investment": "investment", "invest": "investment", "passive income": "investment", "yield": "investment",
+}
+
+_ACCOMMODATION_CATEGORY_ALIASES = {
+    "hotel": "HOTEL", "hotels": "HOTEL", "hostel": "HOSTEL", "hostels": "HOSTEL",
+    "short stay": "SHORT_STAY", "short-stay": "SHORT_STAY", "weekend stay": "SHORT_STAY",
+    "vacation rental": "VACATION_RENTAL", "vacation rentals": "VACATION_RENTAL",
+    "holiday home": "VACATION_RENTAL", "holiday homes": "VACATION_RENTAL",
+    "airbnb": "VACATION_RENTAL", "vrbo": "VACATION_RENTAL",
+    "serviced apartment": "SERVICED_APARTMENT", "serviced apartments": "SERVICED_APARTMENT",
+    "service apartment": "SERVICED_APARTMENT", "service apartments": "SERVICED_APARTMENT",
+    "pg": "PG", "paying guest": "PG", "co-living": "CO_LIVING", "coliving": "CO_LIVING",
+    "accommodation": "ACCOMMODATION", "stay": "ACCOMMODATION", "stays": "ACCOMMODATION",
 }
 
 _STOP = {"i", "a", "an", "the", "and", "or", "but", "for", "to", "with", "in", "near", "on", "at", "of",
@@ -220,6 +233,40 @@ def _extract_property_type(text: str) -> Optional[str]:
     return None
 
 
+def _extract_category(text: str, intent: str) -> str:
+    lowered = text.lower()
+    for alias, category in _ACCOMMODATION_CATEGORY_ALIASES.items():
+        if re.search(rf"\b{re.escape(alias)}\b", lowered):
+            return category
+    return "PROPERTY_RENT" if intent == "rental" else "PROPERTY_SALE"
+
+
+def _extract_guests_and_rooms(text: str) -> dict:
+    result: dict = {}
+    guests = re.search(r"\b(?:for\s+)?(\d{1,2})\s+(?:guests?|people|persons?|adults?)\b", text, re.IGNORECASE)
+    rooms = re.search(r"\b(\d{1,2})\s+rooms?\b", text, re.IGNORECASE)
+    if guests:
+        result["guests"] = int(guests.group(1))
+    if rooms:
+        result["rooms"] = int(rooms.group(1))
+    if re.search(r"\bbreakfast\b", text, re.IGNORECASE):
+        result["breakfast_required"] = True
+    if re.search(r"\b(?:free\s+)?cancell?ation\b", text, re.IGNORECASE):
+        result["cancellation_required"] = True
+    # Date parsing deliberately accepts only ISO dates. Ambiguous prose dates
+    # require a client date-picker rather than silently assigning a year.
+    dates = re.findall(r"\b(\d{4}-\d{2}-\d{2})\b", text)
+    if dates:
+        try:
+            from datetime import datetime
+            result["check_in"] = datetime.fromisoformat(dates[0])
+            if len(dates) > 1:
+                result["check_out"] = datetime.fromisoformat(dates[1])
+        except ValueError:
+            pass
+    return result
+
+
 def _extract_furnishing(text: str) -> Optional[str]:
     lowered = text.lower()
     for alias, value in FURNISHING_ALIASES.items():
@@ -270,11 +317,13 @@ def parse_query(text: str) -> SearchIntent:
     intent = _extract_intent(lowered)
     bedrooms = _extract_bedrooms(lowered)
     ptype = _extract_property_type(lowered)
+    category = _extract_category(lowered, intent)
     furnishing = _extract_furnishing(lowered)
     area = _extract_area(lowered)
     commute = _extract_commute(lowered)
+    accommodation = _extract_guests_and_rooms(raw)
 
-    listing_type = "rent" if intent == "rental" else "sale"
+    listing_type = "rent" if (intent == "rental" or category in {"HOTEL", "HOSTEL", "SHORT_STAY", "VACATION_RENTAL", "SERVICED_APARTMENT", "PG", "CO_LIVING", "ACCOMMODATION"}) else "sale"
     if intent == "unknown" and (bedrooms or city or price.get("max_price") or ptype):
         intent = "home_purchase"
 
@@ -303,6 +352,7 @@ def parse_query(text: str) -> SearchIntent:
         city=city,
         locality=locality,
         property_type=ptype,
+        category=category,
         listing_type=listing_type,
         bedrooms=bedrooms,
         min_price=price.get("min_price"),
@@ -316,6 +366,7 @@ def parse_query(text: str) -> SearchIntent:
         lifestyle=lifestyle,
         intent=intent,
         keywords=keywords[:24],
+        **accommodation,
     )
 
 _NUM = r"(\d+(?:[.,]\d+)?)"

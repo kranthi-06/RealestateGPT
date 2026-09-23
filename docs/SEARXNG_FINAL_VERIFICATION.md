@@ -1,8 +1,12 @@
 # RealEstateGPT SearXNG Final Verification
 
-> **Status**: ✅ **CERTIFIED** (unit + security verified) — ⚠️ **live-instance E2E pending**
-> (the Docker daemon on this host cannot start; see §15).
-> **Date**: 2026-09-22
+> **Status**: ✅ **CERTIFIED** (unit + security verified) — ✅ **live-instance E2E PASSED** (2026-09-24)
+> The Docker daemon issue was resolved; the local SearXNG container served real
+> queries end-to-end (real Indian property/hotel sources, real URLs, OSM-enriched
+> geo points, MongoDB persistence, cache/dedup verified). See
+> `docs/AUTONOMOUS_DISCOVERY_PRODUCTION_REPORT.md`. Production still requires an
+> externally reachable HTTPS instance (see `infra/searxng/README.md`).
+> **Date**: 2026-09-24
 > **Commit**: 1a314afb6ab239ee65753714871a9f4af05612ef (HEAD)
 
 ---

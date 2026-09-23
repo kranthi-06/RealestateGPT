@@ -95,7 +95,7 @@ class WebSearchCacheRepository:
             "provider": doc.get("provider"),
             "created_at": doc.get("created_at"),
             "expires_at": doc.get("expires_at"),
-            "stale": True,
+            "stale": doc.get("stale", False),
         }
 
     def cleanup(self, limit: int = 500) -> int:

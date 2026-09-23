@@ -48,7 +48,7 @@ WORKER_FUNCTIONS = {
 # lease, so a retry or manual run cannot process the same work concurrently.
 CRON_JOBS = {
     "inventory": ("property_ingestion", "property_refresh", "geocoding_worker"),
-    "maintenance": ("price_history_worker", "stale_listing_worker", "web_discovery_cleanup"),
+    "maintenance": ("price_history_worker", "stale_listing_worker", "web_discovery_cleanup", "web_discovery_refresh"),
 }
 
 

@@ -22,6 +22,13 @@ _PROPERTY_TYPE_LABELS = {
     "penthouse": "penthouses",
 }
 
+_CATEGORY_LABELS = {
+    "HOTEL": "hotels", "HOSTEL": "hostels", "SHORT_STAY": "short stays",
+    "VACATION_RENTAL": "vacation rentals", "SERVICED_APARTMENT": "serviced apartments",
+    "PG": "PG accommodation", "CO_LIVING": "co-living accommodation",
+    "ACCOMMODATION": "accommodation",
+}
+
 _NEARBY_LABELS = {
     "metro": "near metro",
     "hospital": "near hospital",
@@ -57,6 +64,20 @@ def _transaction_phrase(intent: SearchIntent) -> str:
     return "for rent" if intent.listing_type == "rent" else "for sale"
 
 
+def _accommodation_phrase(intent: SearchIntent) -> Optional[str]:
+    label = _CATEGORY_LABELS.get(getattr(intent, "category", ""))
+    if not label:
+        return None
+    details = [label]
+    if intent.guests:
+        details.append(f"for {intent.guests} guests")
+    if intent.rooms:
+        details.append(f"{intent.rooms} rooms")
+    if intent.breakfast_required:
+        details.append("breakfast")
+    return " ".join(details)
+
+
 def _place_phrase(intent: SearchIntent) -> Optional[str]:
     if intent.locality and intent.city:
         return f"{intent.locality}, {intent.city}"
@@ -88,17 +109,18 @@ def build_search_queries(intent: SearchIntent, max_queries: int = 3) -> list[str
     2. Location/nearby variant (same core, place + "near X").
     3. Keyword/localized fallback when slots and distinct angles remain.
     """
-    max_queries = max(1, min(int(max_queries), 5))
+    max_queries = max(1, min(int(max_queries), 8))
     bhk = _bedroom_phrase(intent)
     ptype = _type_phrase(intent)
-    txn = _transaction_phrase(intent)
+    accommodation = _accommodation_phrase(intent)
+    txn = "" if accommodation else _transaction_phrase(intent)
     budget = _budget_phrase(intent)
     place = _place_phrase(intent)
     nearby = _nearby_phrase(intent)
 
     queries: list[str] = []
 
-    core = _join([bhk, ptype, txn])
+    core = _join([accommodation, bhk, ptype, txn])
     if not core:
         core = "property for sale" if intent.listing_type != "rent" else "rental properties"
 

@@ -40,6 +40,8 @@ class WebDiscoveryCard(BaseModel):
     price: Optional[float] = None
     currency: str = "INR"
     transaction_type: Optional[str] = None
+    category: str = "PROPERTY_SALE"
+    provenance: str = "WEB_DISCOVERY"
     bedrooms: Optional[int] = None
     bathrooms: Optional[int] = None
     area: Optional[float] = None
@@ -49,6 +51,11 @@ class WebDiscoveryCard(BaseModel):
     city: Optional[str] = None
     locality: Optional[str] = None
     furnishing: Optional[str] = None
+    price_period: Optional[str] = None
+    rating: Optional[float] = None
+    review_count: Optional[int] = None
+    guests: Optional[int] = None
+    amenities: list[str] = Field(default_factory=list)
     image_url: Optional[str] = None
     confidence: float = 0.0
     extraction_method: str = "snippet"

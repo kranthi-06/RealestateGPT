@@ -13,6 +13,7 @@ import {
   Globe2,
   Clock,
   Heart,
+  Star,
 } from "lucide-react";
 import type { WebDiscoveryCard as WebDiscoveryCardData } from "@/lib/types";
 import { formatPrice, getBedroomLabel } from "@/lib/format";
@@ -92,6 +93,11 @@ export default function WebDiscoveryCard({
             <Globe2 className="h-3 w-3" />
             WEB DISCOVERY
           </Badge>
+          {discovery.category && discovery.category !== "PROPERTY_SALE" && (
+            <Badge variant="secondary" className="rounded-md bg-white/90 text-slate-700 text-[10px] font-semibold">
+              {discovery.category.replaceAll("_", " ")}
+            </Badge>
+          )}
         </div>
       </div>
       {/* Body */}
@@ -131,9 +137,12 @@ export default function WebDiscoveryCard({
             <span>{getBedroomLabel(discovery.bedrooms)}</span>
           </div>
         )}
-        {discovery.furnishing && (
-          <span className="text-xs">{discovery.furnishing}</span>
-        )}
+          {discovery.furnishing && (
+            <span className="text-xs">{discovery.furnishing}</span>
+          )}
+          {discovery.rating != null && (
+            <span className="flex items-center gap-1 text-xs"><Star className="size-3 fill-amber-400 text-amber-400" />{discovery.rating}</span>
+          )}
       </div>
 
       {/* Source + freshness */}
