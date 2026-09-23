@@ -24,10 +24,16 @@ import {
   LocateFixed,
 } from "lucide-react";
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 
 export default function Navbar() {
   const { user, isAuthenticated, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const pathname = usePathname();
+
+  // The marketplace landing page includes its own header so the navigation can
+  // sit directly on its hero artwork. Inner pages retain this shared toolbar.
+  if (pathname === "/") return null;
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/50 bg-background/85 backdrop-blur-xl">
