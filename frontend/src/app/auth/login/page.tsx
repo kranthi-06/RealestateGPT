@@ -7,16 +7,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth-context";
-import { Building2, Loader2, Eye, EyeOff } from "lucide-react";
+import { Building2, Loader2, Eye, EyeOff, ShieldCheck, UserRound } from "lucide-react";
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, logout } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loginRole, setLoginRole] = useState<"user" | "admin">(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("role") === "admin"
+      ? "admin"
+      : "user"
+  );
 
   const nextPath = () => {
     const next = new URLSearchParams(window.location.search).get("next");
@@ -28,8 +33,12 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      await login(email, password);
-      router.push(nextPath());
+      const signedIn = await login(email, password);
+      if (loginRole === "admin" && signedIn.role !== "admin") {
+        logout();
+        throw new Error("This account does not have administrator access.");
+      }
+      router.push(loginRole === "admin" ? "/admin" : nextPath());
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
@@ -45,10 +54,14 @@ export default function LoginPage() {
             <Building2 className="w-6 h-6 text-white" />
           </div>
           <CardTitle className="text-2xl">Welcome Back</CardTitle>
-          <CardDescription>Sign in to your RealEstateGPT account</CardDescription>
+          <CardDescription>Use your existing account. Access is verified by the server.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-2 rounded-lg bg-muted p-1 text-sm font-medium">
+              <button type="button" onClick={() => setLoginRole("user")} className={`flex items-center justify-center gap-2 rounded-md py-2 ${loginRole === "user" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`}><UserRound className="size-4" /> User sign in</button>
+              <button type="button" onClick={() => setLoginRole("admin")} className={`flex items-center justify-center gap-2 rounded-md py-2 ${loginRole === "admin" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`}><ShieldCheck className="size-4" /> Admin sign in</button>
+            </div>
             {error && (
               <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-lg border border-destructive/20">
                 {error}
@@ -88,7 +101,7 @@ export default function LoginPage() {
             </div>
             <Button type="submit" className="w-full gradient-primary text-white border-0" disabled={loading}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-              Sign In
+              Sign in as {loginRole === "admin" ? "Admin" : "User"}
             </Button>
 
             <div className="text-center text-sm text-muted-foreground pt-2">
@@ -97,32 +110,6 @@ export default function LoginPage() {
                 Create one
               </Link>
             </div>
-
-            {process.env.NODE_ENV === 'development' && (
-              <div className="border-t border-border/50 pt-4 mt-4">
-                <p className="text-xs text-muted-foreground text-center mb-2">Demo accounts:</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="text-xs"
-                    onClick={() => { setEmail("demo@realestate-gpt.com"); setPassword("Demo@123"); }}
-                  >
-                    Demo User
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="text-xs"
-                    onClick={() => { setEmail("admin@realestate-gpt.com"); setPassword("Admin@123"); }}
-                  >
-                    Admin User
-                  </Button>
-                </div>
-              </div>
-            )}
           </form>
         </CardContent>
       </Card>

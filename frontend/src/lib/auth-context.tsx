@@ -9,7 +9,7 @@ interface AuthContextType {
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<User>;
   register: (email: string, fullName: string, password: string) => Promise<void>;
   logout: () => void;
   refreshProfile: () => Promise<void>;
@@ -39,6 +39,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("auth_token", response.access_token);
     setToken(response.access_token);
     setUser(response.user);
+    return response.user;
   }, []);
 
   const register = useCallback(
