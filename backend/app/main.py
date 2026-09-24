@@ -30,19 +30,30 @@ def _validate_configuration() -> None:
         logger.warning("configuration_warning %s", warning)
 
 
+_startup_failure: str | None = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: verify configuration, MongoDB connectivity and
     indexes; clean shutdown."""
+    # TEMPORARY DIAGNOSTIC (to be reverted): surface the exact startup failure
+    # over HTTP so the production traceback is observable without log access.
+    global _startup_failure
     logger.info("Starting %s (%s)", settings.APP_NAME, settings.APP_ENV)
-    _validate_configuration()
-    # Fail fast when the production database is misconfigured or unreachable.
-    connect()
-    ensure_indexes()
-    # Idempotent schema migrations for legacy records.
-    from app.migrations import run_migrations
-    run_migrations(get_database())
-    logger.info("MongoDB connected, schema indexes ensured")
+    try:
+        _validate_configuration()
+        # Fail fast when the production database is misconfigured or unreachable.
+        connect()
+        ensure_indexes()
+        # Idempotent schema migrations for legacy records.
+        from app.migrations import run_migrations
+        run_migrations(get_database())
+        logger.info("MongoDB connected, schema indexes ensured")
+    except Exception as exc:
+        import traceback
+        _startup_failure = traceback.format_exc(limit=10)[-4000:]
+        logger.error("STARTUP FAILED: %s", exc)
     yield
     close_connection()
     logger.info("Shutting down %s", settings.APP_NAME)
@@ -96,6 +107,13 @@ app.add_middleware(RequestContextMiddleware)
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
+    # TEMPORARY DIAGNOSTIC (to be reverted): report the captured startup
+    # failure instead of an opaque platform 500.
+    if _startup_failure is not None:
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"code": "STARTUP_FAILED", "detail": _startup_failure},
+        )
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
