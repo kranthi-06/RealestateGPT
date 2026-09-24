@@ -1,0 +1,46 @@
+# Fly.io deployment for the production RealEstateGPT SearXNG instance.
+#
+# This is a persistent, always-on, HTTPS-terminated Docker deployment of the
+# exact SearXNG configuration verified locally. Nothing here depends on a
+# developer workstation.
+#
+# Prerequisites: flyctl installed and authenticated, Docker running locally.
+#
+# Exact deploy steps (also in infra/searxng/README.md):
+#   1. cp fly.toml fly.toml.local   # fly.toml.local is gitignored
+#   2. Edit fly.toml.local: replace CHANGE_ME_APP_NAME with a globally unique
+#      name, e.g. realestategpt-searxng (this becomes <name>.fly.dev).
+#   3. flyctl apps create <app-name>
+#   4. flyctl deploy -c fly.toml.local
+#   5. flyctl secrets set SEARXNG_SECRET=<output of: openssl rand -hex 32>
+#      (the entrypoint writes it over the placeholder in settings.yml)
+#      Restart to apply: flyctl apps restart <app-name>
+#   6. Verify: curl "https://<app-name>.fly.dev/search?q=test&format=json"
+#
+# Health check: Fly hits / every 30s and auto-restarts failing machines;
+# `flyctl status` and `flyctl logs` give live state and logs.
+
+app = "CHANGE_ME_APP_NAME"
+primary_region = "bom" # Mumbai — close to the IN user base; change freely
+
+[build]
+  dockerfile = "Dockerfile.prod"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off" # always-on instance
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[http_service.checks]]
+  grace_period = "15s"
+  interval = "30s"
+  method = "GET"
+  timeout = "5s"
+  path = "/"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

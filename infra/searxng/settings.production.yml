@@ -1,0 +1,58 @@
+# SearXNG production settings template (RealEstateGPT).
+#
+# This file is baked into the production image by Dockerfile.prod. It is a
+# TEMPLATE: the two CHANGE_ME values below must be replaced at deploy time.
+# Never commit a copy of this file with real values.
+#
+#   server.secret_key  -> long random value, injected at runtime via the
+#                         SEARXNG_SECRET env var (supported by the official
+#                         image entrypoint) or baked into a host-local copy.
+#   server.base_url    -> the public https URL of the deployed instance.
+#
+# Kept deliberately identical to the verified local settings.yml except for
+# the production hardening called out in infra/searxng/README.md (https
+# base_url, rotated secret, limiter).
+
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "RealEstateGPT-SearXNG"
+
+server:
+  port: 8080
+  bind_address: "0.0.0.0"
+  secret_key: "CHANGE_ME_SET_VIA_SEARXNG_SECRET_ENV_VAR"
+  base_url: "https://CHANGE_ME_SET_YOUR_PUBLIC_HOSTNAME/"
+  public_instance: false
+  limiter: true
+  default_http_headers:
+    X-Content-Type-Options: nosniff
+    X-XSS-Protection: 1; mode=block
+    X-Download-Options: noopen
+    X-Robots-Tag: noindex, nofollow
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: ""
+  formats:
+    - html
+    - json
+
+engines:
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+  - name: brave
+    engine: brave
+    shortcut: br
+    disabled: false
+    brave_category: search
+    time_range_support: true
+    paging: true
+  - name: startpage
+    engine: startpage
+    shortcut: sp
+    disabled: false

@@ -1,0 +1,14 @@
+# Production image for the RealEstateGPT SearXNG instance.
+#
+# Build context MUST be this directory:
+#   docker build -f infra/searxng/Dockerfile.prod -t realestategpt-searxng infra/searxng
+#
+# Official SearXNG image + the hardened production settings template. The
+# template keeps CHANGE_ME placeholders on purpose: the real secret_key is
+# injected at runtime through the SEARXNG_SECRET env var (handled by the
+# official image entrypoint), so no secret ever lands in git or in an image
+# layer.
+
+FROM searxng/searxng:latest
+
+COPY settings.production.yml /etc/searxng/settings.yml

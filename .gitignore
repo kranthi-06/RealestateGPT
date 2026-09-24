@@ -62,3 +62,7 @@ docs/production_verification_before.json
 scripts/repair_search_comment.py
 
 frontend/.next/cache/trace/
+
+# Localized SearXNG production deploy copies (real app names/hosts stay local)
+infra/searxng/fly.toml.local
+infra/searxng/settings.production.local.yml
