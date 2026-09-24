@@ -333,21 +333,11 @@ class Settings(BaseSettings):
                 problems.append("CRON_SECRET must be a long random value outside development.")
             if not (self.LOCATION_PROVIDER.strip().lower() in {"osm", "google"}):
                 problems.append("LOCATION_PROVIDER must be a configured provider.")
-            # Web discovery production validation
-            if self.WEB_DISCOVERY_ENABLED:
-                provider = (self.WEB_SEARCH_PROVIDER or "").strip().lower()
-                if provider == "searxng":
-                    if not self.SEARXNG_BASE_URL:
-                        problems.append("WEB_DISCOVERY_ENABLED=true with WEB_SEARCH_PROVIDER=searxng but SEARXNG_BASE_URL is empty.")
-                    elif is_loopback_url(self.SEARXNG_BASE_URL):
-                        problems.append("SEARXNG_BASE_URL points at loopback; a deployed backend must use a publicly reachable SearXNG host.")
-                    elif not self.SEARXNG_BASE_URL.strip().lower().startswith("https://"):
-                        problems.append("SEARXNG_BASE_URL must use https outside development.")
-                elif provider == "brave":
-                    if not self.BRAVE_SEARCH_API_KEY:
-                        problems.append("WEB_DISCOVERY_ENABLED=true with WEB_SEARCH_PROVIDER=brave but BRAVE_SEARCH_API_KEY is empty.")
-                else:
-                    problems.append(f"WEB_SEARCH_PROVIDER='{self.WEB_SEARCH_PROVIDER}' is not registered; expected 'brave' or 'searxng'.")
+            # Web discovery misconfiguration is NOT fatal: it is an optional
+            # integration that must degrade to an honest WEB_SEARCH_NOT_CONFIGURED
+            # state (see configuration_warnings). Failing startup here would take
+            # down every endpoint — auth, health, inventory — because one optional
+            # provider is unset.
         return problems
 
     model_config = {
