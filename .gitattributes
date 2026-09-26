@@ -1,0 +1,4 @@
+# Container-critical files must keep LF endings even on Windows checkouts
+# (core.autocrlf=true), or the shebang/Caddyfile parsing breaks inside Docker.
+infra/searxng/docker-entrypoint.prod.sh text eol=lf
+infra/searxng/Caddyfile text eol=lf

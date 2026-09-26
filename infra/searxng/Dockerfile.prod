@@ -3,12 +3,26 @@
 # Build context MUST be this directory:
 #   docker build -f infra/searxng/Dockerfile.prod -t realestategpt-searxng infra/searxng
 #
-# Official SearXNG image + the hardened production settings template. The
-# template keeps CHANGE_ME placeholders on purpose: the real secret_key is
-# injected at runtime through the SEARXNG_SECRET env var (handled by the
-# official image entrypoint), so no secret ever lands in git or in an image
-# layer.
+# Layout inside the container:
+#   Caddy (:8080, the Fly internal_port)  — token-authenticated edge
+#     └── SearXNG/Granian (127.0.0.1:8081) — never exposed directly
+#
+# Required runtime secrets (flyctl secrets set ...):
+#   SEARXNG_SECRET      -> server.secret_key (read natively by SearXNG's
+#                          settings layer; never baked into the image)
+#   SEARXNG_AUTH_TOKEN  -> shared bearer token enforced by Caddy and sent by
+#                          the backend provider (backend SEARXNG_AUTH_TOKEN)
+# The container refuses to start without SEARXNG_AUTH_TOKEN (fail closed).
+
+FROM caddy:2 AS caddy
 
 FROM searxng/searxng:latest
 
+COPY --from=caddy /usr/bin/caddy /usr/local/bin/caddy
+
 COPY settings.production.yml /etc/searxng/settings.yml
+COPY Caddyfile /etc/caddy/Caddyfile
+COPY docker-entrypoint.prod.sh /usr/local/bin/docker-entrypoint.prod.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.prod.sh
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.prod.sh"]

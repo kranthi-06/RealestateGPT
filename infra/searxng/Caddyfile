@@ -1,0 +1,28 @@
+# Token-authenticated edge for the production RealEstateGPT SearXNG instance.
+#
+# SearXNG's own JSON API has no application-level auth, and its built-in
+# limiter is incompatible with headless API clients (4 json requests/hour/IP).
+# Access restriction is therefore enforced here: every request except /healthz
+# must carry "Authorization: Bearer $SEARXNG_AUTH_TOKEN" — the same token the
+# backend sends (backend SEARXNG_AUTH_TOKEN setting, provider searxng.py).
+#
+# SEARXNG_AUTH_TOKEN is injected at runtime (flyctl secrets set); it is never
+# baked into the image or committed. If it is unset, the placeholder expands to
+# an empty string and every non-health request is rejected — fail closed.
+
+:8080 {
+	# Fly health checks (fly.toml) and container smoke tests.
+	route /healthz {
+		reverse_proxy 127.0.0.1:8081
+	}
+
+	route {
+		@authorized header Authorization "Bearer {env.SEARXNG_AUTH_TOKEN}"
+		reverse_proxy @authorized 127.0.0.1:8081
+		respond "Unauthorized" 401
+	}
+
+	log {
+		output stdout
+	}
+}

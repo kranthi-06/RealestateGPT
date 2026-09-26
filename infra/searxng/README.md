@@ -44,17 +44,31 @@ The master-prompt constraints make these non-negotiable:
 3. **Set `SEARXNG_BASE_URL=https://<your-instance>` and
    `WEB_SEARCH_PROVIDER=searxng`** in the Vercel backend environment (§4).
    Never commit the real URL to the repo.
+4. **Set a shared `SEARXNG_AUTH_TOKEN`** — a long random value, identical on
+   the Fly app (`flyctl secrets set`) and in the Vercel backend environment.
+   It is the only credential that grants access to the JSON API; never commit
+   it.
 
 Security posture of the deployed instance:
+- **Token-authenticated edge (restricted access).** The production image runs
+  Caddy in front of SearXNG: every request except `/healthz` must carry
+  `Authorization: Bearer <SEARXNG_AUTH_TOKEN>`, or it is rejected with 401
+  before reaching SearXNG. SearXNG/Granian binds to `127.0.0.1:8081` inside the
+  container and is never exposed directly. The container **refuses to start**
+  when `SEARXNG_AUTH_TOKEN` is unset (fail closed). The backend sends the same
+  token automatically when its `SEARXNG_AUTH_TOKEN` setting is non-empty.
+- **Why not SearXNG's built-in limiter?** It is designed to block bots, not to
+  serve a headless API client: `format=json` traffic is capped at **4 requests
+  per hour per IP** (`API_MAX` in `searx/botdetection/ip_limit.py`) and
+  non-browser user agents are 429'd outright. Enabling it would break this
+  platform's own backend. `settings.production.yml` therefore sets
+  `limiter: false` and documents the reason. Rate limiting is enforced
+  platform-side by the backend's verified web-search limiter (global RPM floor,
+  per-user limits, concurrency cap); the token edge keeps third parties out.
 - `public_instance: false` and the restrictive `default_http_headers` are kept.
-- `server.limiter: true` enables SearXNG's built-in per-IP rate limiting.
-- The JSON API has no application-level auth (upstream design). Vercel's
-  serverless egress uses a pool of IP addresses, so an egress IP allow-list is
-  not reliable; the practical controls are the limiter, the rotated secret,
-  and the small instance footprint. If stronger restriction is ever required,
-  front the instance with a reverse proxy that adds basic auth and extend
-  `SearXNGSearchProvider.search` to send an `Authorization` header — no other
-  discovery logic needs to change.
+- `secret_key` is injected at runtime via the `SEARXNG_SECRET` env var, which
+  SearXNG's settings layer reads natively (`server.secret_key` override); it is
+  never baked into the image or committed.
 - The backend never sends `categories`/`safesearch` overrides and validates
   every result URL through the SSRF guard, so the instance's own defaults
   govern engine selection.
@@ -71,11 +85,18 @@ docker build -f infra/searxng/Dockerfile.prod -t realestategpt-searxng:local inf
 ```
 
 Smoke-test the production image locally (secret/base_url placeholders are fine
-for the smoke test — SearXNG only needs them non-empty to boot):
+for the smoke test; `SEARXNG_AUTH_TOKEN` is **required** — the container
+refuses to start without it):
 
 ```bash
-docker run --rm -p 8081:8080 realestategpt-searxng:local
-curl "http://localhost:8081/search?q=test&format=json"
+docker run --rm -p 8081:8080 \
+  -e SEARXNG_SECRET=smoke-only -e SEARXNG_AUTH_TOKEN=smoke-token \
+  realestategpt-searxng:local
+
+curl "http://localhost:8081/healthz"                                   # 200 OK
+curl "http://localhost:8081/search?q=test&format=json"                 # 401
+curl -H "Authorization: Bearer smoke-token" \
+  "http://localhost:8081/search?q=test&format=json"                    # 200 JSON
 ```
 
 Deploy for real:
@@ -86,14 +107,17 @@ cp infra/searxng/fly.toml infra/searxng/fly.toml.local   # gitignored
 
 flyctl apps create <app-name>
 flyctl deploy -c infra/searxng/fly.toml.local
-flyctl secrets set SEARXNG_SECRET="$(openssl rand -hex 32)"
+flyctl secrets set SEARXNG_SECRET="$(openssl rand -hex 32)" \
+                   SEARXNG_AUTH_TOKEN="$(openssl rand -hex 32)"
 flyctl apps restart <app-name>        # secrets apply on restart
 ```
 
-The instance is now served at `https://<app-name>.fly.dev` (Fly terminates
-TLS automatically; `force_https = true` in fly.toml). The fly.toml keeps the
-machine always on (`auto_stop_machines = "off"`, `min_machines_running = 1`),
-checks health on `/` every 30s, and auto-restarts failures.
+Record the `SEARXNG_AUTH_TOKEN` value you set — the backend needs the same one
+(§4). The instance is now served at `https://<app-name>.fly.dev` (Fly
+terminates TLS automatically; `force_https = true` in fly.toml). The fly.toml
+keeps the machine always on (`auto_stop_machines = "off"`,
+`min_machines_running = 1`), checks health on `/healthz` every 30s (the only
+unauthenticated route), and auto-restarts failures.
 
 Operations:
 
@@ -114,8 +138,9 @@ Set these in the **existing** Vercel project (`realestate-gpt-inky`), backend
 environment — dashboard → Settings → Environment Variables, or:
 
 ```bash
-vercel env add SEARXNG_BASE_URL production   # value: https://<app-name>.fly.dev
+vercel env add SEARXNG_BASE_URL production      # value: https://<app-name>.fly.dev
 vercel env add WEB_SEARCH_PROVIDER production   # value: searxng
+vercel env add SEARXNG_AUTH_TOKEN production    # value: the token set on the Fly app
 ```
 
 Full backend variable contract (see `backend/.env.example`):
@@ -130,6 +155,7 @@ Full backend variable contract (see `backend/.env.example`):
 | `WEB_DISCOVERY_ENABLED` | `true` |
 | `WEB_SEARCH_PROVIDER` | `searxng` |
 | `SEARXNG_BASE_URL` | `https://<app-name>.fly.dev` |
+| `SEARXNG_AUTH_TOKEN` | the same token set via `flyctl secrets` |
 | `CORS_ORIGINS` | `https://realestate-gpt-inky.vercel.app` |
 
 Then redeploy the existing project (`vercel --prod` or a push to `main`).
@@ -145,7 +171,17 @@ Frontend keeps only:
 From any machine:
 
 ```bash
-curl "https://<app-name>.fly.dev/search?q=2bhk%20hyderabad&format=json" | jq '.results | length'
+# Restricted access: unauthenticated requests must be rejected.
+curl -o /dev/null -w "%{http_code}\n" \
+  "https://<app-name>.fly.dev/search?q=test&format=json"          # -> 401
+
+# Authenticated JSON API works.
+curl -H "Authorization: Bearer <SEARXNG_AUTH_TOKEN>" \
+  "https://<app-name>.fly.dev/search?q=2bhk%20hyderabad&format=json" \
+  | jq '.results | length'                                        # -> > 0
+
+# Health endpoint (the only public route).
+curl "https://<app-name>.fly.dev/healthz"                         # -> OK
 ```
 
 Then run one live autonomous query against the deployed backend and confirm

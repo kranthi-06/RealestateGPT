@@ -12,13 +12,22 @@
 #      name, e.g. realestategpt-searxng (this becomes <name>.fly.dev).
 #   3. flyctl apps create <app-name>
 #   4. flyctl deploy -c fly.toml.local
-#   5. flyctl secrets set SEARXNG_SECRET=<output of: openssl rand -hex 32>
-#      (the entrypoint writes it over the placeholder in settings.yml)
+#   5. flyctl secrets set SEARXNG_SECRET=<output of: openssl rand -hex 32> \
+#                         SEARXNG_AUTH_TOKEN=<output of: openssl rand -hex 32>
+#      SEARXNG_SECRET is read natively by SearXNG's settings layer as
+#      server.secret_key; SEARXNG_AUTH_TOKEN is the bearer token enforced by
+#      the Caddy edge (and sent by the backend provider). The container
+#      refuses to start without SEARXNG_AUTH_TOKEN.
 #      Restart to apply: flyctl apps restart <app-name>
-#   6. Verify: curl "https://<app-name>.fly.dev/search?q=test&format=json"
+#   6. Set the same SEARXNG_AUTH_TOKEN + SEARXNG_BASE_URL=https://<app-name>.fly.dev
+#      on the Vercel backend, then verify:
+#      curl https://<app-name>.fly.dev/search?q=test&format=json          -> 401
+#      curl -H "Authorization: Bearer <token>" \
+#        "https://<app-name>.fly.dev/search?q=test&format=json"           -> 200 JSON
 #
-# Health check: Fly hits / every 30s and auto-restarts failing machines;
-# `flyctl status` and `flyctl logs` give live state and logs.
+# Health check: Fly hits /healthz (allowed unauthenticated by the Caddyfile)
+# every 30s and auto-restarts failing machines; `flyctl status` and
+# `flyctl logs` give live state and logs.
 
 app = "CHANGE_ME_APP_NAME"
 primary_region = "bom" # Mumbai — close to the IN user base; change freely
@@ -27,7 +36,7 @@ primary_region = "bom" # Mumbai — close to the IN user base; change freely
   dockerfile = "Dockerfile.prod"
 
 [http_service]
-  internal_port = 8080
+  internal_port = 8080 # Caddy; SearXNG itself is loopback-only on 8081
   force_https = true
   auto_stop_machines = "off" # always-on instance
   auto_start_machines = true
@@ -38,7 +47,7 @@ primary_region = "bom" # Mumbai — close to the IN user base; change freely
   interval = "30s"
   method = "GET"
   timeout = "5s"
-  path = "/"
+  path = "/healthz"
 
 [[vm]]
   memory = "512mb"

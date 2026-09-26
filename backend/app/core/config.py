@@ -133,6 +133,11 @@ class Settings(BaseSettings):
     # implicit localhost default: an unconfigured deployment reports
     # "not configured" instead of quietly depending on a developer machine.
     SEARXNG_BASE_URL: str = ""
+    # Optional bearer token for a reverse-proxy-protected instance. When set,
+    # every request sends "Authorization: Bearer <token>"; the production
+    # SearXNG image (infra/searxng) rejects unauthenticated requests at its
+    # Caddy edge unless the same token is configured there (SEARXNG_AUTH_TOKEN).
+    SEARXNG_AUTH_TOKEN: str = ""
     WEB_SEARCH_COUNTRY: str = "IN"
     WEB_SEARCH_LANGUAGE: str = "en"
     WEB_SEARCH_MAX_QUERIES: int = 3

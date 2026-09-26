@@ -193,13 +193,27 @@ class SearXNGSearchProvider(BaseWebSearchProvider):
 
         timeout = settings.WEB_SEARCH_TIMEOUT_SECONDS
 
+        # Optional token for a reverse-proxy-protected instance (see
+        # SEARXNG_AUTH_TOKEN in config); omitted entirely when unset.
+        headers: dict[str, str] = {}
+        auth_token = (getattr(settings, "SEARXNG_AUTH_TOKEN", "") or "").strip()
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
+
         try:
             with httpx.Client(timeout=timeout) as client:
-                response = client.get(url, params=params)
+                response = client.get(url, params=params, headers=headers)
 
             if response.status_code == 429:
                 health.record_rate_limited()
                 raise WebSearchRateLimitError("SearXNG rate limit exceeded.")
+
+            if response.status_code == 401:
+                health.record_error("HTTP Error: 401")
+                raise WebSearchInternalError(
+                    "SearXNG rejected the request (HTTP 401). The instance requires a "
+                    "bearer token; check that SEARXNG_AUTH_TOKEN matches the proxy."
+                )
 
             if response.status_code == 403:
                 # SearXNG answers 403 when the requested format is not enabled.

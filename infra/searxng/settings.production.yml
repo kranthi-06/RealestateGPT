@@ -20,12 +20,26 @@ general:
   instance_name: "RealEstateGPT-SearXNG"
 
 server:
-  port: 8080
-  bind_address: "0.0.0.0"
+  # SearXNG listens on loopback only; the Caddy token proxy in front of it is
+  # the sole public surface (see Caddyfile / docker-entrypoint.prod.sh).
+  port: 8081
+  bind_address: "127.0.0.1"
+  # Read natively by SearXNG's settings layer from the SEARXNG_SECRET env var
+  # (settings_defaults.py maps server.secret_key -> SEARXNG_SECRET). The
+  # placeholder below is never used when the env var is set via
+  # `flyctl secrets set SEARXNG_SECRET=...`.
   secret_key: "CHANGE_ME_SET_VIA_SEARXNG_SECRET_ENV_VAR"
   base_url: "https://CHANGE_ME_SET_YOUR_PUBLIC_HOSTNAME/"
   public_instance: false
-  limiter: true
+  # The built-in limiter is deliberately DISABLED: it caps format=json traffic
+  # at API_MAX=4 requests/hour/IP (searx/botdetection/ip_limit.py) and 429s
+  # non-browser user agents — it is designed to block bots, and would block
+  # this platform's own headless backend. Restricted access is enforced at the
+  # container edge instead: Caddy (see Caddyfile) requires the shared bearer
+  # token (SEARXNG_AUTH_TOKEN) on every request except /healthz, and outbound
+  # request volume is bounded by the backend's own verified rate limiter
+  # (WEB_SEARCH_RPM floor + concurrency cap).
+  limiter: false
   default_http_headers:
     X-Content-Type-Options: nosniff
     X-XSS-Protection: 1; mode=block

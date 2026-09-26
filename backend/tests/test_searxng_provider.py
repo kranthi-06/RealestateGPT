@@ -293,3 +293,40 @@ def test_searxng_ignores_invalid_freshness_and_language(searxng_provider):
 
     assert "time_range" not in params
     assert "language" not in params
+
+
+def test_searxng_auth_header_sent_only_when_token_configured(searxng_provider):
+    """The bearer token is sent exactly when SEARXNG_AUTH_TOKEN is set."""
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"results": []}
+    mock_response.elapsed.total_seconds.return_value = 0.1
+
+    settings.SEARXNG_AUTH_TOKEN = ""
+    with patch("httpx.Client.get", return_value=mock_response) as mock_get:
+        searxng_provider.search("test query")
+        assert mock_get.call_args.kwargs["headers"] == {}
+
+    settings.SEARXNG_AUTH_TOKEN = "tok-123"
+    try:
+        with patch("httpx.Client.get", return_value=mock_response) as mock_get:
+            searxng_provider.search("test query")
+            assert mock_get.call_args.kwargs["headers"] == {
+                "Authorization": "Bearer tok-123"
+            }
+    finally:
+        settings.SEARXNG_AUTH_TOKEN = ""
+
+
+def test_searxng_401_reports_auth_misconfiguration(searxng_provider):
+    """A 401 from the token proxy surfaces as a clear auth error, never results."""
+    mock_response = MagicMock()
+    mock_response.status_code = 401
+
+    settings.SEARXNG_AUTH_TOKEN = "wrong-token"
+    try:
+        with patch("httpx.Client.get", return_value=mock_response):
+            with pytest.raises(WebSearchInternalError, match="HTTP 401"):
+                searxng_provider.search("test query")
+    finally:
+        settings.SEARXNG_AUTH_TOKEN = ""
