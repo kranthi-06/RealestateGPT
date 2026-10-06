@@ -99,7 +99,7 @@ def _valid_candidate():
         url="https://99acres.com/property/2bhk-gachibowli-123",
         source_domain="99acres.com",
         description="Rent Rs 28000/month.",
-        price=28000, bedrooms=2, transaction_type="rent",
+        price=28000, currency="INR", bedrooms=2, transaction_type="rent",
         confidence=0.9,
     )
 

@@ -1,15 +1,41 @@
 /* RealEstateGPT - Formatting utilities */
 
-export function formatPrice(price: number): string {
-  if (price >= 10000000) {
-    const crore = price / 10000000;
-    return `₹${crore % 1 === 0 ? crore.toFixed(0) : crore.toFixed(2)} Cr`;
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  INR: "₹",
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+  AED: "AED ",
+};
+
+function getCurrencySymbol(currency?: string | null): string {
+  if (!currency) return "₹";
+  return CURRENCY_SYMBOLS[currency.toUpperCase()] ?? `${currency} `;
+}
+
+export function formatPrice(price: number, currency?: string | null): string {
+    const sym = getCurrencySymbol(currency);
+    const isINR = currency?.toUpperCase() === "INR";
+
+  if (isINR) {
+    // Indian formatting: Cr / L shorthand
+    if (price >= 10000000) {
+      const crore = price / 10000000;
+      return `${sym}${crore % 1 === 0 ? crore.toFixed(0) : crore.toFixed(2)} Cr`;
+    }
+    if (price >= 100000) {
+      const lakh = price / 100000;
+      return `${sym}${lakh % 1 === 0 ? lakh.toFixed(0) : lakh.toFixed(1)} L`;
+    }
+    return `${sym}${price.toLocaleString("en-IN")}`;
   }
-  if (price >= 100000) {
-    const lakh = price / 100000;
-    return `₹${lakh % 1 === 0 ? lakh.toFixed(0) : lakh.toFixed(1)} L`;
+
+  // International formatting
+  if (price >= 1_000_000) {
+    const m = price / 1_000_000;
+    return `${sym}${m % 1 === 0 ? m.toFixed(0) : m.toFixed(2)}M`;
   }
-  return `₹${price.toLocaleString("en-IN")}`;
+  return `${sym}${price.toLocaleString("en-US")}`;
 }
 
 export function formatArea(sqft: number): string {

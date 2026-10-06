@@ -73,7 +73,7 @@ def doc_to_card(doc: dict[str, Any], *, saved: bool = False, rank_score: Optiona
         "source_name": doc.get("source_name"),
         "description": doc.get("description"),
         "price": doc.get("price"),
-        "currency": doc.get("currency") or "INR",
+        "currency": doc.get("currency"),
         "transaction_type": doc.get("transaction_type"),
         "category": doc.get("category") or "PROPERTY_SALE",
         "provenance": doc.get("provenance") or "WEB_DISCOVERY",

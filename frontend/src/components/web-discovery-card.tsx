@@ -109,7 +109,7 @@ export default function WebDiscoveryCard({
 
       <div className="mb-2 px-4">
         <p className="text-foreground font-bold text-xl tracking-tight">
-          {discovery.price != null ? formatPrice(discovery.price) : "Price not available"}
+          {discovery.price != null && discovery.currency ? formatPrice(discovery.price, discovery.currency) : "Price not available"}
           {discovery.price != null && discovery.transaction_type === "rent" && (
             <span className="text-sm font-normal text-muted-foreground ml-1">/ month</span>
           )}
@@ -119,10 +119,7 @@ export default function WebDiscoveryCard({
       <div className="flex items-center gap-1.5 text-muted-foreground px-4 mb-3">
         <MapPin className="w-3.5 h-3.5 shrink-0" />
         <span className="text-xs truncate">
-          {discovery.location_text ||
-            (discovery.locality ? `${discovery.locality}, ` : "") ||
-            discovery.city ||
-            "Location not stated"}
+          {discovery.location_text || (discovery.locality && discovery.city ? `${discovery.locality}, ${discovery.city}` : discovery.locality || discovery.city) || "Location not available"}
         </span>
         {area != null && area > 0 && (
           <span className="text-xs text-muted-foreground/80">Ã‚Â· {Math.round(area).toLocaleString("en-IN")} sq.ft</span>

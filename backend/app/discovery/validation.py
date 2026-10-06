@@ -46,6 +46,8 @@ def validate_candidate(candidate: PropertyCandidate) -> list[str]:
             problems.append("negative price")
         elif candidate.price > _MAX_ABSURD_PRICE:
             problems.append("implausible price")
+        elif not candidate.currency:
+            problems.append("price without currency")
     if candidate.bedrooms is not None and not (0 <= candidate.bedrooms <= 20):
         problems.append("implausible bedrooms")
     if candidate.bathrooms is not None and not (0 <= candidate.bathrooms <= 20):

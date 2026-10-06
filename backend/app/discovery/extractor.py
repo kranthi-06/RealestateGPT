@@ -27,17 +27,17 @@ class PropertyCandidateExtractor:
     """Deterministic, conservative extraction from a normalized web result."""
 
     _RENT_RE = re.compile(
-        r"(?:₹|rs\.?|inr|rupees)?\s*([\d][\d,]*(?:\.\d+)?)\s*"
+        r"([$€£]|usd|eur|gbp|inr|₹|rs\.?|rupees|aed)?\s*([\d][\d,]*(?:\.\d+)?)\s*"
         r"(?:/|\sper\s|\s)?(?:month|mo|pm)\b",
         re.IGNORECASE,
     )
     _NIGHT_RE = re.compile(
-        r"(?:₹|rs\.?|inr|rupees)?\s*([\d][\d,]*(?:\.\d+)?)\s*(?:/|\sper\s)?(?:night|nightly)\b",
+        r"([$€£]|usd|eur|gbp|inr|₹|rs\.?|rupees|aed)?\s*([\d][\d,]*(?:\.\d+)?)\s*(?:/|\sper\s)?(?:night|nightly)\b",
         re.IGNORECASE,
     )
 
     _LARGE_UNIT_RE = re.compile(
-        r"(?:₹|rs\.?|inr|rupees)?\s*([\d][\d,]*(?:\.\d+)?)\s*"
+        r"([$€£]|usd|eur|gbp|inr|₹|rs\.?|rupees|aed)?\s*([\d][\d,]*(?:\.\d+)?)\s*"
         r"(lakhs?|lacs?|crores?|cr|million|m)\b",
         re.IGNORECASE,
     )
@@ -95,7 +95,7 @@ class PropertyCandidateExtractor:
             source_name=result.source_name,
             description=result.description,
             price=price,
-            currency=currency or "INR",
+            currency=currency,
             transaction_type=transaction,
             category=category,
             bedrooms=bedrooms,
@@ -128,32 +128,55 @@ class PropertyCandidateExtractor:
 
     def _extract_price(self, result: WebSearchResult, text: str):
         """Return (price, currency, transaction_type, method)."""
-        schema_value = self._schema_price(result)
+        schema_value, schema_currency = self._schema_price(result)
         if schema_value is not None:
-            return self._coerce_price(schema_value), "INR", None, "schema"
+            currency = schema_currency or None
+            if currency is None:
+                return None, None, None, "schema"
+            return self._coerce_price(schema_value), currency, None, "schema"
+
+        def _resolve_currency(symbol: Optional[str]) -> Optional[str]:
+            if not symbol:
+                return None
+            s = symbol.lower()
+            if s in ("$", "usd"): return "USD"
+            if s in ("€", "eur"): return "EUR"
+            if s in ("£", "gbp"): return "GBP"
+            if s in ("₹", "rs", "rs.", "inr", "rupees"): return "INR"
+            if s == "aed": return "AED"
+            return None
 
         rent_match = self._RENT_RE.search(text)
         if rent_match:
-            return self._coerce_price(rent_match.group(1)), "INR", "rent", "snippet"
+            currency = _resolve_currency(rent_match.group(1))
+            if not currency: return None, None, None, "snippet"
+            return self._coerce_price(rent_match.group(2)), currency, "rent", "snippet"
 
         night_match = self._NIGHT_RE.search(text)
         if night_match:
-            return self._coerce_price(night_match.group(1)), "INR", "rent", "snippet"
+            currency = _resolve_currency(night_match.group(1))
+            if not currency: return None, None, None, "snippet"
+            return self._coerce_price(night_match.group(2)), currency, "rent", "snippet"
 
         unit_match = self._LARGE_UNIT_RE.search(text)
         if unit_match:
-            amount = self._coerce_price(unit_match.group(1))
-            multiplier = _unit_multiplier((unit_match.group(2) or "").lower())
+            currency = _resolve_currency(unit_match.group(1))
+            if not currency: return None, None, None, "snippet"
+            amount = self._coerce_price(unit_match.group(2))
+            multiplier = _unit_multiplier((unit_match.group(3) or "").lower())
             if multiplier and amount is not None:
-                return amount * multiplier, "INR", "sale", "snippet"
+                return amount * multiplier, currency, "sale", "snippet"
 
         if re.search(r"\b(price|rent|rental|rate)\b", text, re.IGNORECASE):
-            generic = re.search(r"(?:₹|rs\.?|inr|rupees)?\s*([\d][\d,]+)\b", text, re.IGNORECASE)
+            generic = re.search(r"([$€£]|usd|eur|gbp|inr|₹|rs\.?|rupees|aed)?\s*([\d][\d,]+)\b", text, re.IGNORECASE)
             if generic:
-                return self._coerce_price(generic.group(1)), "INR", None, "snippet"
+                currency = _resolve_currency(generic.group(1))
+                if not currency: return None, None, None, "snippet"
+                return self._coerce_price(generic.group(2)), currency, None, "snippet"
         return None, None, None, "snippet"
 
-    def _schema_price(self, result: WebSearchResult) -> Optional[float]:
+
+    def _schema_price(self, result: WebSearchResult) -> tuple[Optional[float], Optional[str]]:
         for schema in result.schemas or []:
             if not isinstance(schema, dict):
                 continue
@@ -161,10 +184,10 @@ class PropertyCandidateExtractor:
                 node = schema.get("offers") if key.startswith("offers") else schema
                 if isinstance(node, dict) and key in node and node[key] is not None:
                     try:
-                        return float(node[key])
+                        return float(node[key]), schema.get("priceCurrency")
                     except (TypeError, ValueError):
                         continue
-        return None
+        return None, None
 
     @staticmethod
     def _coerce_price(raw: Any) -> Optional[float]:

@@ -38,7 +38,7 @@ class WebDiscoveryCard(BaseModel):
     source_name: Optional[str] = None
     description: Optional[str] = None
     price: Optional[float] = None
-    currency: str = "INR"
+    currency: Optional[str] = None
     transaction_type: Optional[str] = None
     category: str = "PROPERTY_SALE"
     provenance: str = "WEB_DISCOVERY"

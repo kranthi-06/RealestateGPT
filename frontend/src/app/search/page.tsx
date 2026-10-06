@@ -604,7 +604,7 @@ function SearchPageContent() {
               compareIds={compareIds}
             />
 
-            {unifiedData && unifiedData.web_discoveries.length > 0 && (
+            {unifiedData && unifiedData.web_discoveries.length > 0 && unifiedData.verified_total > 0 && (
               <section className="mt-10">
                 <div className="mb-4 flex items-center gap-2">
                   <Badge variant="secondary" className="rounded-md bg-amber-500/15 text-amber-800 text-xs">
