@@ -226,11 +226,27 @@ export interface WorkerRun {
   extra: Record<string, unknown>;
 }
 
+export interface WebSearchProviderSnapshot {
+  status: string;
+  provider: string;
+  requests: number;
+  success: number;
+  too_many_requests: number;
+  errors: number;
+  average_latency_ms: number;
+  cache_hit_rate: number;
+  last_failure_reason?: string | null;
+  last_checked_at?: number | null;
+  configured: boolean;
+  enabled: boolean;
+}
+
 export interface WorkerStatus {
   property_provider: string;
   property_provider_configured: boolean;
   provider_message: string;
   location_provider: string;
+  web_search_provider?: WebSearchProviderSnapshot | null;
   last_runs: Record<string, {
     status?: string;
     started_at?: string | null;
