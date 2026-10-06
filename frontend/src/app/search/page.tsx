@@ -351,8 +351,12 @@ function SearchPageContent() {
         params.radius_km = 5.0;
       }
       // Unified search: verified inventory + (optional) bounded web discovery.
+      // The backend requires query min_length=1: never POST an empty string.
+      // Near-me without typed text falls back to location-derived text.
+      const unifiedQuery = (filters.q?.trim() || (userCoords ? `properties near ${userCoords.lat.toFixed(4)}, ${userCoords.lng.toFixed(4)}` : "")).trim();
+      if (!unifiedQuery) { setSectionsData(null); setUnifiedData(null); setSearchError("Type a search or allow location for near-me results."); setLoading(false); return; }
       const data = await searchApi.unified({
-        query: filters.q?.trim() || "",
+        query: unifiedQuery,
         location: userCoords
           ? { latitude: userCoords.lat, longitude: userCoords.lng, radius_km: 5.0 }
           : undefined,
