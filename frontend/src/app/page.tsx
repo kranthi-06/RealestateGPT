@@ -50,7 +50,7 @@ export default function LandingPage() {
       else setInventoryMessage("Verified listings are temporarily unavailable.");
       if (workers.status === "fulfilled") {
         setWorkerStatus(workers.value);
-        if (!workers.value.property_provider_configured) setInventoryMessage(workers.value.provider_message || "No licensed property-data provider is configured yet.");
+        if (workers.status === "fulfilled" && !workers.value.property_provider_configured && !workers.value.web_search_provider) setInventoryMessage((workers as unknown as { value: { provider_message: string } }).value.provider_message || "No licensed property-data provider is configured yet.");
       }
       setLoading(false);
     });
