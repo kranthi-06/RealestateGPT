@@ -127,8 +127,14 @@ class Settings(BaseSettings):
     #   Uses a legitimate Web Search API provider (no search-engine scraping).
     #   All secrets below are server-side; never prefix them with NEXT_PUBLIC_.
     WEB_DISCOVERY_ENABLED: bool = False
-    WEB_SEARCH_PROVIDER: str = "brave"  # registered provider name, e.g. "brave" or "searxng"
+    WEB_SEARCH_PROVIDER: str = "brave"  # registered provider name, e.g. "brave", "searxng" or "tavily"
     BRAVE_SEARCH_API_KEY: Optional[str] = None
+    # Required when WEB_SEARCH_PROVIDER=tavily. Server-side only: the frontend
+    # must never see it (never a NEXT_PUBLIC_ variable).
+    TAVILY_API_KEY: Optional[str] = None
+    # "basic" = 1 API credit per request (free tier includes 1000 credits/month);
+    # "advanced" = 2 credits and is not needed for property discovery.
+    TAVILY_SEARCH_DEPTH: str = "basic"
     # Required when WEB_SEARCH_PROVIDER=searxng. There is deliberately NO
     # implicit localhost default: an unconfigured deployment reports
     # "not configured" instead of quietly depending on a developer machine.
@@ -169,6 +175,8 @@ class Settings(BaseSettings):
         provider = (self.WEB_SEARCH_PROVIDER or "").strip().lower()
         if provider == "brave":
             return bool(self.BRAVE_SEARCH_API_KEY)
+        if provider == "tavily":
+            return bool((self.TAVILY_API_KEY or "").strip())
         if provider == "searxng":
             url = (self.SEARXNG_BASE_URL or "").strip()
             if not url:
@@ -269,10 +277,17 @@ class Settings(BaseSettings):
                         "WEB_DISCOVERY_ENABLED=true with WEB_SEARCH_PROVIDER=brave but "
                         "BRAVE_SEARCH_API_KEY is empty."
                     )
+            elif provider == "tavily":
+                if not (self.TAVILY_API_KEY or "").strip():
+                    warnings.append(
+                        "WEB_DISCOVERY_ENABLED=true with WEB_SEARCH_PROVIDER=tavily but "
+                        "TAVILY_API_KEY is empty; web discovery will report "
+                        "WEB_SEARCH_NOT_CONFIGURED."
+                    )
             else:
                 warnings.append(
                     f"WEB_SEARCH_PROVIDER='{self.WEB_SEARCH_PROVIDER}' is not registered; "
-                    "expected 'brave' or 'searxng'."
+                    "expected 'brave', 'searxng' or 'tavily'."
                 )
 
         if (self.WORKER_RUN_SECRET or "").strip() in {

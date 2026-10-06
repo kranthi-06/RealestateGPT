@@ -165,3 +165,64 @@ Playwright Chromium E2E was green against the live production URL in the
    above exist): the three production queries (§8–10 of the master checklist),
    cache-hit double-run, DB persistence checks, frontend verification, and the
    `PRODUCTION VERIFIED` certification.
+
+---
+
+## 7. Re-run 2026-10-06 (authenticated Fly + Vercel CLI)
+
+**Both principals are now authenticated** — `flyctl auth whoami` →
+`kasakk2006@gmail.com`, `vercel whoami` → `kranthi-06` (project list shows
+`realestate-gpt` → `https://realestate-gpt-inky.vercel.app`). The only
+remaining gate is billing, reproduced twice this session:
+
+```
+flyctl apps create realestategpt-searxng
+Error: We need your payment information to continue!
+       Add a credit card or buy credit:
+       https://fly.io/dashboard/kasa-kranthi-kiran/billing
+```
+
+### Vercel production environment diff (read-only inspection, 61 vars)
+
+| Variable | State | Action |
+|---|---|---|
+| `MONGODB_URI`, `MONGODB_DATABASE`, `SECRET_KEY`, `GROQ_API_KEY`, `GROQ_MODEL`, `LOCATION_PROVIDER`, `CORS_ORIGINS`, `CRON_SECRET`, `WORKER_RUN_SECRET` | **SET** | none |
+| `WEB_SEARCH_PROVIDER` | **SET** = `searxng` | none |
+| `WEB_DISCOVERY_ENABLED` | **SET** = `false` | → `true` (blocked: needs a real `SEARXNG_BASE_URL` first) |
+| `SEARXNG_BASE_URL` | **SET** = `https://<your-searxng-host>.example.com` (placeholder) | → the real Fly URL |
+| `SEARXNG_AUTH_TOKEN` | **MISSING** | → add the Fly token (never `NEXT_PUBLIC_*`) |
+| `BRAVE_SEARCH_API_KEY`, `PROPERTY_PROVIDER`, `WEB_SEARCH_ALLOWED_DOMAINS`, `WEB_SEARCH_RPM`, `GOOGLE_MAPS_SERVER_KEY` | absent, **intentionally** | none |
+
+No values were printed, changed, or overwritten. The two dependent Vercel
+values were deliberately **not** flipped in isolation: with a placeholder
+base URL, `enabled=true` only converts the honest "disabled" message into
+failing outbound requests (DNS failure → retries → circuit breaker) without
+enabling anything.
+
+### Verified this session (no code changes)
+
+| Check | Result |
+|---|---|
+| `GET /` , `GET /api/v1/health` | **200** (`healthy`, `1.3.0`) |
+| `GET /api/v1/health/web-search` | **200** — `provider=searxng configured=true enabled=false` |
+| `GET /api/v1/search` page, `GET /api/v1/workers/status` | **200**, no secret material in body |
+| Cron auth: no secret / wrong secret | **401 / 401** |
+| Worker run endpoint without `X-Worker-Secret` | **401** |
+| CORS: allowed origin / foreign origin preflight | **200 + correct ACAO / 400 (no ACAO)** |
+| Backend `pytest -q` | **192 passed** in 162 s |
+| Frontend `tsc --noEmit` | exit 0 |
+| Frontend `npm run lint` | 0 errors (1 pre-existing `<img>` warning) |
+| Frontend `npm run build` | OK, 15 routes |
+| Public SearXNG instances (fallback probe) | ~20 hosts: 429/403/DNS — none usable as a production dependency |
+
+### New artifacts
+
+- `docs/PRODUCTION_ENV_TEMPLATE.txt` — full variable map with `<SET_IN_VERCEL>` /
+  `<SET_IN_FLY>` / `<SET_IN_FLY_AND_VERCEL>` placeholders, the
+  **VERCEL PRODUCTION VARIABLES** and **FLY.IO SECRETS** sections.
+- `docs/PRODUCTION_KEYS_SOURCE_GUIDE.md` — where every key comes from, the
+  one remaining manual step (Fly billing) and the exact copy-paste sequence
+  that follows it.
+- `backend/.env.production.example`, `frontend/.env.production.example` —
+  secret-free templates.
+

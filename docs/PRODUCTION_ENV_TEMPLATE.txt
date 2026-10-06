@@ -1,0 +1,191 @@
+# =====================================================================
+# RealEstateGPT - PRODUCTION ENVIRONMENT TEMPLATE
+# =====================================================================
+# Generated for the 2026-10-06 production activation run.
+#
+# NO REAL SECRETS ARE IN THIS FILE. Every value below is either a
+# literal non-secret configuration value or a placeholder that tells
+# you WHERE the real value lives.
+#
+#   <SET_IN_VERCEL>         value already exists in the Vercel project
+#                           (realestate-gpt) production environment.
+#                           Do NOT paste anything here; do NOT change it.
+#   <SET_IN_FLY>            value is created and stored as a Fly.io
+#                           secret by `flyctl secrets set` (Phase 1).
+#   <SET_IN_FLY_AND_VERCEL> value exists in BOTH places and must be
+#                           byte-identical in both (the shared bearer
+#                           token). Never commit it anywhere.
+#   <MUST_BE_...>           placeholder whose replacement value is
+#                           spelled out next to it.
+#
+# Rule: nothing in this file may be committed with a real value.
+# =====================================================================
+
+
+# ---------------------------------------------------------------------
+# VERCEL PRODUCTION VARIABLES
+# Project : realestate-gpt   (production URL: https://realestate-gpt-inky.vercel.app)
+# Service : backend (FastAPI) unless marked FRONTEND-only
+# Where   : Vercel dashboard -> Project -> Settings -> Environment Variables
+#           or: vercel env add <KEY> production --value <VALUE> --project realestate-gpt
+# Verified 2026-10-06 with `vercel env ls production` (61 variables present).
+# ---------------------------------------------------------------------
+
+# --- Application -----------------------------------------------------
+APP_NAME=RealEstateGPT                    # SET (non-secret)
+APP_ENV=production                        # SET (non-secret)
+DEBUG=false                               # SET (non-secret)
+
+# --- Database (MongoDB Atlas) ---------------------------------------
+MONGODB_URI=<SET_IN_VERCEL>               # SET - never print, never NEXT_PUBLIC_
+MONGODB_DATABASE=realestate_gpt           # SET (non-secret)
+MONGODB_MAX_POOL_SIZE=20                  # SET
+MONGODB_CONNECT_TIMEOUT_MS=10000          # SET
+MONGODB_SERVER_SELECTION_TIMEOUT_MS=10000 # SET
+MONGODB_SOCKET_TIMEOUT_MS=30000           # SET
+
+# --- Security / auth -------------------------------------------------
+SECRET_KEY=<SET_IN_VERCEL>                # SET - JWT signing key, server-side only
+ALGORITHM=HS256                           # SET
+ACCESS_TOKEN_EXPIRE_MINUTES=1440          # SET
+
+# --- CORS ------------------------------------------------------------
+CORS_ORIGINS=https://realestate-gpt-inky.vercel.app   # SET (loopback origins are dropped in production)
+PRODUCTION_FRONTEND_URL=https://realestate-gpt-inky.vercel.app  # SET
+
+# --- Rate limiting ---------------------------------------------------
+RATE_LIMIT_ENABLED=true                   # SET
+RATE_LIMIT_REQUESTS=60                    # SET
+RATE_LIMIT_WINDOW_SECONDS=60              # SET
+RATE_LIMIT_AUTH_REQUESTS=10               # SET
+
+# --- AI gateway (Groq) ----------------------------------------------
+AI_PROVIDER=groq                          # SET
+GROQ_API_KEY=<SET_IN_VERCEL>              # SET - server-side only, never NEXT_PUBLIC_
+GROQ_MODEL=qwen/qwen3.8-27b               # SET
+GROQ_BASE_URL=https://api.groq.com/openai/v1  # SET
+AI_TIMEOUT_SECONDS=60                     # SET
+AI_MAX_TOKENS=1200                        # SET
+MAX_AGENT_STEPS=3                         # SET
+MAX_TOOL_CALLS=5                          # SET
+AI_RATE_LIMIT_REQUESTS=12                 # SET
+AI_RATE_LIMIT_WINDOW_SECONDS=60           # SET
+
+# --- Location provider (OpenStreetMap) ------------------------------
+LOCATION_PROVIDER=osm                     # SET
+NOMINATIM_BASE_URL=https://nominatim.openstreetmap.org   # SET
+OVERPASS_URL=https://overpass-api.org/api/interpreter    # SET (value as configured)
+OSRM_BASE_URL=https://router.project-osrm.org            # SET
+NOMINATIM_USER_AGENT=RealEstateGPT/1.0    # SET
+OSM_TIMEOUT_SECONDS=15                    # SET
+MAPS_PROVIDER=none                        # SET
+# GOOGLE_MAPS_SERVER_KEY=<NOT_SET_INTENTIONAL>   # optional, requires Google Cloud billing
+
+# --- Web discovery / search (the activation block) -------------------
+WEB_SEARCH_PROVIDER=searxng               # SET - keep exactly this value
+WEB_DISCOVERY_ENABLED=<MUST_BE_true>      # NEEDS ACTION: currently "false" -> set to true
+SEARXNG_BASE_URL=<ACTUAL_FLY_HTTPS_URL>   # NEEDS ACTION: currently a placeholder,
+                                          #   e.g. https://realestategpt-searxng.fly.dev
+SEARXNG_AUTH_TOKEN=<SET_IN_FLY_AND_VERCEL># MISSING - add to Vercel AND to Fly secrets;
+                                          #   server-side only, NEVER NEXT_PUBLIC_*
+WEB_SEARCH_COUNTRY=IN                     # SET
+WEB_SEARCH_LANGUAGE=en                    # SET
+WEB_SEARCH_MAX_QUERIES=3                  # SET
+WEB_SEARCH_MAX_RESULTS=20                 # SET
+WEB_SEARCH_CACHE_TTL_SECONDS=300          # SET
+WEB_SEARCH_TIMEOUT_SECONDS=10             # SET
+WEB_SEARCH_MAX_RETRIES=2                  # SET
+WEB_SEARCH_CONCURRENCY=2                  # SET
+WEB_DISCOVERY_OSM_ENRICH_LIMIT=10         # SET
+PAGE_ENRICHMENT_ENABLED=false             # SET
+# WEB_SEARCH_RPM=60                        # NOT SET - optional, code default is 60
+# WEB_SEARCH_ALLOWED_DOMAINS=              # NOT SET - optional, empty = unrestricted
+# BRAVE_SEARCH_API_KEY=<NOT_SET_INTENTIONAL>  # only needed if WEB_SEARCH_PROVIDER=brave
+
+# --- Property inventory (deliberately unconfigured = honest empty) ---
+# PROPERTY_PROVIDER=<NOT_SET_INTENTIONAL>  # "" keeps the catalogue empty and honest;
+                                          # admin_import = curated records only
+PROPERTY_PROVIDER_FILE=./data/property_provider.jsonl  # SET
+PROVIDER_TIMEOUT_SECONDS=30               # SET
+PROVIDER_RETRIES=2                        # SET
+PROVIDER_MIN_INTERVAL_SECONDS=0.5         # SET
+INGESTION_BATCH_SIZE=50                   # SET
+INGESTION_MAX_PAGES=20                    # SET
+
+# --- Workers / cron (both server-side secrets) -----------------------
+WORKER_RUN_SECRET=<SET_IN_VERCEL>         # SET - X-Worker-Secret for POST /workers/run/{name}
+CRON_SECRET=<SET_IN_VERCEL>               # SET - Vercel Cron sends "Authorization: Bearer <CRON_SECRET>"
+WORKER_LOCK_TTL_SECONDS=900               # SET
+LISTING_STALE_AFTER_HOURS=72              # SET
+LISTING_EXPIRE_AFTER_DAYS=21              # SET
+
+# --- FRONTEND-only (NEXT_PUBLIC_* is bundled into the browser) ------
+NEXT_PUBLIC_API_URL=https://realestate-gpt-inky.vercel.app/api/backend  # SET - safe, public
+NEXT_PUBLIC_SITE_URL=https://realestate-gpt-inky.vercel.app             # SET - safe, public
+# Never add: NEXT_PUBLIC_SECRET_KEY, NEXT_PUBLIC_GROQ_API_KEY,
+# NEXT_PUBLIC_MONGODB_URI, NEXT_PUBLIC_CRON_SECRET,
+# NEXT_PUBLIC_WORKER_RUN_SECRET, NEXT_PUBLIC_SEARXNG_AUTH_TOKEN.
+
+
+# =====================================================================
+# FLY.IO SECRETS
+# App     : <app-name>.fly.dev  (Phase 1, package: infra/searxng/)
+# Command : flyctl secrets set -a <app-name> <KEY>=<VALUE>
+# Every value below is generated at deploy time and NEVER written to Git.
+# =====================================================================
+
+# SearXNG's own server.secret_key (read natively from this env var).
+SEARXNG_SECRET=<SET_IN_FLY>
+#   generate: python -c "import secrets;print(secrets.token_hex(32))"
+#   or:       openssl rand -hex 32
+
+# Bearer token enforced by the Caddy edge; the backend sends the same value.
+SEARXNG_AUTH_TOKEN=<SET_IN_FLY_AND_VERCEL>
+#   generate: python -c "import secrets;print(secrets.token_hex(32))"
+#   or:       openssl rand -hex 32
+#   Fly      : flyctl secrets set -a <app-name> SEARXNG_AUTH_TOKEN=<generated>
+#   Vercel   : vercel env add SEARXNG_AUTH_TOKEN production --project realestate-gpt
+#   It MUST be byte-identical on both sides or every backend search gets HTTP 401.
+
+# Nothing else is required on Fly for this service: no MongoDB, Groq, JWT,
+# cron or worker secret is ever sent to the search container.
+
+
+# =====================================================================
+# ALREADY DONE (verified 2026-10-06 - do NOT redo any of this)
+# =====================================================================
+# Present and SET in Vercel production (61 variables):
+#   MONGODB_URI, MONGODB_DATABASE, SECRET_KEY, GROQ_API_KEY, GROQ_MODEL,
+#   LOCATION_PROVIDER, CORS_ORIGINS, CRON_SECRET, WORKER_RUN_SECRET,
+#   APP_ENV, APP_NAME, DEBUG, AI_PROVIDER, GROQ_BASE_URL, GROQ_MODEL,
+#   ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, all RATE_LIMIT_*,
+#   all MONGODB_* pool/timeout values, all WEB_SEARCH_* tuning values,
+#   WEB_SEARCH_PROVIDER=searxng, SEARXNG_BASE_URL (placeholder only),
+#   WEB_DISCOVERY_ENABLED (present but currently "false"),
+#   all OSM/Nominatim/Overpass/OSRM values, MAPS_PROVIDER,
+#   NEXT_PUBLIC_API_URL, NEXT_PUBLIC_SITE_URL, and the worker/inventory
+#   tuning values.
+#
+# Only THREE Vercel values still need action:
+#   1. WEB_DISCOVERY_ENABLED  : "false" -> "true"
+#   2. SEARXNG_BASE_URL       : placeholder -> real Fly URL
+#   3. SEARXNG_AUTH_TOKEN     : missing -> add the Fly token
+# (2) and (3) cannot be filled until the Fly.io app exists, and creating
+# that app currently requires adding a payment method to the Fly account.
+# =====================================================================
+
+
+# =====================================================================
+# EXACT COMMANDS (run once the Fly app exists)
+# =====================================================================
+#   flyctl apps create <app-name>
+#   flyctl deploy -c infra/searxng/fly.toml.local
+#   flyctl secrets set -a <app-name> SEARXNG_SECRET=<generated> SEARXNG_AUTH_TOKEN=<generated>
+#   flyctl apps restart -a <app-name>
+#   flyctl status -a <app-name>
+#
+#   vercel env add WEB_DISCOVERY_ENABLED production --force --value true --project realestate-gpt
+#   vercel env add SEARXNG_BASE_URL production --force --value https://<app-name>.fly.dev --project realestate-gpt
+#   vercel env add SEARXNG_AUTH_TOKEN production --sensitive --project realestate-gpt   # value via stdin, never in shell history
+#   vercel --prod
+# =====================================================================

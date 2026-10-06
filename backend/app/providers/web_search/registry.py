@@ -41,6 +41,9 @@ def get_web_search_provider() -> BaseWebSearchProvider:
     if name == "searxng":
         from app.providers.web_search.searxng import SearXNGSearchProvider
         return SearXNGSearchProvider()
+    if name == "tavily":
+        from app.providers.web_search.tavily import TavilySearchProvider
+        return TavilySearchProvider()
     if not name:
         raise WebSearchNotConfiguredError("WEB_SEARCH_PROVIDER is not configured.")
     raise WebSearchNotConfiguredError(
@@ -128,9 +131,13 @@ def web_search_health() -> WebSearchProviderHealth:
 # Idempotent registration of the Brave adapter.
 from app.providers.web_search.brave import BraveSearchProvider  # noqa: E402
 from app.providers.web_search.searxng import SearXNGSearchProvider  # noqa: E402
+from app.providers.web_search.tavily import TavilySearchProvider  # noqa: E402
 
 if "brave" not in REGISTRY:
     register("brave", BraveSearchProvider)
 
 if "searxng" not in REGISTRY:
     register("searxng", SearXNGSearchProvider)
+
+if "tavily" not in REGISTRY:
+    register("tavily", TavilySearchProvider)

@@ -66,3 +66,8 @@ frontend/.next/cache/trace/
 # Localized SearXNG production deploy copies (real app names/hosts stay local)
 infra/searxng/fly.toml.local
 infra/searxng/settings.production.local.yml
+
+.vercel
+.env*
+# ...but the secret-free environment templates belong in Git.
+!.env.production.example

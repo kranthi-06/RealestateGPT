@@ -168,4 +168,9 @@ def provider_missing_message(provider: str) -> str:
             "Web discovery is not configured yet. Set BRAVE_SEARCH_API_KEY "
             "(server-side) and WEB_DISCOVERY_ENABLED=true to enable it."
         )
+    if provider == "tavily":
+        return (
+            "Web discovery is not configured yet. Set TAVILY_API_KEY "
+            "(server-side) and WEB_DISCOVERY_ENABLED=true to enable it."
+        )
     return f"Web discovery provider '{provider}' is not configured."
