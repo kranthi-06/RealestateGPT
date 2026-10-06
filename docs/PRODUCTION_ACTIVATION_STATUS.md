@@ -226,3 +226,39 @@ enabling anything.
 - `backend/.env.production.example`, `frontend/.env.production.example` —
   secret-free templates.
 
+---
+
+## 8. Tavily free-tier activation (2026-10-06, no Fly.io / no Google / no card)
+
+Replaced the blocked SearXNG/Fly.io path with a backend-only Tavily adapter
+(`backend/app/providers/web_search/tavily.py`: `POST https://api.tavily.com/search`,
+`Authorization: Bearer` header only, `basic` depth = 1 credit/request, free tier =
+1,000 credits/month). Existing abstraction reused: provider registered as `tavily`,
+`TAVILY_API_KEY`/`TAVILY_SEARCH_DEPTH` config, typed failures (401/403 auth, 402/429
+rate-limit, 5xx unavailable), cache-first + rate-limited pipeline untouched.
+
+Vercel production: `TAVILY_API_KEY` SET, `WEB_DISCOVERY_ENABLED=true`,
+`WEB_SEARCH_PROVIDER=tavily`, `TAVILY_SEARCH_DEPTH=basic` (Production-only; add
+Preview to match the other vars). No `NEXT_PUBLIC_*` secret exists.
+
+Verified live on https://realestate-gpt-inky.vercel.app:
+
+| Check | Result |
+|---|---|
+| `GET /api/v1/health` | 200 healthy 1.3.0 |
+| `GET /api/v1/health/web-search` | 200 `provider=tavily configured=true enabled=true` |
+| `GET /api/v1/health/db` | 200 healthy mongodb |
+| `GET /api/v1/health/ai` | 200 groq configured |
+| Q1 2BHK Hyderabad rent <35k | 200 `PROPERTY_RENT/Hyderabad/2/35000`, `tavily/available`, 20 real cards (title+source+url+provenance+freshness) |
+| Q2 hotels airport 2 guests | 200 `HOTEL/guests=2`, `tavily/available`, 5 real cards with source URLs |
+| Q3 Goa vacation 4 guests | 200 `VACATION_RENTAL/Goa/4`, `tavily/available`, 10 real cards with source URLs |
+| Q1 repeat | 200 `cache_hit=true`, 45 cards (cached/deduplicated) |
+| Frontend `/search` | 200 renders; web discoveries labeled WEB_DISCOVERY, separate from verified inventory |
+| Backend `pytest -q` | 216 passed |
+| Frontend `tsc --noEmit` | clean; `lint` 0 errors (1 pre-existing img warning); `build` OK |
+
+### FINAL STATUS: PRODUCTION VERIFIED
+
+Real production autonomous discovery succeeds via Tavily (backend-only key,
+MongoDB fallback intact, no fabricated listings).
+
