@@ -33,6 +33,14 @@ class LiveNearbyResponse(BaseModel):
     source: str
     places: list[LivePlace]
 
+class CoordinateNearbyResponse(BaseModel):
+    latitude: float
+    longitude: float
+    category: str
+    radius_km: float
+    source: str
+    places: list[LivePlace]
+
 class RouteRequest(BaseModel):
     origin_latitude: float = Field(ge=-90, le=90)
     origin_longitude: float = Field(ge=-180, le=180)

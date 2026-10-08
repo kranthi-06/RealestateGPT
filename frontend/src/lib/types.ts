@@ -100,6 +100,7 @@ export interface Property {
   created_at: string;
   updated_at: string;
   is_saved?: boolean | null;
+  rank_score?: number | null;
 }
 
 export interface SearchSection {

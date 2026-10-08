@@ -23,19 +23,19 @@ from app.providers.location import (
 
 
 _CATEGORY_FILTERS: dict[str, list[str]] = {
-    "metro": [],
+    "metro": ["public_transport"],
     "hospital": ["healthcare.hospital"],
     "school": ["education.school"],
     "college": ["education.university", "education.college"],
     "supermarket": ["commercial.supermarket", "commercial.convenience"],
     "mall": ["commercial.shopping_mall"],
     "park": ["leisure.park"],
-    "it_park": [],
+    "it_park": ["office.company", "office.it"],
     "hotel": ["accommodation.hotel"],
     "restaurant": ["catering.restaurant", "catering.cafe"],
-    "bank": [],
+    "bank": ["service.financial.bank", "service.financial.atm"],
     "shopping": ["commercial.shopping_mall", "commercial.supermarket", "commercial.marketplace"],
-    "public_transport": [],
+    "public_transport": ["public_transport"],
     "pharmacy": ["healthcare.pharmacy"],
 }
 

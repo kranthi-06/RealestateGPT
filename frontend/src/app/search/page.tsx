@@ -4,15 +4,44 @@ import { useState, useEffect, useCallback, Suspense, useRef, useMemo } from "rea
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from "@/components/ui/tabs";
+import { Select } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { PropertyListRow } from "@/components/property-list-row";
+import { FilterSidebar, FilterSidebarSkeleton } from "@/components/filter-sidebar";
 import PropertyCard from "@/components/property-card";
 import WebDiscoveryCard from "@/components/web-discovery-card";
 import { ApiError, searchApi } from "@/lib/api";
-import { Search, SlidersHorizontal, MapPin, Building2, Loader2, Navigation, LocateFixed, LocateOff, Clock3, Command, Sparkles, Globe2 } from "lucide-react";
+import {
+  Search,
+  SlidersHorizontal,
+  MapPin,
+  Building2,
+  Loader2,
+  Navigation,
+  LocateFixed,
+  LocateOff,
+  Clock3,
+  Command,
+  Sparkles,
+  Globe2,
+  X,
+  ArrowDownAZ,
+  ArrowUpAZ,
+  Clock,
+  LayoutList,
+  LayoutGrid,
+} from "lucide-react";
 import type { SearchFilters, SearchSectionsResponse, Property, SearchIntent, UnifiedSearchResponse } from "@/lib/types";
-/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Near-Me permission UX (explicit, honest) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+
 type LocState = "idle" | "pending" | "granted" | "denied" | "timeout" | "unsupported";
 
 function NearMeCard({
@@ -20,44 +49,54 @@ function NearMeCard({
   userCoords,
   onRequest,
   onClear,
+  onRefresh,
 }: {
   locState: LocState;
   userCoords: { lat: number; lng: number } | null;
   onRequest: () => void;
   onClear: () => void;
+  onRefresh?: () => void;
 }) {
   if (locState === "granted" && userCoords) {
     return (
-      <div className="flex items-center justify-between gap-4 rounded-xl border border-emerald-200/70 bg-emerald-50/60 px-4 py-3">
+      <div className="flex flex-col gap-2 rounded-xl border border-emerald-200/70 bg-emerald-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2.5 text-sm text-emerald-900">
-          <LocateFixed className="h-4 w-4" />
-          <span>
+          <LocateFixed className="h-4 w-4 shrink-0" />
+          <span className="truncate">
             Searching near{" "}
-            <span className="font-medium">
+            <span className="font-medium tabular-nums">
               {userCoords.lat.toFixed(4)}, {userCoords.lng.toFixed(4)}
             </span>
-            <span className="text-emerald-700/70"> Ã‚Â· within 5 km</span>
+            <span className="text-emerald-700/70"> · within 5 km</span>
           </span>
         </div>
-        <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={onClear}>
-          Use manual search
-        </Button>
+        <div className="flex gap-2">
+          {onRefresh && (
+            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={onRefresh}>
+              Refresh
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={onClear}>
+            Use manual search
+          </Button>
+        </div>
       </div>
     );
   }
 
   const messages: Partial<
-    Record<LocState, { icon: typeof LocateOff; title: string; note: string }>
+    Record<LocState, { icon: typeof LocateOff; title: string; note: string; retry?: boolean }>
   > = {
     denied: {
       icon: LocateOff,
       title: "Location access was denied",
-      note: "You can still search by city, locality, or address. Your location is never used unless you allow it.",
+      note: "You can still search by city, locality, or address.",
     },
     timeout: {
       icon: Clock3,
       title: "Location request timed out",
       note: "Your browser did not respond in time. Retry, or continue with a manual search.",
+      retry: true,
     },
     unsupported: {
       icon: LocateOff,
@@ -73,10 +112,10 @@ function NearMeCard({
       <div className="rounded-xl border border-amber-200/70 bg-amber-50/50 px-4 py-3">
         <div className="flex items-start gap-3">
           <Icon className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
-          <div>
+          <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-amber-900">{msg!.title}</p>
             <p className="mt-0.5 text-xs text-amber-800/80">{msg!.note}</p>
-            {locState === "timeout" && (
+            {msg!.retry && (
               <Button variant="outline" size="sm" className="mt-2 h-8 text-xs" onClick={onRequest}>
                 Retry location
               </Button>
@@ -88,14 +127,14 @@ function NearMeCard({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-card/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex items-center gap-3">
-        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+    <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <Navigation className="h-4 w-4" />
         </span>
-        <div>
+        <div className="min-w-0">
           <p className="text-sm font-medium text-foreground">Find properties near you</p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground truncate">
             Allow location access to search within a radius of your current position.
           </p>
         </div>
@@ -106,13 +145,11 @@ function NearMeCard({
         ) : (
           <LocateFixed className="mr-2 h-3.5 w-3.5" />
         )}
-        {locState === "pending" ? "RequestingÃ¢â‚¬Â¦" : "Allow location"}
+        {locState === "pending" ? "Requesting…" : "Allow location"}
       </Button>
     </div>
   );
 }
-
-/* ---- Intent chips (from /search/parse when the backend exposes it) ---- */
 
 function IntentChips({ intent }: { intent: SearchIntent | null }) {
   if (!intent) return null;
@@ -122,23 +159,29 @@ function IntentChips({ intent }: { intent: SearchIntent | null }) {
   if (intent.bedrooms != null) chips.push(`${intent.bedrooms} BHK`);
   if (intent.max_price != null) {
     const lakh = intent.max_price / 100000;
-    chips.push(`Under Ã¢â€šÂ¹${lakh % 1 === 0 ? lakh.toFixed(0) : lakh.toFixed(1)}L`);
+    chips.push(`Under ₹${lakh % 1 === 0 ? lakh.toFixed(0) : lakh.toFixed(1)}L`);
   }
   if (intent.min_price != null) chips.push("Premium");
   if (intent.city) chips.push(intent.city);
   if (intent.locality) chips.push(intent.locality);
   if (intent.property_type) chips.push(intent.property_type);
   if (intent.nearby_requirements?.length) {
-    intent.nearby_requirements.forEach((req) => chips.push(`Near ${req.type.replace("_", " ")}`));
+    intent.nearby_requirements.forEach((req) =>
+      chips.push(`Near ${req.type.replace("_", " ")}`)
+    );
   }
   if (chips.length === 0) return null;
   return (
-    <div className="mb-5 flex flex-wrap items-center gap-2" aria-label="Interpreted search">
+    <div className="mb-4 flex flex-wrap items-center gap-2" aria-label="Interpreted search">
       <span className="flex items-center gap-1 text-xs text-muted-foreground">
         <Command className="h-3 w-3" /> Interpreted
       </span>
       {chips.map((chip) => (
-        <Badge key={chip} variant="secondary" className="rounded-md bg-primary/5 text-xs font-medium text-foreground">
+        <Badge
+          key={chip}
+          variant="secondary"
+          className="rounded-md bg-primary/5 text-xs font-medium text-foreground"
+        >
           {chip}
         </Badge>
       ))}
@@ -146,145 +189,147 @@ function IntentChips({ intent }: { intent: SearchIntent | null }) {
   );
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Filter controls (desktop bar + mobile drawer share this) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+type SortKey = "relevance" | "price_asc" | "price_desc" | "newest";
 
-function FilterControls({
-  filters,
-  onChange,
+function ResultHeader({
+  totalCount,
+  viewMode,
+  onViewModeChange,
+  sort,
+  onSortChange,
 }: {
-  filters: SearchFilters;
-  onChange: (patch: Partial<SearchFilters>) => void;
+  totalCount: number;
+  viewMode: "list" | "grid";
+  onViewModeChange: (m: "list" | "grid") => void;
+  sort: SortKey;
+  onSortChange: (s: SortKey) => void;
 }) {
-  const bedrooms = filters.bedrooms ?? "";
-  const listingType = filters.listing_type ?? "";
-  const furnishing = filters.furnishing ?? "";
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-6">
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Listing</span>
-        <select
-          value={listingType}
-          onChange={(e) => onChange({ listing_type: e.target.value })}
-          className="h-9 rounded-lg border border-border bg-card px-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-        >
-          <option value="">Any</option>
-          <option value="sale">Buy</option>
-          <option value="rent">Rent</option>
-        </select>
-      </label>
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Bedrooms</span>
-        <select
-          value={String(bedrooms)}
-          onChange={(e) => onChange({ bedrooms: e.target.value ? Number(e.target.value) : undefined })}
-          className="h-9 rounded-lg border border-border bg-card px-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-        >
-          <option value="">Any</option>
-          <option value="1">1 BHK</option>
-          <option value="2">2 BHK</option>
-          <option value="3">3 BHK</option>
-          <option value="4">4+ BHK</option>
-        </select>
-      </label>
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Max budget</span>
-        <select
-          value={filters.max_price ? String(filters.max_price) : ""}
-          onChange={(e) => onChange({ max_price: e.target.value ? Number(e.target.value) : undefined })}
-          className="h-9 rounded-lg border border-border bg-card px-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-        >
-          <option value="">Any</option>
-          <option value="5000000">Ã¢â€šÂ¹50 L</option>
-          <option value="7500000">Ã¢â€šÂ¹75 L</option>
-          <option value="10000000">Ã¢â€šÂ¹1 Cr</option>
-          <option value="15000000">Ã¢â€šÂ¹1.5 Cr</option>
-          <option value="25000000">Ã¢â€šÂ¹2.5 Cr</option>
-          <option value="50000000">Ã¢â€šÂ¹5 Cr</option>
-        </select>
-      </label>
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Furnishing</span>
-        <select
-          value={furnishing}
-          onChange={(e) => onChange({ furnishing: e.target.value })}
-          className="h-9 rounded-lg border border-border bg-card px-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-        >
-          <option value="">Any</option>
-          <option value="furnished">Furnished</option>
-          <option value="semi-furnished">Semi-furnished</option>
-          <option value="unfurnished">Unfurnished</option>
-        </select>
-      </label>
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Bathrooms</span>
-        <select
-          value={filters.bathrooms ? String(filters.bathrooms) : ""}
-          onChange={(e) => onChange({ bathrooms: e.target.value ? Number(e.target.value) : undefined })}
-          className="h-9 rounded-lg border border-border bg-card px-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-        >
-          <option value="">Any</option>
-          <option value="1">1+</option>
-          <option value="2">2+</option>
-          <option value="3">3+</option>
-        </select>
-      </label>
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Parking</span>
-        <select
-          value={filters.parking ? String(filters.parking) : ""}
-          onChange={(e) => onChange({ parking: e.target.value ? Number(e.target.value) : undefined })}
-          className="h-9 rounded-lg border border-border bg-card px-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-        >
-          <option value="">Any</option>
-          <option value="1">1+ space</option>
-          <option value="2">2+ spaces</option>
-        </select>
-      </label>
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex items-center gap-2 text-sm">
+        <h2 className="font-semibold text-foreground tabular-nums">
+          {totalCount} result{totalCount === 1 ? "" : "s"}
+        </h2>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="hidden items-center gap-1 rounded-lg border border-border bg-card p-0.5 sm:flex">
+          <button
+            type="button"
+            onClick={() => onViewModeChange("list")}
+            className={`inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium transition-colors ${
+              viewMode === "list" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"
+            }`}
+            aria-label="List view"
+          >
+            <LayoutList className="h-3.5 w-3.5" />
+            List
+          </button>
+          <button
+            type="button"
+            onClick={() => onViewModeChange("grid")}
+            className={`inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium transition-colors ${
+              viewMode === "grid" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"
+            }`}
+            aria-label="Grid view"
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+            Grid
+          </button>
+        </div>
+        <Select
+          value={sort}
+          onChange={(e) => onSortChange(e.target.value as SortKey)}
+          className="h-8 w-[160px] text-xs"
+          options={[
+            { value: "relevance", label: "Relevance" },
+            { value: "price_asc", label: "Price: Low to High" },
+            { value: "price_desc", label: "Price: High to Low" },
+            { value: "newest", label: "Newest" },
+          ]}
+        />
+      </div>
     </div>
   );
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Dynamic search sections (counts reflect real inventory) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+function sortedProperties(items: Property[], sort: SortKey): Property[] {
+  const copy = [...items];
+  switch (sort) {
+    case "price_asc":
+      return copy.sort((a, b) => a.price - b.price);
+    case "price_desc":
+      return copy.sort((a, b) => b.price - a.price);
+    case "newest":
+      return copy.sort((a, b) => {
+        const ak = a.first_seen_at ?? a.created_at;
+        const bk = b.first_seen_at ?? b.created_at;
+        return new Date(bk).getTime() - new Date(ak).getTime();
+      });
+    default:
+      return items;
+  }
+}
 
-function SearchSections({
+function VerifiedSections({
   sections,
   onCompareToggle,
   compareIds,
+  viewMode,
+  sort,
 }: {
   sections: SearchSectionsResponse["sections"];
   onCompareToggle: (id: number) => void;
   compareIds: Set<number>;
+  viewMode: "list" | "grid";
+  sort: SortKey;
 }) {
   if (!sections || sections.length === 0) return null;
   return (
-    <div className="space-y-12">
-      {sections.map((section, idx) => (
-        <div key={section.id || idx}>
-          <div className="mb-6 flex items-end justify-between">
-            <div>
-              <h2 className="text-2xl font-bold tracking-tight text-foreground">{section.title}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {section.count} propert{section.count === 1 ? "y" : "ies"} in this group
-              </p>
+    <div className="space-y-8">
+      {sections.map((section, idx) => {
+        const items = sortedProperties(section.items, sort);
+        return (
+          <section key={section.id || idx}>
+            <div className="mb-3 flex items-end justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">
+                  {section.title}
+                </h3>
+                <p className="text-xs text-muted-foreground tabular-nums">
+                  {section.count} propert{section.count === 1 ? "y" : "ies"}
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {section.items.map((property: Property) => (
-              <PropertyCard
-                key={property.id}
-                property={property}
-                onCompareToggle={onCompareToggle}
-                isCompareSelected={compareIds.has(property.id)}
-              />
-            ))}
-          </div>
-        </div>
-      ))}
+            {viewMode === "grid" ? (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {items.map((property) => (
+                  <PropertyCard
+                    key={property.id}
+                    property={property}
+                    variant="grid"
+                    onCompareToggle={onCompareToggle}
+                    isCompareSelected={compareIds.has(property.id)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {items.map((property) => (
+                  <PropertyListRow
+                    key={property.id}
+                    property={property}
+                    onCompareToggle={onCompareToggle}
+                    isCompareSelected={compareIds.has(property.id)}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }
-
-/* Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Main page shell Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
 
 function SearchPageContent() {
   const searchParams = useSearchParams();
@@ -296,13 +341,17 @@ function SearchPageContent() {
   const [unifiedData, setUnifiedData] = useState<UnifiedSearchResponse | null>(null);
   const [includeWeb, setIncludeWeb] = useState(true);
   const [intent, setIntent] = useState<SearchIntent | null>(null);
-  const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<SearchFilters>({
     q: searchParams.get("q") || "",
+    city: searchParams.get("city") || undefined,
+    listing_type: searchParams.get("listing_type") || undefined,
+    property_type: searchParams.get("property_type") || undefined,
   });
   const [compareIds, setCompareIds] = useState<Set<number>>(new Set());
   const [locState, setLocState] = useState<LocState>("idle");
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+  const [sort, setSort] = useState<SortKey>("relevance");
 
   const locationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const filtersRef = useRef(filters);
@@ -321,13 +370,19 @@ function SearchPageContent() {
       JSON.stringify({
         q: filters.q,
         city: filters.city,
-        bedrooms: filters.bedrooms,
+        min_bedrooms: filters.min_bedrooms,
+        max_bedrooms: filters.max_bedrooms,
         bathrooms: filters.bathrooms,
         min_price: filters.min_price,
         max_price: filters.max_price,
         property_type: filters.property_type,
         listing_type: filters.listing_type,
         furnishing: filters.furnishing,
+        min_area: filters.min_area,
+        max_area: filters.max_area,
+        construction_status: filters.construction_status,
+        radius_km: filters.radius_km,
+        amenities: filters.amenities,
       }) +
       "|" +
       (userCoords ? `${userCoords.lat.toFixed(6)}_${userCoords.lng.toFixed(6)}` : "none") +
@@ -366,9 +421,11 @@ function SearchPageContent() {
     setLocState("idle");
   };
 
-  const patchFilters = useCallback((patch: Partial<SearchFilters>) => {
-    setFilters((current) => ({ ...current, ...patch }));
-  }, []);
+  const resetFilters = () => {
+    setFilters(({ q, city, listing_type, property_type }) => ({
+      q, city, listing_type, property_type,
+    }));
+  };
 
   const fetchProperties = useCallback(async (opts?: { isUserInitiated?: boolean }) => {
     const isUserInitiated = opts?.isUserInitiated ?? false;
@@ -391,19 +448,37 @@ function SearchPageContent() {
       if (currentCoords) {
         params.latitude = currentCoords.lat;
         params.longitude = currentCoords.lng;
-        params.radius_km = 5.0;
+        params.radius_km = currentFilters.radius_km ?? 5.0;
       }
-      const unifiedQuery = (currentFilters.q?.trim() || (currentCoords ? `properties near ${currentCoords.lat.toFixed(4)}, ${currentCoords.lng.toFixed(4)}` : "")).trim();
-      if (!unifiedQuery) { setSectionsData(null); setUnifiedData(null); setSearchError("Type a search or allow location for near-me results."); setLoading(false); return; }
-      const data = await searchApi.unified({
-        query: unifiedQuery,
-        location: currentCoords
-          ? { latitude: currentCoords.lat, longitude: currentCoords.lng, radius_km: 5.0 }
-          : undefined,
-        filters: params,
-        include_web: currentIncludeWeb,
-        limit: 12,
-      }, controller.signal);
+      const unifiedQuery = (
+        currentFilters.q?.trim() ||
+        (currentCoords
+          ? `properties near ${currentCoords.lat.toFixed(4)}, ${currentCoords.lng.toFixed(4)}`
+          : "")
+      ).trim();
+      if (!unifiedQuery) {
+        setSectionsData(null);
+        setUnifiedData(null);
+        setSearchError("Type a search or allow location for near-me results.");
+        setLoading(false);
+        return;
+      }
+      const data = await searchApi.unified(
+        {
+          query: unifiedQuery,
+          location: currentCoords
+            ? {
+                latitude: currentCoords.lat,
+                longitude: currentCoords.lng,
+                radius_km: currentFilters.radius_km ?? 5.0,
+              }
+            : undefined,
+          filters: params,
+          include_web: currentIncludeWeb,
+          limit: 24,
+        },
+        controller.signal
+      );
       setSectionsData({ sections: data.sections });
       setUnifiedData(data);
       setIntent(data.parsed || null);
@@ -475,6 +550,9 @@ function SearchPageContent() {
     if (locationTimer.current) clearTimeout(locationTimer.current);
     router.replace("/search", { scroll: false });
   };
+
+  const totalCount = unifiedData?.verified_total ?? sectionsData?.sections.reduce((s, sec) => s + sec.count, 0) ?? 0;
+
   const webNotice =
     unifiedData?.metadata?.web_message ? (
       <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200/50 bg-amber-50/10 px-3 py-2 text-xs text-amber-900/90">
@@ -485,104 +563,71 @@ function SearchPageContent() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Hero search */}
-      <div className="border-b border-border/60 bg-gradient-to-b from-background to-muted/30">
-        <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-          <h1 className="max-w-2xl text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-            Find the right property Ã¢â‚¬â€ the reasons included.
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Search by neighbourhood, budget, BHK, or a place like &quot;near metro&quot;. Every result
-            section reflects actual inventory Ã¢â‚¬â€ nothing is padded.
-          </p>
-
-          <form onSubmit={onSubmit} className="mt-6">
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <div className="relative flex-1">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground/70" />
-                <Input
-                  value={filters.q || ""}
-                  onChange={(e) => patchFilters({ q: e.target.value })}
-                  placeholder={"Try \"3BHK under 90 lakhs near metro in Hyderabad\""}
-                  className="h-14 rounded-xl border-border/70 bg-card pl-12 pr-4 text-[15px] shadow-sm focus-visible:ring-primary"
-                  aria-label="Search properties"
-                />
-              </div>
-              <Button type="submit" className="h-14 rounded-xl px-8 text-[15px] font-semibold shadow-sm">
+      <div className="sticky top-[65px] z-30 border-b border-border/60 bg-background/90 backdrop-blur">
+        <div className="page-shell py-3">
+          <form onSubmit={onSubmit} className="flex flex-col gap-2 sm:flex-row">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
+              <Input
+                value={filters.q || ""}
+                onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
+                placeholder='Try "3 BHK under ₹90L near metro in Hyderabad"'
+                className="h-10 rounded-xl border-border/70 bg-card pl-9 pr-3 text-sm shadow-sm focus-visible:ring-primary"
+                aria-label="Search properties"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Sheet>
+                <SheetTrigger >
+                  <Button type="button" variant="outline" className="h-10 rounded-xl px-3 gap-1.5 lg:hidden">
+                    <SlidersHorizontal className="h-4 w-4" />
+                    <span className="hidden sm:inline">Filters</span>
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="left" className="w-[320px] sm:w-[360px] overflow-y-auto">
+                  <SheetHeader>
+                    <SheetTitle className="text-sm">Filters</SheetTitle>
+                  </SheetHeader>
+                  <div className="mt-4">
+                    <FilterSidebar
+                      filters={filters}
+                      onChange={(next) => setFilters(next)}
+                      onReset={resetFilters}
+                    />
+                  </div>
+                </SheetContent>
+              </Sheet>
+              <Button type="submit" className="h-10 rounded-xl px-5 gap-1.5 text-sm font-medium shadow-sm">
                 {loading ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Search className="mr-2 h-4 w-4" />
+                  <Search className="h-4 w-4" />
                 )}
                 Search
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-14 rounded-xl px-4 sm:hidden"
-                onClick={() => setShowFilters((v) => !v)}
-                aria-expanded={showFilters}
-              >
-                <SlidersHorizontal className="mr-2 h-4 w-4" />
-                Filters
-              </Button>
             </div>
           </form>
-
-          <div className="mt-5 space-y-3">
-            <NearMeCard
-              locState={locState}
-              userCoords={userCoords}
-              onRequest={requestLocation}
-              onClear={clearLocation}
-            />
-            {userCoords && locState === "granted" && (
-              <Button size="sm" variant="outline" className="rounded-lg" onClick={() => fetchProperties({ isUserInitiated: true })}>
-                <LocateFixed className="mr-2 h-3.5 w-3.5" />
-                Refresh near me
-              </Button>
-            )}
-          </div>
         </div>
       </div>
 
-      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-        {/* Filters */}
-        {showFilters && (
-          <div className="mb-8 rounded-[1.25rem] border border-border/60 surface p-4 shadow-soft">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
-                Filter results
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 text-xs text-muted-foreground"
-                onClick={() => {
-                  setFilters(({ q }) => ({ q }));
-                  setTimeout(() => fetchProperties({ isUserInitiated: true }), 0);
-                }}
-              >
-                Reset filters
-              </Button>
-            </div>
-            <FilterControls filters={filters} onChange={patchFilters} />
-            <div className="mt-4 flex justify-end">
-              <Button size="sm" className="rounded-lg" onClick={() => fetchProperties({ isUserInitiated: true })}>
-                Apply filters
-              </Button>
-            </div>
-          </div>
-        )}
+      <div className="page-shell py-5">
+        <div className="mb-4">
+          <NearMeCard
+            locState={locState}
+            userCoords={userCoords}
+            onRequest={requestLocation}
+            onClear={clearLocation}
+            onRefresh={() => fetchProperties({ isUserInitiated: true })}
+          />
+        </div>
 
-        <div className="mb-4 flex items-center gap-2 rounded-xl border border-border/50 bg-card/40 px-3 py-2 text-sm">
+        <div className="flex items-start gap-2 rounded-xl border border-border/50 bg-card/40 px-3 py-2 text-xs">
           <input
             id="include-web"
             type="checkbox"
             checked={includeWeb}
             onChange={(e) => setIncludeWeb(e.target.checked)}
-            className="h-4 w-4 rounded accent-amber-600"
+            className="mt-0.5 h-3.5 w-3.5 rounded accent-amber-600"
           />
           <label htmlFor="include-web" className="text-muted-foreground">
             Include web listings
@@ -590,19 +635,29 @@ function SearchPageContent() {
           </label>
         </div>
 
-        {/* Compare bar */}
         {compareIds.size > 0 && (
-          <div className="sticky top-4 z-10 mb-8 flex items-center justify-between rounded-xl border border-border/60 bg-card/95 p-4 shadow-sm backdrop-blur-md">
-            <span className="text-sm font-medium">
-              {compareIds.size} propert{compareIds.size === 1 ? "y" : "ies"} selected for comparison
-            </span>
-            <div className="flex gap-3">
-              <Button variant="ghost" size="sm" onClick={() => setCompareIds(new Set())}>
+          <div className="sticky top-[118px] z-20 mt-4 mb-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/95 p-3 shadow-sm backdrop-blur-md">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Badge variant="default" className="tabular-nums px-2 py-0.5 text-[11px]">
+                {compareIds.size}
+              </Badge>
+              <span>
+                propert{compareIds.size === 1 ? "y" : "ies"} selected for comparison
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setCompareIds(new Set())}
+                className="h-8 gap-1"
+              >
+                <X className="h-3.5 w-3.5" />
                 Clear
               </Button>
               <Button
                 size="sm"
-                className="rounded-lg"
+                className="h-8 gap-1"
                 disabled={compareIds.size < 2}
                 onClick={() => router.push(`/compare?ids=${Array.from(compareIds).join(",")}`)}
               >
@@ -612,101 +667,191 @@ function SearchPageContent() {
           </div>
         )}
 
-        {/* Results */}
-        {loading ? (
-          <div className="space-y-12">
-            <div>
-              <Skeleton className="mb-6 h-8 w-48" />
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <Card key={i} className="overflow-hidden rounded-xl border-border/40">
-                    <Skeleton className="h-48 w-full" />
-                    <div className="space-y-4 p-5">
-                      <Skeleton className="h-5 w-3/4" />
-                      <Skeleton className="h-4 w-1/2" />
-                      <Skeleton className="h-4 w-full" />
-                    </div>
+        <div className="mt-5 grid gap-6 lg:grid-cols-[280px_1fr]">
+          <aside className="hidden lg:block">
+            <div className="sticky top-[122px]">
+              {loading ? (
+                <FilterSidebarSkeleton />
+              ) : (
+                <FilterSidebar
+                  filters={filters}
+                  onChange={(next) => setFilters(next)}
+                  onReset={resetFilters}
+                />
+              )}
+            </div>
+          </aside>
+
+          <main className="min-w-0">
+            {loading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Card key={i}>
+                    <CardContent className="flex gap-4 p-3.5">
+                      <Skeleton className="h-24 w-32 shrink-0 rounded-lg sm:block" />
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <Skeleton className="h-4 w-2/3" />
+                        <Skeleton className="h-3 w-1/2" />
+                        <Skeleton className="h-3 w-full" />
+                      </div>
+                    </CardContent>
                   </Card>
                 ))}
               </div>
-            </div>
-          </div>
-        ) : searchError ? (
-          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/50 py-24 text-center">
-            <Building2 className="h-16 w-16 text-muted-foreground/30" />
-            <h3 className="mt-5 text-xl font-semibold text-foreground">Search is temporarily unavailable</h3>
-            <p className="mt-2 max-w-sm text-muted-foreground">
-              {searchError}
-            </p>
-            <Button variant="outline" className="mt-6 rounded-lg" onClick={() => fetchProperties({ isUserInitiated: true })}>
-              Retry search
-            </Button>
-          </div>
-        ) : (sectionsData && sectionsData.sections.length > 0) || (unifiedData && unifiedData.web_discoveries.length > 0) ? (
-          <div>
-            <IntentChips intent={intent} />
+            ) : searchError ? (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+                  <Building2 className="h-14 w-14 text-muted-foreground/30" />
+                  <h3 className="mt-4 text-base font-semibold text-foreground">
+                    Search is temporarily unavailable
+                  </h3>
+                  <p className="mt-2 max-w-sm text-sm text-muted-foreground">{searchError}</p>
+                  <div className="mt-5 flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fetchProperties({ isUserInitiated: true })}
+                    >
+                      Retry search
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={clearSearch}>
+                      Clear
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (sectionsData && sectionsData.sections.length > 0) ||
+              (unifiedData && unifiedData.web_discoveries.length > 0) ? (
+              <>
+                <IntentChips intent={intent} />
 
-            {(unifiedData && (unifiedData.verified_total > 0 || unifiedData.web_total > 0)) && (
-              <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-                <Badge variant="outline" className="rounded-md">{unifiedData.verified_total} Verified</Badge>
-                <Badge variant="secondary" className="rounded-md bg-amber-500/15 text-amber-800">{unifiedData.web_total} Web discoveries</Badge>
+                {(unifiedData && (unifiedData.verified_total > 0 || unifiedData.web_total > 0)) && (
+                  <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+                    <Badge variant="outline" className="rounded-md tabular-nums">
+                      {unifiedData.verified_total} Verified
+                    </Badge>
+                    {unifiedData.web_total > 0 && (
+                      <Badge
+                        variant="secondary"
+                        className="rounded-md bg-amber-500/15 text-amber-800 tabular-nums"
+                      >
+                        {unifiedData.web_total} Web discoveries
+                      </Badge>
+                    )}
+                  </div>
+                )}
+
+                {webNotice}
+
+                {sectionsData?.sections && sectionsData.sections.length > 0 && (
+                  <Tabs defaultValue="verified" className="w-full">
+                    <TabsList variant="line" className="mb-3 h-auto w-full justify-start rounded-none border-b border-border p-0">
+                      <TabsTrigger value="verified" className="h-8 text-xs">
+                        Verified ({totalCount})
+                      </TabsTrigger>
+                      {unifiedData && unifiedData.web_discoveries.length > 0 && (
+                        <TabsTrigger value="web" className="h-8 text-xs">
+                          Web ({unifiedData.web_discoveries.length})
+                        </TabsTrigger>
+                      )}
+                    </TabsList>
+
+                    <TabsContent value="verified">
+                      <ResultHeader
+                        totalCount={totalCount}
+                        viewMode={viewMode}
+                        onViewModeChange={setViewMode}
+                        sort={sort}
+                        onSortChange={setSort}
+                      />
+                      <VerifiedSections
+                        sections={sectionsData.sections}
+                        onCompareToggle={toggleCompare}
+                        compareIds={compareIds}
+                        viewMode={viewMode}
+                        sort={sort}
+                      />
+                    </TabsContent>
+
+                    {unifiedData && unifiedData.web_discoveries.length > 0 && (
+                      <TabsContent value="web">
+                        <div className="mb-3 flex items-center gap-2">
+                          <Badge
+                            variant="secondary"
+                            className="rounded-md bg-amber-500/15 text-amber-800 text-xs"
+                          >
+                            <Globe2 className="h-3.5 w-3.5" /> Web Discovery
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            · {unifiedData.metadata?.cache_hit ? "cached" : "live search"}
+                          </span>
+                        </div>
+                        <p className="mb-4 text-xs text-muted-foreground/90">
+                          These listings were discovered from web sources and are not verified inventory.
+                          Check the original source for current availability.
+                        </p>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                          {unifiedData.web_discoveries.map((d) => (
+                            <WebDiscoveryCard key={d.id} discovery={d} />
+                          ))}
+                        </div>
+                      </TabsContent>
+                    )}
+                  </Tabs>
+                )}
+
+                {(!sectionsData || sectionsData.sections.length === 0) &&
+                  unifiedData &&
+                  unifiedData.web_discoveries.length > 0 && (
+                    <>
+                      <div className="mb-3 flex items-center gap-2">
+                        <Badge
+                          variant="secondary"
+                          className="rounded-md bg-amber-500/15 text-amber-800 text-xs"
+                        >
+                          <Globe2 className="h-3.5 w-3.5" /> Web Discoveries
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        {unifiedData.web_discoveries.map((d) => (
+                          <WebDiscoveryCard key={d.id} discovery={d} />
+                        ))}
+                      </div>
+                    </>
+                  )}
+              </>
+            ) : webNotice ? (
+              <div>
+                <IntentChips intent={intent} />
+                {webNotice}
               </div>
+            ) : (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+                  <MapPin className="h-14 w-14 text-muted-foreground/30" />
+                  <h3 className="mt-4 text-base font-semibold text-foreground">No properties found</h3>
+                  <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+                    Nothing in the current inventory matches these criteria. Adjust location, filters, or
+                    budget — or ask the AI assistant for guidance.
+                  </p>
+                  <div className="mt-5 flex gap-2">
+                    <Button variant="outline" size="sm" onClick={clearSearch}>
+                      Clear search
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => router.push("/assistant")}
+                      className="gap-1"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      Ask assistant
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
             )}
-
-            {webNotice}
-
-            <SearchSections
-              sections={sectionsData?.sections || []}
-              onCompareToggle={toggleCompare}
-              compareIds={compareIds}
-            />
-
-            {unifiedData && unifiedData.web_discoveries.length > 0 && unifiedData.verified_total > 0 && (
-              <section className="mt-10">
-                <div className="mb-4 flex items-center gap-2">
-                  <Badge variant="secondary" className="rounded-md bg-amber-500/15 text-amber-800 text-xs">
-                    <Globe2 className="h-3.5 w-3.5" />
-                    WEB DISCOVERY
-                  </Badge>
-                  <h2 className="text-xl font-semibold">Web Discoveries</h2>
-                  <span className="text-sm text-muted-foreground">Â· {unifiedData.metadata?.cache_hit ? "cached" : "live search"}</span>
-                </div>
-                <p className="mb-4 text-xs text-muted-foreground/90">
-                  These listings were discovered from web sources and are not verified inventory.
-                  Check the original source for current availability.
-                </p>
-                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                  {unifiedData.web_discoveries.map((d) => (
-                    <WebDiscoveryCard key={d.id} discovery={d} />
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
-        ) : webNotice ? (
-          <div>
-            <IntentChips intent={intent} />
-            {webNotice}
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/50 py-24 text-center">
-            <MapPin className="h-16 w-16 text-muted-foreground/30" />
-            <h3 className="mt-5 text-xl font-semibold text-foreground">No properties found</h3>
-            <p className="mt-2 max-w-sm text-muted-foreground">
-              Nothing in the current inventory matches these criteria. Adjust location, filters, or
-              budget Ã¢â‚¬â€ or ask the AI assistant for guidance.
-            </p>
-            <div className="mt-6 flex gap-3">
-              <Button variant="outline" className="rounded-lg" onClick={clearSearch}>
-                Clear search
-              </Button>
-              <Button className="rounded-lg" onClick={() => router.push("/assistant")}>
-                <Sparkles className="mr-2 h-4 w-4" />
-                Ask the assistant
-              </Button>
-            </div>
-          </div>
-        )}
+          </main>
+        </div>
       </div>
     </div>
   );

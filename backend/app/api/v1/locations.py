@@ -22,13 +22,16 @@ from app.providers.location import (
 )
 from app.repositories.property_repo import PropertyRepository
 from app.schemas.maps import (
-    GeocodeRequest, GeocodeResponse, LiveNearbyResponse, LivePlace,
-    MapProviderStatus, RouteRequest, RouteResponse,
+    CoordinateNearbyResponse, GeocodeRequest, GeocodeResponse,
+    LiveNearbyResponse, LivePlace, MapProviderStatus, RouteRequest, RouteResponse,
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/locations", tags=["Location intelligence"])
-_CATEGORIES = "^(metro|hospital|school|college|supermarket|mall|park|it_park)$"
+_CATEGORIES = (
+    "^(metro|hospital|school|college|supermarket|mall|park|it_park"
+    "|hotel|restaurant|bank|shopping|pharmacy|public_transport)$"
+)
 
 
 def _http_error(exc: Exception) -> HTTPException:
@@ -41,6 +44,42 @@ def _http_error(exc: Exception) -> HTTPException:
 
 def _provider():
     return get_location_provider()
+
+
+def _source_label(provider) -> str:
+    if provider.name == "geoapify":
+        return "Geoapify / OpenStreetMap"
+    if provider.name == "osm":
+        return "OpenStreetMap / Overpass"
+    return "Google Places API (New)"
+
+
+def _collect_nearby(
+    provider,
+    latitude: float,
+    longitude: float,
+    category: str,
+    radius_km: float,
+    travel_mode: str,
+    include_travel: bool,
+) -> list[dict]:
+    places = provider.nearby(latitude, longitude, category, radius_km)
+    if include_travel:
+        for place in places[:5]:
+            if place.get("latitude") is None or place.get("longitude") is None:
+                continue
+            try:
+                route = provider.route(
+                    (latitude, longitude),
+                    (place["latitude"], place["longitude"]), travel_mode,
+                )
+                place["distance_km"] = route["distance_km"]
+                place["travel_minutes"] = route["duration_minutes"]
+                place["travel_mode"] = route["mode"]
+            except LocationProviderUnavailable as route_error:
+                # A POI remains valid; do not invent a travel time.
+                logger.info("Route enrichment unavailable for %s: %s", place.get("place_id"), route_error)
+    return places
 
 
 def _to_live_place(payload: dict, request: Request) -> LivePlace:
@@ -92,26 +131,40 @@ async def nearby(
         raise HTTPException(status_code=422, detail="Property coordinates are unavailable")
     try:
         provider = _provider()
-        places = provider.nearby(prop.latitude, prop.longitude, category, radius_km)
-        if include_travel:
-            for place in places[:5]:
-                if place.get("latitude") is None or place.get("longitude") is None:
-                    continue
-                try:
-                    route = provider.route(
-                        (prop.latitude, prop.longitude),
-                        (place["latitude"], place["longitude"]), travel_mode,
-                    )
-                    place["distance_km"] = route["distance_km"]
-                    place["travel_minutes"] = route["duration_minutes"]
-                    place["travel_mode"] = route["mode"]
-                except LocationProviderUnavailable as route_error:
-                    # A POI remains valid; do not invent a travel time.
-                    logger.info("Route enrichment unavailable for %s: %s", place.get("place_id"), route_error)
-        source = "Geoapify / OpenStreetMap" if provider.name == "geoapify" else ("OpenStreetMap / Overpass" if provider.name == "osm" else "Google Places API (New)")
+        places = _collect_nearby(
+            provider, prop.latitude, prop.longitude, category, radius_km, travel_mode, include_travel,
+        )
         return LiveNearbyResponse(
             property_id=property_id, category=category, radius_km=radius_km,
-            source=source, places=[_to_live_place(place, request) for place in places],
+            source=_source_label(provider), places=[_to_live_place(place, request) for place in places],
+        )
+    except (LocationProviderUnavailable, LocationProviderInvalidRequest) as exc:
+        raise _http_error(exc) from exc
+
+
+@router.get("/nearby", response_model=CoordinateNearbyResponse)
+async def nearby_coordinates(
+    request: Request,
+    latitude: float = Query(..., ge=-90, le=90),
+    longitude: float = Query(..., ge=-180, le=180),
+    category: str = Query(..., pattern=_CATEGORIES),
+    radius_km: float = Query(3.0, gt=0, le=50),
+    travel_mode: str = Query("WALK", pattern="^(DRIVE|WALK|BICYCLE|TRANSIT)$"),
+    include_travel: bool = Query(True),
+):
+    """Nearby places for arbitrary coordinates (Near Me / Explore / Area Intelligence).
+
+    Same provider dispatch and honesty rules as the property-scoped endpoint:
+    distances come from the provider, and no places are ever synthesized.
+    """
+    try:
+        provider = _provider()
+        places = _collect_nearby(
+            provider, latitude, longitude, category, radius_km, travel_mode, include_travel,
+        )
+        return CoordinateNearbyResponse(
+            latitude=latitude, longitude=longitude, category=category, radius_km=radius_km,
+            source=_source_label(provider), places=[_to_live_place(place, request) for place in places],
         )
     except (LocationProviderUnavailable, LocationProviderInvalidRequest) as exc:
         raise _http_error(exc) from exc

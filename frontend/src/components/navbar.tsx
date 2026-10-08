@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,7 +15,7 @@ import {
   Building2,
   Search,
   Heart,
-  GitCompareArrows,
+  GitCompare,
   User,
   LogOut,
   Menu,
@@ -22,27 +23,49 @@ import {
   Sparkles,
   Shield,
   LocateFixed,
+  Calculator,
+  Map,
+  Brain,
+  Home,
+  List,
+  ChevronDown,
 } from "lucide-react";
 import { useState } from "react";
-import { usePathname } from "next/navigation";
+
+const navItems = [
+  { href: "/", label: "Home", icon: Home, exact: true },
+  { href: "/search", label: "Search", icon: Search, exact: false },
+  { href: "/near-me", label: "Near Me", icon: LocateFixed, exact: false },
+  { href: "/explore", label: "Explore", icon: Map, exact: false },
+  { href: "/assistant", label: "AI Assistant", icon: Sparkles, exact: false, auth: true },
+  { href: "/compare", label: "Compare", icon: GitCompare, exact: false, auth: true },
+  { href: "/saved", label: "Saved", icon: Heart, exact: false, auth: true },
+];
+
+const moreItems = [
+  { href: "/affordability", label: "Affordability", icon: Calculator },
+  { href: "/area-intelligence", label: "Area Intelligence", icon: Brain },
+  { href: "/market-intelligence", label: "Market Intelligence", icon: List },
+];
 
 export default function Navbar() {
   const { user, isAuthenticated, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
 
-  // The marketplace landing page includes its own header so the navigation can
-  // sit directly on its hero artwork. Inner pages retain this shared toolbar.
-  if (pathname === "/") return null;
+  const isActive = (href: string, exact: boolean) => {
+    if (exact) return pathname === href;
+    return pathname.startsWith(href + "/") || pathname === href;
+  };
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border/50 bg-background/85 backdrop-blur-xl">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex h-[4.5rem] items-center justify-between">
+    <header className="sticky top-0 z-50 border-b border-border/60 bg-background/95 backdrop-blur-xl">
+      <div className="container-page">
+        <div className="flex h-16 items-center justify-between">
           {/* Logo */}
-          <Link href="/" className="group flex items-center gap-2.5">
-            <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-soft transition-shadow group-hover:shadow-raised">
-              <Building2 className="w-5 h-5 text-white" />
+          <Link href="/" className="flex items-center gap-2.5" aria-label="RealEstateGPT Home">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+              <Building2 className="w-5 h-5" />
             </div>
             <span className="text-lg font-bold tracking-tight text-foreground">
               RealEstate<span className="text-primary">GPT</span>
@@ -50,92 +73,104 @@ export default function Navbar() {
           </Link>
 
           {/* Desktop Nav */}
-          <nav className="hidden items-center gap-1 md:flex">
-            <Link href="/search">
-              <Button variant="ghost" size="sm" className="text-[#5e6d64] hover:bg-[#edf2ed] hover:text-[#1d3c31]">
-                Search
-              </Button>
-            </Link>
-            <Link href="/#how-it-works"><Button variant="ghost" size="sm">Discover</Button></Link>
-            <Link href="/near-me"><Button variant="ghost" size="sm" className="gap-2"><LocateFixed className="size-4" />Near me</Button></Link>
-            {isAuthenticated && (
-              <Link href="/assistant">
-                <Button variant="ghost" size="sm" className="gap-2 text-[#5e6d64] hover:bg-[#edf2ed] hover:text-[#1d3c31]">
-                  <Sparkles className="w-4 h-4" /> AI Assistant
+          <nav className="hidden items-center gap-1 md:flex" aria-label="Main navigation">
+            {navItems.map((item) => {
+              if (item.auth && !isAuthenticated) return null;
+              const active = isActive(item.href, item.exact);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    active
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  }`}
+                  aria-current={active ? "page" : undefined}
+                >
+                  <item.icon className="size-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+
+            {/* More dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="gap-1.5 h-9">
+                  <span>More</span>
+                  <ChevronDown className="size-3.5" />
                 </Button>
-              </Link>
-            )}
-            {isAuthenticated && (
-              <>
-                <Link href="/saved">
-                  <Button variant="ghost" size="sm" className="gap-2 text-[#5e6d64] hover:bg-[#edf2ed] hover:text-[#1d3c31]">
-                    <Heart className="w-4 h-4" />
-                    Saved
-                  </Button>
-                </Link>
-                <Link href="/compare">
-                  <Button variant="ghost" size="sm" className="gap-2 text-[#5e6d64] hover:bg-[#edf2ed] hover:text-[#1d3c31]">
-                    <GitCompareArrows className="w-4 h-4" />
-                    Compare
-                  </Button>
-                </Link>
-              </>
-            )}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                {moreItems.map((item) => (
+                  <DropdownMenuItem key={item.href} asChild>
+                    <Link
+                      href={item.href}
+                      className="flex w-full items-center gap-2 px-2 py-1.5 text-sm"
+                    >
+                      <item.icon className="size-4" />
+                      {item.label}
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </nav>
 
           {/* Auth / User */}
-          <div className="hidden md:flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-2">
             {isAuthenticated ? (
               <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={
-                    <Button variant="outline" size="sm" className="gap-2" />
-                  }
-                >
-                  <div className="w-6 h-6 rounded-full gradient-primary flex items-center justify-center">
-                    <span className="text-xs text-white font-semibold">
-                      {user?.full_name?.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
-                  {user?.full_name?.split(" ")[0]}
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-2 h-9">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                      <span className="text-sm font-semibold text-primary">
+                        {user?.full_name?.charAt(0).toUpperCase() || "U"}
+                      </span>
+                    </div>
+                    <span className="hidden sm:inline">{user?.full_name?.split(" ")[0]}</span>
+                  </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                <DropdownMenuContent align="end" className="w-56">
+                  <div className="px-3 py-2 text-xs text-muted-foreground border-b">
                     {user?.email}
                   </div>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem render={<Link href="/saved" className="w-full" />}>
-                    <Heart className="w-4 h-4 mr-2" />
-                    Saved Properties
+                  <DropdownMenuItem asChild>
+                    <Link href="/saved" className="flex w-full items-center gap-2">
+                      <Heart className="size-4" />
+                      Saved Properties
+                    </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem render={<Link href="/searches" className="w-full" />}>
-                    <Search className="w-4 h-4 mr-2" />
-                    Saved Searches
+                  <DropdownMenuItem asChild>
+                    <Link href="/compare" className="flex w-full items-center gap-2">
+                      <GitCompare className="size-4" />
+                      Comparisons
+                    </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem render={<Link href="/compare" className="w-full" />}>
-                    <GitCompareArrows className="w-4 h-4 mr-2" />
-                    Comparisons
+                  <DropdownMenuItem asChild>
+                    <Link href="/assistant" className="flex w-full items-center gap-2">
+                      <Sparkles className="size-4" />
+                      AI Assistant
+                    </Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem render={<Link href="/assistant" className="w-full" />}>
-                    <Sparkles className="w-4 h-4 mr-2" />
-                    AI Assistant
-                  </DropdownMenuItem>
-                  <DropdownMenuItem render={<Link href="/profile" className="w-full" />}>
-                    <User className="w-4 h-4 mr-2" />
-                    Profile & Settings
+                  <DropdownMenuItem asChild>
+                    <Link href="/profile" className="flex w-full items-center gap-2">
+                      <User className="size-4" />
+                      Profile & Settings
+                    </Link>
                   </DropdownMenuItem>
                   {user?.role === "admin" && (
-                    <DropdownMenuItem render={<Link href="/admin" className="w-full" />}>
-                      <Shield className="w-4 h-4 mr-2" />
-                      Admin Dashboard
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin" className="flex w-full items-center gap-2">
+                        <Shield className="size-4" />
+                        Admin Dashboard
+                      </Link>
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={logout}
-                    className="text-destructive cursor-pointer"
-                  >
-                    <LogOut className="w-4 h-4 mr-2" />
+                  <DropdownMenuItem onClick={logout} className="text-destructive cursor-pointer flex w-full items-center gap-2">
+                    <LogOut className="size-4" />
                     Logout
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -143,12 +178,12 @@ export default function Navbar() {
             ) : (
               <div className="flex items-center gap-2">
                 <Link href="/auth/login">
-                  <Button variant="ghost" size="sm" className="text-[#385247] hover:bg-[#edf2ed]">
+                  <Button variant="ghost" size="sm" className="h-9">
                     Sign In
                   </Button>
                 </Link>
                 <Link href="/auth/register">
-                  <Button size="sm" className="rounded-xl bg-[#1d3c31] text-white hover:bg-[#284f41]">
+                  <Button size="sm" className="h-9 bg-primary text-primary-foreground hover:bg-primary/90">
                     Get Started
                   </Button>
                 </Link>
@@ -158,8 +193,10 @@ export default function Navbar() {
 
           {/* Mobile menu toggle */}
           <button
-            className="md:hidden p-2"
+            className="md:hidden p-2 rounded-lg hover:bg-accent"
             onClick={() => setMobileOpen(!mobileOpen)}
+            aria-label={mobileOpen ? "Close menu" : "Open menu"}
+            aria-expanded={mobileOpen}
           >
             {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
@@ -167,55 +204,61 @@ export default function Navbar() {
 
         {/* Mobile Nav */}
         {mobileOpen && (
-          <div className="md:hidden pb-4 border-t border-border/50 mt-2 pt-4 space-y-2">
-            <Link
-              href="/search"
-              onClick={() => setMobileOpen(false)}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent text-sm"
-            >
-              <Search className="w-4 h-4" /> Search Properties
-            </Link>
-            <Link href="/near-me" onClick={() => setMobileOpen(false)} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent text-sm"><LocateFixed className="w-4 h-4" /> Near me</Link>
+          <div className="md:hidden pb-4 border-t border-border/50 mt-2 pt-4 space-y-1 animate-in" style={{ animation: "slideDown 0.4s ease-out" }}>
+            {navItems.map((item) => {
+              if (item.auth && !isAuthenticated) return null;
+              const active = isActive(item.href, item.exact);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMobileOpen(false)}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                    active
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  }`}
+                >
+                  <item.icon className="size-5" />
+                  {item.label}
+                </Link>
+              );
+            })}
             {isAuthenticated ? (
               <>
-                <Link
-                  href="/saved"
-                  onClick={() => setMobileOpen(false)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent text-sm"
-                >
-                  <Heart className="w-4 h-4" /> Saved
-                </Link>
-                <Link
-                  href="/compare"
-                  onClick={() => setMobileOpen(false)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent text-sm"
-                >
-                  <GitCompareArrows className="w-4 h-4" /> Compare
-                </Link>
-                <Link href="/assistant" onClick={() => setMobileOpen(false)} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent text-sm">
-                  <Sparkles className="w-4 h-4" /> AI Assistant
-                </Link>
-                {user?.role === "admin" && (
-                  <Link href="/admin" onClick={() => setMobileOpen(false)} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent text-sm">
-                    <Shield className="w-4 h-4" /> Admin Dashboard
-                  </Link>
-                )}
-                <button
-                  onClick={() => { logout(); setMobileOpen(false); }}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent text-sm text-destructive w-full text-left"
-                >
-                  <LogOut className="w-4 h-4" /> Logout
-                </button>
+                <hr className="my-2 border-border/50" />
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start gap-2 h-10">
+                      <span>More</span>
+                      <ChevronDown className="size-4 ml-auto" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-full">
+                    {moreItems.map((item) => (
+                      <DropdownMenuItem key={item.href} asChild>
+                        <Link
+                          href={item.href}
+                          onClick={() => setMobileOpen(false)}
+                          className="flex w-full items-center gap-2 px-2 py-1.5 text-sm"
+                        >
+                          <item.icon className="size-4" />
+                          {item.label}
+                        </Link>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </>
             ) : (
-              <div className="flex gap-2 px-3 pt-2">
+              <div className="flex gap-2 pt-2">
                 <Link href="/auth/login" className="flex-1">
                   <Button variant="outline" size="sm" className="w-full" onClick={() => setMobileOpen(false)}>
                     Sign In
                   </Button>
                 </Link>
                 <Link href="/auth/register" className="flex-1">
-                  <Button size="sm" className="w-full gradient-primary text-white border-0" onClick={() => setMobileOpen(false)}>
+                  <Button size="sm" className="w-full bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => setMobileOpen(false)}>
                     Get Started
                   </Button>
                 </Link>

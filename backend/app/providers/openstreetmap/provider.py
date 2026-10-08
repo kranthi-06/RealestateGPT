@@ -32,6 +32,12 @@ _CATEGORY_FILTERS: dict[str, list[tuple[str, str]]] = {
     "mall": [("shop", "mall")],
     "park": [("leisure", "park")],
     "it_park": [("landuse", "commercial"), ("office", "company"), ("industrial", "technology")],
+    "hotel": [("tourism", "hotel"), ("tourism", "guest_house")],
+    "restaurant": [("amenity", "restaurant"), ("amenity", "cafe"), ("amenity", "fast_food")],
+    "bank": [("amenity", "bank"), ("amenity", "atm")],
+    "shopping": [("shop", "mall"), ("shop", "department_store"), ("shop", "supermarket"), ("amenity", "marketplace")],
+    "pharmacy": [("amenity", "pharmacy")],
+    "public_transport": [("railway", "station"), ("amenity", "bus_station"), ("public_transport", "station")],
 }
 _PROFILES = {"DRIVE": "driving", "WALK": "foot", "BICYCLE": "cycling"}
 

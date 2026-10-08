@@ -1,94 +1,325 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { useState, FormEvent, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
-  ArrowRight, Bath, BedDouble, Bell, Bot, Building2, CheckCircle2,
-  ChevronDown, CircleAlert, Heart, House, MapPin, Mic, Search,
-  ShieldCheck, Sparkles, SquareStack, Store, UploadCloud, UsersRound,
+  Search,
+  LocateFixed,
+  Home,
+  KeyRound,
+  MapPin,
+  Building2,
+  Sparkles,
+  Brain,
+  ArrowRight,
+  ChevronRight,
+  CheckCircle2,
+  GitCompare,
 } from "lucide-react";
-import { propertiesApi, workersApi } from "@/lib/api";
-import type { Property, WorkerStatus } from "@/lib/types";
+import { propertiesApi } from "@/lib/api";
 
-const categories = [
-  ["1 BHK", "Apartment"], ["2 BHK", "Apartment"], ["3 BHK", "Apartment"], ["4 BHK+", "Apartment"],
-  ["Independent", "House"], ["Villas", "Villa"], ["PG & Coliving", "PG"], ["Hotels", "Hotel"],
+const quickActions = [
+  { href: "/near-me", label: "Near Me", icon: LocateFixed, prefix: "📍" },
+  { href: "/search?listing_type=sale", label: "Buy", icon: Home, prefix: "🏠" },
+  { href: "/search?listing_type=rent", label: "Rent", icon: KeyRound, prefix: "🔑" },
+  { href: "/search?property_type=plot", label: "Plots", icon: MapPin, prefix: "🗺️" },
+  { href: "/search?property_type=commercial", label: "Commercial", icon: Building2, prefix: "🏢" },
 ];
 
-function propertyImage(property: Property) {
-  return property.images?.find((image) => image.rights_status !== "rejected")?.url ?? null;
-}
+const fallbackCities = [
+  "Hyderabad",
+  "Bangalore",
+  "Mumbai",
+  "Pune",
+  "Chennai",
+  "Delhi NCR",
+  "Kolkata",
+  "Ahmedabad",
+  "Jaipur",
+  "Surat",
+  "Lucknow",
+  "Nagpur",
+];
 
-function PropertyCard({ property }: { property: Property }) {
-  const image = propertyImage(property);
-  const price = new Intl.NumberFormat("en-IN", { style: "currency", currency: property.currency || "INR", maximumFractionDigits: 0 }).format(property.rent_amount || property.price);
-  return <article className="group overflow-hidden rounded-xl border border-slate-100 bg-white shadow-[0_8px_24px_rgba(43,67,117,.08)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_15px_30px_rgba(43,67,117,.14)]">
-    <div className="relative grid h-32 place-items-center overflow-hidden bg-slate-100 text-slate-400">
-      {image ? <img src={image} alt={property.title} className="h-full w-full object-cover transition duration-500 group-hover:scale-105" /> : <Building2 className="size-8" />}
-      <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[9px] font-bold text-slate-600">{property.verification_status}</span>
-      <button aria-label={`Save ${property.title}`} className="absolute right-2 top-2 rounded-full bg-white/90 p-1.5 text-slate-500"><Heart className="size-4" /></button>
-    </div>
-    <div className="p-3"><p className="text-sm font-extrabold text-slate-900">{price} <span className="text-[10px] font-medium">{property.listing_type === "rent" ? "/ month" : ""}</span></p><p className="mt-1 line-clamp-1 text-xs font-semibold text-slate-700">{property.title}</p><p className="mt-1 line-clamp-1 text-[10px] text-slate-500">{property.locality ? `${property.locality}, ` : ""}{property.city}</p><div className="mt-2 flex items-center justify-between text-[10px] text-slate-500"><span className="inline-flex gap-1"><BedDouble className="size-3" /> {property.bedrooms ?? "—"}</span><span className="inline-flex gap-1"><Bath className="size-3" /> {property.bathrooms ?? "—"}</span><span>{property.area_sqft ? `${property.area_sqft.toLocaleString("en-IN")} sqft` : "—"}</span></div></div>
-  </article>;
-}
+const howItWorks = [
+  {
+    step: "01",
+    title: "AI Search",
+    body: "Describe what you want in plain language — budgets, localities, amenities, proximity.",
+    icon: Sparkles,
+  },
+  {
+    step: "02",
+    title: "Evaluate with Scores",
+    body: "Every listing gets 6 AI scores, pros/cons, real distances, and price benchmarks.",
+    icon: Brain,
+  },
+  {
+    step: "03",
+    title: "Compare & Decide",
+    body: "Side-by-side tables, affordability, and AI recommendation to close with confidence.",
+    icon: GitCompare,
+  },
+];
 
-export default function LandingPage() {
+export default function HomePage() {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [mode, setMode] = useState("Rent");
-  const [featured, setFeatured] = useState<Property[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [inventoryMessage, setInventoryMessage] = useState("");
-  const [workerStatus, setWorkerStatus] = useState<WorkerStatus | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [cities, setCities] = useState<string[] | null>(null);
+  const [citiesError, setCitiesError] = useState(false);
 
   useEffect(() => {
-    let active = true;
-    Promise.allSettled([propertiesApi.getFeatured(), workersApi.status()]).then(([properties, workers]) => {
-      if (!active) return;
-      if (properties.status === "fulfilled") setFeatured(properties.value.filter((property) => !property.is_synthetic));
-      else setInventoryMessage("Verified listings are temporarily unavailable.");
-      if (workers.status === "fulfilled") {
-        setWorkerStatus(workers.value);
-        if (workers.status === "fulfilled" && !workers.value.property_provider_configured && !workers.value.web_search_provider) setInventoryMessage((workers as unknown as { value: { provider_message: string } }).value.provider_message || "No licensed property-data provider is configured yet.");
-      }
-      setLoading(false);
-    });
-    return () => { active = false; };
+    let cancelled = false;
+    propertiesApi
+      .getCities()
+      .then((list) => {
+        if (!cancelled) setCities(Array.isArray(list) ? list.slice(0, 18) : null);
+      })
+      .catch(() => {
+        if (!cancelled) setCitiesError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
+  const handleSearch = (e: FormEvent) => {
+    e.preventDefault();
+    if (!query.trim()) return;
+    setIsSearching(true);
     const params = new URLSearchParams();
-    if (query.trim()) params.set("q", query.trim());
-    params.set("listing_type", mode.toLowerCase());
+    params.set("q", query.trim());
     router.push(`/search?${params.toString()}`);
+    setIsSearching(false);
   };
 
-  const features = [[UploadCloud, "Real-time Data", "Inventory comes only from configured, authorized sources."], [MapPin, "Location Intelligence", "Live location providers add real local context."], [Bot, "AI Assistant", "Ask in natural language about verified inventory."], [ShieldCheck, "Verified Listings", "Listing provenance and freshness remain visible."], [SquareStack, "Smart Comparison", "Compare actual matches side by side."], [Bell, "Save & Track", "Save live listings and return to them later."]];
-  const inventoryLive = Boolean(workerStatus?.property_provider_configured);
-  const webLive = Boolean(workerStatus?.web_search_provider?.configured && workerStatus?.web_search_provider?.enabled);
-  const webProvider = (workerStatus?.web_search_provider?.provider || "tavily").toLowerCase();
-  const dotLive = inventoryLive || webLive;
-  const statusLoaded = workerStatus !== null;
-  const statusText = !statusLoaded
-    ? "Checking live status..."
-    : inventoryLive
-    ? `Live provider: ${workerStatus?.property_provider}`
-    : webLive
-      ? `Verified inventory pending · Web discovery live (${webProvider})`
-      : "No provider configured";
+  const displayCities = cities ?? (!citiesError ? null : fallbackCities);
 
-  return <div className="bg-[#f6f9ff] text-[#0b1740]">
-    <section className="relative overflow-hidden bg-[#251bd4] text-white"><div className="absolute inset-0 bg-[radial-gradient(circle_at_75%_20%,rgba(217,99,230,.9),transparent_23%),radial-gradient(circle_at_70%_52%,rgba(255,144,122,.9),transparent_25%),linear-gradient(120deg,#2b31d7_0%,#6e42dc_50%,#ff8b84_100%)]" /><div className="relative mx-auto max-w-[1500px] px-5 pb-7 pt-4 lg:px-8">
-      <header className="flex items-center justify-between text-xs"><Link href="/" className="flex items-center gap-2 text-sm font-extrabold"><span className="grid size-6 place-items-center rounded-md bg-white text-indigo-600"><House className="size-4 fill-current" /></span>RealEstateGPT</Link><nav className="hidden gap-7 text-white/95 md:flex"><Link href="/search">Buy</Link><button onClick={() => setMode("Rent")}>Rent</button><a href="#categories">PG & Coliving</a><a href="#properties">Hotels</a><a href="#explore">Explore <ChevronDown className="ml-1 inline size-3" /></a><Link href="/assistant">AI Assistant</Link></nav><div className="flex items-center gap-3"><Link href="/auth/login?role=user">User sign in</Link><Link href="/auth/login?role=admin" className="rounded-lg border border-white/40 px-3 py-2 font-bold">Admin</Link><Link href="/auth/register" className="rounded-lg bg-[#3d42ff] px-4 py-2.5 font-bold shadow-lg shadow-indigo-900/30">Get Started</Link></div></header>
-      <div className="grid min-h-[370px] items-center gap-9 pt-10 lg:grid-cols-[1fr_340px] lg:px-3"><div className="max-w-[620px]"><span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-3 py-1.5 text-[10px] font-bold"><Sparkles className="size-3" /> Real-data property search</span><h1 className="mt-4 text-4xl font-black leading-[1.08] tracking-tight sm:text-5xl">Find your perfect<br />home with AI</h1><p className="mt-3 max-w-[530px] text-sm leading-6 text-white/95">Search verified properties, get live location insights and compare the options that match your needs.</p><p className="mt-5 inline-flex items-center gap-2 rounded-lg bg-slate-950/20 px-3 py-2 text-[10px] font-semibold"><span className={`size-2 rounded-full ${!statusLoaded ? "bg-white/60" : dotLive ? "bg-emerald-300" : "bg-amber-300"}`} />{statusText}</p></div>
-      <form onSubmit={submit} className="rounded-2xl bg-white p-3 text-slate-800 shadow-2xl shadow-indigo-900/20"><div className="grid grid-cols-4 rounded-xl bg-[#f4f7ff] p-1 text-[10px] font-bold"><button type="button" onClick={() => setMode("Buy")} className={`rounded-lg py-2 ${mode === "Buy" ? "bg-white shadow text-indigo-600" : ""}`}>Buy</button><button type="button" onClick={() => setMode("Rent")} className={`rounded-lg py-2 ${mode === "Rent" ? "bg-white shadow text-indigo-600" : ""}`}>Rent</button><button type="button" onClick={() => router.push("/search?property_type=hotel")} className="py-2">Hotels</button><button type="button" onClick={() => router.push("/search?property_type=pg")} className="py-2">PG</button></div><div className="mt-3 flex items-center rounded-lg border border-slate-200 px-3 py-3"><Search className="size-4 text-indigo-500" /><input value={query} onChange={e => setQuery(e.target.value)} className="min-w-0 flex-1 px-2 text-[11px] outline-none" placeholder="City, locality, budget, or property type" /><Mic className="size-4 text-indigo-700" /></div><Link href="/near-me" className="mt-2 flex items-center gap-1 text-[9px] font-semibold text-indigo-600"><MapPin className="size-3" /> Use my current location</Link><div className="mt-3 grid grid-cols-3 gap-2 text-[9px]"><label>Listing<input value={mode} readOnly className="mt-1 w-full rounded-md border border-slate-200 p-2 text-[10px]" /></label><label>Property Type<select className="mt-1 w-full rounded-md border border-slate-200 p-2 text-[10px]"><option>Any</option><option>Apartment</option><option>House</option></select></label><label>Budget (₹)<select className="mt-1 w-full rounded-md border border-slate-200 p-2 text-[10px]"><option>Any</option></select></label></div><button className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[#287bff] to-[#a317e9] py-3 text-[11px] font-bold text-white"><Search className="size-3" /> Search verified properties</button></form></div></div></section>
-    <main className="mx-auto max-w-[1500px] space-y-4 px-5 py-4 lg:px-8"><section id="categories" className="rounded-xl bg-white p-3 shadow-sm"><div className="mb-3 flex items-center justify-between"><div><h2 className="font-bold">Explore by Category</h2><p className="text-[10px] text-slate-500">Search only the listing types you need.</p></div><Link href="/search" className="text-xs font-bold text-indigo-600">View all <ArrowRight className="inline size-3" /></Link></div><div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">{categories.map(([title, type]) => <button key={title} onClick={() => router.push(`/search?property_type=${encodeURIComponent(type)}`)} className="rounded-lg border border-slate-100 bg-gradient-to-br from-indigo-50 to-white p-3 text-left shadow-sm transition hover:border-indigo-200"><Building2 className="size-5 text-indigo-500" /><span className="mt-4 block text-[10px] font-bold">{title}</span><span className="block text-[9px] text-slate-500">View available listings</span></button>)}</div></section>
-    <section className="rounded-xl bg-white p-3 shadow-sm"><h2 className="font-bold">Why RealEstateGPT?</h2><div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{features.map(([Icon, title, copy]) => { const C = Icon as typeof Bot; return <div key={String(title)} className="flex gap-3"><span className="grid size-8 shrink-0 place-items-center rounded-lg bg-indigo-50 text-indigo-600"><C className="size-4" /></span><div><h3 className="text-[11px] font-bold">{String(title)}</h3><p className="mt-1 text-[9px] text-slate-500">{String(copy)}</p></div></div>; })}</div></section>
-    <section id="explore" className="grid gap-4 lg:grid-cols-[1fr_1fr]"><div className="relative min-h-36 overflow-hidden rounded-xl bg-gradient-to-br from-indigo-700 to-fuchsia-600 p-5 text-white"><div className="absolute -right-6 -top-10 size-44 rounded-full bg-white/10" /><div className="relative"><h2 className="text-lg font-bold">Discover properties<br />near you</h2><p className="mt-2 text-[10px] text-white/85">Use your device location only when you choose to search nearby.</p><Link href="/near-me" className="mt-4 inline-block rounded-md bg-white px-3 py-2 text-[10px] font-bold text-indigo-600">Find properties near me</Link></div></div><div className="rounded-xl bg-white p-5 shadow-sm"><p className="text-[10px] font-bold">Or search a specific location</p><form onSubmit={submit} className="mt-3 flex gap-2"><div className="flex flex-1 items-center rounded-lg border border-slate-200 px-3"><Search className="size-3 text-slate-400" /><input value={query} onChange={e => setQuery(e.target.value)} className="w-full p-2 text-[10px] outline-none" placeholder="Enter city, locality, or landmark" /></div><button className="rounded-lg bg-indigo-600 px-5 py-2 text-[10px] font-bold text-white">Search</button></form><p className="mt-4 text-[9px] text-slate-500">Search results reflect the current inventory; unavailable listings are never substituted with examples.</p></div></section>
-    <section id="properties" className="grid gap-4 lg:grid-cols-[1.2fr_.8fr]"><div className="rounded-xl bg-white p-3 shadow-sm"><div className="flex items-center justify-between"><div><h2 className="font-bold">Featured verified properties</h2><p className="mt-1 text-[10px] text-slate-500">Only non-synthetic inventory is shown here.</p></div><Link href="/search" className="text-[10px] font-bold text-indigo-600">View all <ArrowRight className="inline size-3" /></Link></div>{loading ? <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-56 animate-pulse rounded-xl bg-slate-100" />)}</div> : featured.length ? <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">{featured.slice(0, 4).map((property) => <PropertyCard key={property.id} property={property} />)}</div> : <div className="mt-4 rounded-lg border border-dashed border-amber-200 bg-amber-50 p-5 text-sm text-amber-950"><div className="flex gap-3"><CircleAlert className="mt-0.5 size-5 shrink-0 text-amber-600" /><div><p className="font-bold">No verified inventory to show</p><p className="mt-1 text-xs text-amber-800">{inventoryMessage || "There are no live listings matching the featured criteria."}</p><Link href="/admin" className="mt-3 inline-block text-xs font-bold text-indigo-700">Open data operations <ArrowRight className="inline size-3" /></Link></div></div></div>}</div>
-    <div className="rounded-xl bg-white p-5 shadow-sm"><div className="flex items-center gap-2"><span className="grid size-7 place-items-center rounded-lg bg-indigo-50"><Bot className="size-4 text-indigo-600" /></span><b className="text-xs">AI Assistant</b></div><div className="mt-5 text-center"><Bot className="mx-auto size-7 text-indigo-600" /><h2 className="mt-2 font-bold">Ask RealEstateGPT</h2><p className="mt-1 text-[10px] text-slate-500">Search the live catalogue and understand the results.</p><Link href="/assistant" className="mt-3 inline-block rounded-full bg-indigo-100 px-4 py-2 text-[10px] text-indigo-700">Ask about a property or location</Link></div><ul className="mt-5 space-y-2 text-[10px] text-slate-500"><li><CheckCircle2 className="mr-2 inline size-3 text-green-500" />Uses real inventory when available</li><li><CheckCircle2 className="mr-2 inline size-3 text-green-500" />Shows source and verification data</li><li><CheckCircle2 className="mr-2 inline size-3 text-green-500" />Never fabricates property matches</li></ul><Link href="/assistant" className="mt-4 flex items-center rounded-lg border border-slate-200 px-3 py-2 text-[10px] text-slate-500">Ask anything about real estate... <ArrowRight className="ml-auto size-3 text-indigo-600" /></Link></div></section>
-    <section className="grid gap-4 pb-3 lg:grid-cols-[1fr_1fr]"><div className="rounded-xl bg-white p-5 shadow-sm"><h2 className="font-bold">Your property search, simplified</h2><p className="mt-2 text-xs text-slate-500">Search the live catalogue, then use location insights and comparison tools to decide.</p><Link href="/search" className="mt-4 inline-flex items-center gap-1 text-xs font-bold text-indigo-600">Start exploring <ArrowRight className="size-3" /></Link></div><div className="rounded-xl bg-white p-5 shadow-sm"><h2 className="font-bold">Data operations</h2><div className="mt-4 flex items-center justify-between text-center text-[10px] font-semibold text-slate-600"><span className="grid gap-2"><Store className="mx-auto size-5 text-indigo-600" />Authorized Source</span><ArrowRight className="size-4 text-indigo-400" /><span className="grid gap-2"><UsersRound className="mx-auto size-5 text-indigo-600" />Workers</span><ArrowRight className="size-4 text-indigo-400" /><span className="grid gap-2"><ShieldCheck className="mx-auto size-5 text-teal-500" />Verified Listings</span></div><Link href="/admin" className="mt-4 inline-block text-xs font-bold text-indigo-600">Open worker monitoring <ArrowRight className="inline size-3" /></Link></div></section></main>
-  </div>;
+  return (
+    <div className="min-h-screen bg-background">
+      <section className="py-12 sm:py-16 lg:py-20">
+        <div className="page-shell">
+          <div className="mx-auto max-w-4xl text-center">
+            <Badge variant="default" className="mb-5 gap-1.5 px-3 py-1 text-[11px] uppercase tracking-wider animate-in animate-stagger-1">
+              <Sparkles className="h-3 w-3" />
+              AI · Search · Real Estate Intelligence
+            </Badge>
+
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-foreground animate-in animate-stagger-2">
+              Search smarter. <span className="text-primary">Decide faster.</span>
+            </h1>
+
+            <p className="mt-4 text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto animate-in animate-stagger-3">
+              A decision engine for real estate — natural-language search, AI-scored listings,
+              real nearby-facility distances, and side-by-side comparisons grounded in live data.
+            </p>
+
+            <form onSubmit={handleSearch} className="mt-10 max-w-3xl mx-auto animate-in animate-stagger-4">
+              <div className="group/card relative">
+                <div className="absolute -inset-[1px] rounded-2xl bg-gradient-to-b from-primary/20 via-primary/10 to-transparent opacity-60 blur-sm transition-opacity group-hover/card:opacity-100 pointer-events-none" aria-hidden />
+                <div className="relative flex items-stretch gap-2 rounded-2xl border border-border bg-card p-2 shadow-sm focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/40">
+                  <div className="flex flex-1 items-center gap-2 px-3">
+                    <Search className="h-5 w-5 shrink-0 text-primary" />
+                    <Input
+                      placeholder='Try "2 BHK under ₹40L near a hospital in Hyderabad"'
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      className="h-12 border-0 bg-transparent px-0 text-base placeholder:text-muted-foreground/60 focus-visible:ring-0 focus-visible:ring-offset-0"
+                      aria-label="Search properties with AI"
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    size="lg"
+                    disabled={isSearching || !query.trim()}
+                    className="h-12 rounded-xl px-6 gap-2"
+                  >
+                    {isSearching ? (
+                      <>
+                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" fill="none" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        Searching
+                      </>
+                    ) : (
+                      <>
+                        Search
+                        <ArrowRight className="h-4 w-4" />
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+              <p className="mt-3 text-[11px] text-muted-foreground">
+                Verified listings · Server-side location lookup · No frontend API keys
+              </p>
+            </form>
+
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-2 animate-in animate-stagger-5">
+              {quickActions.map((a) => (
+                <Link
+                  key={a.href}
+                  href={a.href}
+                  className="group inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3.5 py-2 text-sm font-medium text-foreground transition-all hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
+                >
+                  <span aria-hidden className="text-sm">{a.prefix}</span>
+                  {a.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="py-10 sm:py-14">
+        <div className="page-shell">
+          <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <span className="eyebrow">Popular locations</span>
+              <h2 className="mt-1 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                Browse cities with live inventory
+              </h2>
+            </div>
+            <Link href="/search" className="text-sm font-medium link">
+              View all search <ChevronRight className="ml-0.5 inline h-4 w-4 align-[-2px]" />
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 md:grid-cols-4 lg:grid-cols-6">
+            {displayCities === null && !citiesError
+              ? Array.from({ length: 12 }).map((_, i) => (
+                  <div key={i} className="rounded-xl border border-border bg-card p-3">
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="mt-2 h-3 w-1/2" />
+                  </div>
+                ))
+              : (displayCities ?? fallbackCities).slice(0, 12).map((city) => (
+                  <Link
+                    key={city}
+                    href={`/search?city=${encodeURIComponent(city)}`}
+                    className="group rounded-xl border border-border bg-card p-3 sm:p-3.5 transition-all hover:border-primary/30 hover:shadow-sm"
+                  >
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <MapPin className="h-3 w-3" />
+                      City
+                    </div>
+                    <div className="mt-1 flex items-baseline justify-between gap-2">
+                      <h3 className="truncate text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
+                        {city}
+                      </h3>
+                      <ArrowRight className="h-3.5 w-3.5 shrink-0 translate-x-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                    </div>
+                    {cities && (
+                      <Badge variant="outline" className="mt-2 px-1.5 py-0 text-[10px]">
+                        Live catalog
+                      </Badge>
+                    )}
+                  </Link>
+                ))}
+          </div>
+          {citiesError && displayCities && (
+            <p className="mt-3 text-[11px] text-muted-foreground">
+              * City list is an illustrative sample; catalog API was temporarily unreachable.
+            </p>
+          )}
+        </div>
+      </section>
+
+      <section className="py-10 sm:py-14 border-y border-border/50 bg-muted/20">
+        <div className="page-shell">
+          <div className="mb-8 text-center max-w-2xl mx-auto">
+            <span className="eyebrow">How it works</span>
+            <h2 className="mt-1 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+              From query to decision in 3 steps
+            </h2>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3 md:gap-5">
+            {howItWorks.map((w, i) => {
+              const Icon = w.icon;
+              return (
+                <Card key={w.step} className="overflow-hidden">
+                  <CardContent className="p-5 sm:p-6">
+                    <div className="flex items-center justify-between">
+                      <Badge variant="default" className="gap-1 px-2 py-0.5 text-[10px] font-mono">
+                        STEP {w.step}
+                      </Badge>
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <Icon className="h-4.5 w-4.5" />
+                      </div>
+                    </div>
+                    <h3 className="mt-4 text-base font-semibold text-foreground sm:text-lg">{w.title}</h3>
+                    <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">{w.body}</p>
+                    <div className="mt-5 flex items-center gap-1 text-xs text-muted-foreground">
+                      {Array.from({ length: 3 }).map((_, j) => (
+                        <CheckCircle2
+                          key={j}
+                          className={`h-3.5 w-3.5 ${j <= i ? "text-primary" : "text-border"}`}
+                        />
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      <section className="py-10 sm:py-12">
+        <div className="page-shell">
+          <div className="grid gap-4 md:grid-cols-[1.4fr_1fr]">
+            <Card>
+              <CardContent className="p-5 sm:p-6">
+                <Badge variant="outline" className="gap-1 text-[10px] uppercase tracking-wide">
+                  <Sparkles className="h-3 w-3" />
+                  Try the AI Assistant
+                </Badge>
+                <h3 className="mt-3 text-xl font-semibold text-foreground">
+                  Talk to RealEstateGPT — not a generic chatbot
+                </h3>
+                <p className="mt-1.5 text-sm text-muted-foreground">
+                  Ask for investment advice, area analysis, shortlists, or comparisons.
+                  Every reply is grounded in your saved data, listings, and backend tools.
+                </p>
+                <Button asChild className="mt-4 gap-1.5">
+                  <Link href="/assistant">
+                    Open AI Assistant <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-5 sm:p-6">
+                <Badge variant="outline" className="gap-1 text-[10px] uppercase tracking-wide">
+                  <LocateFixed className="h-3 w-3" />
+                  Near Me
+                </Badge>
+                <h3 className="mt-3 text-xl font-semibold text-foreground">
+                  See what&apos;s actually around you
+                </h3>
+                <p className="mt-1.5 text-sm text-muted-foreground">
+                  Browser geolocation → FastAPI → MongoDB geospatial + nearby facilities.
+                  Distances, not guesses.
+                </p>
+                <Button asChild variant="outline" className="mt-4 gap-1.5">
+                  <Link href="/near-me">
+                    Use My Location <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
 }
