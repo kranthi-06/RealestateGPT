@@ -58,6 +58,7 @@ def seed_database():
             "source_type": "demo",
             "verification_status": "unverified",
             "data_quality_score": 0.0,
+            "status": "active",  # Mark as active so repository search filter matches
             "amenities": [amenity_map[name].model_dump() for name in amenity_names if name in amenity_map],
         })
         if prop.latitude is not None and prop.longitude is not None:
