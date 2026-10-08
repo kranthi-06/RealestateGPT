@@ -79,10 +79,12 @@ def test_extract_sale_price_lakh_and_crore():
     candidate = extractor.extract(sale, intent_city="Hyderabad")
     assert candidate.price == 7_500_000.0
     assert candidate.transaction_type == "sale"
+    assert candidate.currency == "INR"
 
-    crores = _result(description="Luxury villa 4 BHK 1.2 crore in Hyderabad")
+    crores = _result(description="Luxury villa 4 BHK ₹1.2 crore in Hyderabad")
     candidate = extractor.extract(crores, intent_city="Hyderabad")
     assert candidate.price == 12_000_000.0
+    assert candidate.currency == "INR"
 def test_extract_missing_fields_stay_missing():
     result = _result(title="New project launch announcement", description="Spacious living spaces.", url="https://www.otherportal.com/new-flats")
     candidate = PropertyCandidateExtractor().extract(result)
@@ -104,11 +106,27 @@ def test_extract_structured_schema_metadata():
     }
     result = _result(schemas=[schema], description="no price in text")
     candidate = PropertyCandidateExtractor().extract(result)
-    assert candidate.price == 28000.0
+    assert candidate.price is None
     assert candidate.bedrooms == 2
     assert candidate.area == 1250.0
     assert candidate.extraction_method in ("schema", "mixed")
     assert candidate.extraction_method != "snippet"
+
+
+def test_extract_structured_schema_with_currency():
+    schema = {
+        "name": "2 BHK Apartment",
+        "price": "28000",
+        "priceCurrency": "INR",
+        "bedrooms": 2,
+        "floorSize": "1250 sqft",
+    }
+    result = _result(schemas=[schema], description="no price in text")
+    candidate = PropertyCandidateExtractor().extract(result)
+    assert candidate.price == 28000.0
+    assert candidate.currency == "INR"
+    assert candidate.bedrooms == 2
+    assert candidate.area == 1250.0
 
 
 def test_extract_malformed_schema_is_ignored():

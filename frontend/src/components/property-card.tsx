@@ -18,7 +18,7 @@ import {
   Clock
 } from "lucide-react";
 import type { Property } from "@/lib/types";
-import { formatPrice, formatArea, getBedroomLabel } from "@/lib/format";
+import { formatPrice, formatArea, getBedroomLabel, formatPricePerSqft } from "@/lib/format";
 import { savedApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useState, useCallback } from "react";
@@ -66,8 +66,9 @@ export default function PropertyCard({
   );
 
   const images = property.images || [];
-  const primaryImage = images.length > 0 ? images[0].url : (property.image_urls ? property.image_urls.split(",")[0] : null);
-  const imageCount = images.length || (property.image_urls ? property.image_urls.split(",").length : 0);
+  const rawPrimary = images.length > 0 ? images[0].url : (property.image_urls ? property.image_urls.split(",")[0] : null);
+  const primaryImage = rawPrimary && (rawPrimary.startsWith("http://") || rawPrimary.startsWith("https://")) ? rawPrimary : null;
+  const imageCount = (rawPrimary ? (images.length || (property.image_urls ? property.image_urls.split(",").length : 0)) : 0);
 
   const freshnessTime = property.last_verified_at 
     ? formatDistanceToNow(new Date(property.last_verified_at), { addSuffix: true }) 
@@ -149,21 +150,26 @@ export default function PropertyCard({
           
           <div className="mb-3">
              <p className="text-foreground font-bold text-xl tracking-tight">
-              {formatPrice(property.price)}
-              {property.listing_type === 'rent' && <span className="text-sm font-normal text-muted-foreground ml-1">/mo</span>}
+              {formatPrice(property.price, property.currency)}
+              {property.listing_type === 'rent' && property.price != null && property.currency && <span className="text-sm font-normal text-muted-foreground ml-1">/mo</span>}
             </p>
-            {property.price_per_sqft && property.listing_type === 'sale' && (
-              <p className="text-muted-foreground text-xs">
-                ₹{Math.round(property.price_per_sqft).toLocaleString("en-IN")}/sq.ft
-              </p>
-            )}
+            {(() => {
+              const psqft = formatPricePerSqft(property.price_per_sqft, property.currency);
+              if (!psqft || property.listing_type !== 'sale') return null;
+              return <p className="text-muted-foreground text-xs">{psqft}</p>;
+            })()}
           </div>
 
           <div className="flex items-center gap-1.5 text-muted-foreground mb-4">
             <MapPin className="w-3.5 h-3.5 shrink-0" />
             <span className="text-xs truncate">
-              {property.locality ? `${property.locality}, ` : ""}
-              {property.city}
+              {(() => {
+                const parts: string[] = [];
+                if (property.locality) parts.push(property.locality);
+                if (property.city) parts.push(property.city);
+                if (property.address && parts.length === 0) parts.push(property.address);
+                return parts.length > 0 ? parts.join(", ") : "Location not available";
+              })()}
             </span>
           </div>
 

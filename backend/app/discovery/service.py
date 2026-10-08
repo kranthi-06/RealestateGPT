@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
+import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -39,6 +40,18 @@ logger = logging.getLogger(__name__)
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _temp_discovery_id(url: str) -> str:
+    """Safe, deterministic, non-persisted id for non-cached discovery cards.
+
+    Uses a ``u_`` prefix + SHA-256 (first 24 hex chars) so the frontend can
+    reliably distinguish transient ids from real BSON ObjectIds (24-hex docs
+    persisted in ``web_property_discoveries`` collection). Prevents raw URLs
+    from leaking into route hrefs that would otherwise 404 on the detail API.
+    """
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()
+    return f"u_{digest[:24]}"
 
 
 def freshness_label(discovered_at: Optional[datetime], page_fetched_at: Optional[datetime]) -> str:
@@ -74,6 +87,10 @@ def doc_to_card(doc: dict[str, Any], *, saved: bool = False, rank_score: Optiona
         "description": doc.get("description"),
         "price": doc.get("price"),
         "currency": doc.get("currency"),
+        "original_price": doc.get("original_price"),
+        "original_currency": doc.get("original_currency"),
+        "normalized_price": doc.get("normalized_price"),
+        "normalized_currency": doc.get("normalized_currency"),
         "transaction_type": doc.get("transaction_type"),
         "category": doc.get("category") or "PROPERTY_SALE",
         "provenance": doc.get("provenance") or "WEB_DISCOVERY",
@@ -357,7 +374,7 @@ class WebDiscoveryService:
                 ))
             else:
                 card = candidate.model_dump()
-                card["id"] = candidate.url
+                card["id"] = _temp_discovery_id(candidate.url)
                 card["freshness_label"] = freshness_label(candidate.discovered_at, candidate.page_fetched)
                 card["verification_status"] = "web_discovery"
                 cards.append(card)
@@ -436,7 +453,7 @@ class WebDiscoveryService:
                 ))
             else:
                 card = candidate.model_dump()
-                card["id"] = candidate.url
+                card["id"] = _temp_discovery_id(candidate.url)
                 card["freshness_label"] = freshness_label(candidate.discovered_at, candidate.page_fetched)
                 card["verification_status"] = "web_discovery"
                 cards.append(card)

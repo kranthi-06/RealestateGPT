@@ -16,7 +16,7 @@ import {
   Star,
 } from "lucide-react";
 import type { WebDiscoveryCard as WebDiscoveryCardData } from "@/lib/types";
-import { formatPrice, getBedroomLabel } from "@/lib/format";
+import { formatPrice, getCurrencySymbol, getBedroomLabel } from "@/lib/format";
 import { discoveryApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useState, useCallback } from "react";
@@ -67,14 +67,21 @@ export default function WebDiscoveryCard({
   const area = discovery.area || discovery.area_sqft;
   const sourceLabel =
     discovery.source_name || discovery.source_domain || "Web source";
+  const safeImageUrl =
+    discovery.image_url && (discovery.image_url.startsWith("http://") || discovery.image_url.startsWith("https://"))
+      ? discovery.image_url
+      : null;
+  const isPersistedId =
+    typeof discovery.id === "string" &&
+    /^[0-9a-fA-F]{24}$/.test(discovery.id);
 
   return (
     <Card className="group overflow-hidden border border-amber-300/30 surface-raised hover:border-amber-400/40 hover:-translate-y-1 transition-all duration-300 h-full flex flex-col rounded-[1.25rem]">
       {/* Image / neutral no-photo state */}
       <div className="relative h-48 bg-muted overflow-hidden">
-        {discovery.image_url ? (
+        {safeImageUrl ? (
           <Image
-            src={discovery.image_url}
+            src={safeImageUrl}
             alt={discovery.title}
             width={600}
             height={400}
@@ -101,17 +108,40 @@ export default function WebDiscoveryCard({
         </div>
       </div>
       {/* Body */}
-      <Link href={`/discoveries/${discovery.id}`} className="block px-4 transition-colors">
-        <h3 className="mb-1 font-semibold text-[15px] leading-tight line-clamp-2 text-foreground group-hover:text-primary">
-          {discovery.title}
-        </h3>
-      </Link>
+      {isPersistedId ? (
+        <Link href={`/discoveries/${discovery.id}`} className="block px-4 pt-4 transition-colors">
+          <h3 className="mb-1 font-semibold text-[15px] leading-tight line-clamp-2 text-foreground group-hover:text-primary">
+            {discovery.title}
+          </h3>
+        </Link>
+      ) : (
+        <a
+          href={discovery.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block px-4 pt-4 transition-colors"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h3 className="mb-1 font-semibold text-[15px] leading-tight line-clamp-2 text-foreground group-hover:text-primary">
+            {discovery.title}
+          </h3>
+        </a>
+      )}
 
       <div className="mb-2 px-4">
         <p className="text-foreground font-bold text-xl tracking-tight">
-          {discovery.price != null && discovery.currency ? formatPrice(discovery.price, discovery.currency) : "Price not available"}
-          {discovery.price != null && discovery.transaction_type === "rent" && (
-            <span className="text-sm font-normal text-muted-foreground ml-1">/ month</span>
+          {discovery.original_price != null && discovery.original_currency ? (
+            <>
+              <span className="text-xl font-semibold">{getCurrencySymbol(discovery.original_currency)}</span>
+              <span className="text-xl font-semibold">{discovery.original_price.toLocaleString("en-IN")}</span>
+              {discovery.transaction_type === "rent" && (
+                <span className="text-sm font-normal text-muted-foreground ml-1">/ month</span>
+              )}
+            </>
+          ) : discovery.price != null && discovery.currency ? (
+            formatPrice(discovery.price, discovery.currency)
+          ) : (
+            "Price not available"
           )}
         </p>
       </div>
@@ -122,7 +152,7 @@ export default function WebDiscoveryCard({
           {discovery.location_text || (discovery.locality && discovery.city ? `${discovery.locality}, ${discovery.city}` : discovery.locality || discovery.city) || "Location not available"}
         </span>
         {area != null && area > 0 && (
-          <span className="text-xs text-muted-foreground/80">Ã‚Â· {Math.round(area).toLocaleString("en-IN")} sq.ft</span>
+          <span className="text-xs text-muted-foreground/80">· {Math.round(area).toLocaleString("en-IN")} sq.ft</span>
         )}
       </div>
 

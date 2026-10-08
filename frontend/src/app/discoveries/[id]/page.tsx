@@ -90,10 +90,20 @@ export default function DiscoveryDetailPage() {
     );
   }
 
+  const originalPriceProvided = discovery.original_price != null && !!discovery.original_currency;
+  const priceProvided = !originalPriceProvided && discovery.price != null && !!discovery.currency;
   const priceLabel =
-    discovery.price != null ? formatPrice(discovery.price) : "Price not available";
+    originalPriceProvided
+      ? formatPrice(discovery.original_price, discovery.original_currency)
+      : priceProvided
+        ? formatPrice(discovery.price, discovery.currency)
+        : "Price not available";
   const sourceLabel = discovery.source_name || discovery.source_domain || "Web source";
   const area = discovery.area || discovery.area_sqft;
+  const safeImageUrl =
+    discovery.image_url && (discovery.image_url.startsWith("http://") || discovery.image_url.startsWith("https://"))
+      ? discovery.image_url
+      : null;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6 lg:px-8">
@@ -116,9 +126,9 @@ export default function DiscoveryDetailPage() {
         {/* Left: media + key facts */}
         <Card className="overflow-hidden rounded-xl border-border/40">
           <div className="relative h-72 bg-muted">
-            {discovery.image_url ? (
+            {safeImageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={discovery.image_url} alt={discovery.title} className="object-cover w-full h-full" />
+              <img src={safeImageUrl} alt={discovery.title} className="object-cover w-full h-full" />
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground/50 gap-2">
                 <Building2 className="h-16 w-16" />
@@ -130,8 +140,8 @@ export default function DiscoveryDetailPage() {
           <div className="p-5">
             <h1 className="text-2xl font-bold tracking-tight text-foreground">{discovery.title}</h1>
             <p className="mt-2 text-2xl font-bold tracking-tight">
-              {discovery.price != null ? priceLabel : "Price not available"}
-              {discovery.price != null && discovery.transaction_type === "rent" && (
+              {priceLabel}
+              {(originalPriceProvided || priceProvided) && discovery.transaction_type === "rent" && (
                 <span className="text-sm font-normal text-muted-foreground ml-1">/ month</span>
               )}
             </p>
@@ -145,7 +155,7 @@ export default function DiscoveryDetailPage() {
               )}
               <span className="flex items-center gap-1.5">
                 <MapPin className="h-4 w-4" />
-                {discovery.location_text || discovery.city || "Location not stated"}
+                {discovery.location_text || discovery.city || "Location not available"}
               </span>
             </div>
 

@@ -30,7 +30,11 @@ class PropertyCandidate(BaseModel):
     source_name: Optional[str] = None
     description: Optional[str] = Field(default=None, max_length=4000)
     price: Optional[float] = Field(default=None, ge=0)
-    currency: Optional[str] = None
+    currency: Optional[str] = None       # rent | sale
+    original_price: Optional[float] = Field(default=None, ge=0)
+    original_currency: Optional[str] = None
+    normalized_price: Optional[float] = Field(default=None, ge=0)
+    normalized_currency: Optional[str] = None
     transaction_type: Optional[str] = None       # rent | sale
     property_type: Optional[str] = None           # apartment | villa | ...
     category: str = "PROPERTY_SALE"

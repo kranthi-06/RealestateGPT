@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense, useRef } from "react";
+import { useState, useEffect, useCallback, Suspense, useRef, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -305,6 +305,36 @@ function SearchPageContent() {
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
 
   const locationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const filtersRef = useRef(filters);
+  const coordsRef = useRef(userCoords);
+  const includeWebRef = useRef(includeWeb);
+  const fetchAbortRef = useRef<AbortController | null>(null);
+  const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastClientErrorRef = useRef<number>(0);
+
+  useEffect(() => { filtersRef.current = filters; }, [filters]);
+  useEffect(() => { coordsRef.current = userCoords; }, [userCoords]);
+  useEffect(() => { includeWebRef.current = includeWeb; }, [includeWeb]);
+
+  const requestSignature = useMemo(
+    () =>
+      JSON.stringify({
+        q: filters.q,
+        city: filters.city,
+        bedrooms: filters.bedrooms,
+        bathrooms: filters.bathrooms,
+        min_price: filters.min_price,
+        max_price: filters.max_price,
+        property_type: filters.property_type,
+        listing_type: filters.listing_type,
+        furnishing: filters.furnishing,
+      }) +
+      "|" +
+      (userCoords ? `${userCoords.lat.toFixed(6)}_${userCoords.lng.toFixed(6)}` : "none") +
+      "|" +
+      String(includeWeb),
+    [filters, userCoords, includeWeb]
+  );
 
   const requestLocation = () => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
@@ -340,37 +370,54 @@ function SearchPageContent() {
     setFilters((current) => ({ ...current, ...patch }));
   }, []);
 
-  const fetchProperties = useCallback(async () => {
+  const fetchProperties = useCallback(async (opts?: { isUserInitiated?: boolean }) => {
+    const isUserInitiated = opts?.isUserInitiated ?? false;
+    const now = Date.now();
+    if (!isUserInitiated && lastClientErrorRef.current > 0 && now - lastClientErrorRef.current < 5000) {
+      return;
+    }
+    if (fetchAbortRef.current) {
+      fetchAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
     setLoading(true);
     setSearchError(null);
     try {
-      const params: SearchFilters = { ...filters };
-      if (userCoords) {
-        params.latitude = userCoords.lat;
-        params.longitude = userCoords.lng;
+      const currentFilters = filtersRef.current;
+      const currentCoords = coordsRef.current;
+      const currentIncludeWeb = includeWebRef.current;
+      const params: SearchFilters = { ...currentFilters };
+      if (currentCoords) {
+        params.latitude = currentCoords.lat;
+        params.longitude = currentCoords.lng;
         params.radius_km = 5.0;
       }
-      // Unified search: verified inventory + (optional) bounded web discovery.
-      // The backend requires query min_length=1: never POST an empty string.
-      // Near-me without typed text falls back to location-derived text.
-      const unifiedQuery = (filters.q?.trim() || (userCoords ? `properties near ${userCoords.lat.toFixed(4)}, ${userCoords.lng.toFixed(4)}` : "")).trim();
+      const unifiedQuery = (currentFilters.q?.trim() || (currentCoords ? `properties near ${currentCoords.lat.toFixed(4)}, ${currentCoords.lng.toFixed(4)}` : "")).trim();
       if (!unifiedQuery) { setSectionsData(null); setUnifiedData(null); setSearchError("Type a search or allow location for near-me results."); setLoading(false); return; }
       const data = await searchApi.unified({
         query: unifiedQuery,
-        location: userCoords
-          ? { latitude: userCoords.lat, longitude: userCoords.lng, radius_km: 5.0 }
+        location: currentCoords
+          ? { latitude: currentCoords.lat, longitude: currentCoords.lng, radius_km: 5.0 }
           : undefined,
         filters: params,
-        include_web: includeWeb,
+        include_web: currentIncludeWeb,
         limit: 12,
-      });
+      }, controller.signal);
       setSectionsData({ sections: data.sections });
       setUnifiedData(data);
       setIntent(data.parsed || null);
+      lastClientErrorRef.current = 0;
     } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
       setSectionsData(null);
       setUnifiedData(null);
       if (err instanceof ApiError) {
+        if (err.status >= 400 && err.status < 500) {
+          lastClientErrorRef.current = Date.now();
+        }
         if (err.status === 401) {
           setSearchError("Please sign in again before searching.");
         } else if (err.status === 422) {
@@ -384,13 +431,23 @@ function SearchPageContent() {
         setSearchError("We couldn't load property results. Check your connection and try again.");
       }
     } finally {
-      setLoading(false);
+      if (fetchAbortRef.current === controller) {
+        fetchAbortRef.current = null;
+      }
+      if (!controller.signal.aborted) {
+        setLoading(false);
+      }
     }
-  }, [filters, userCoords, includeWeb]);
+  }, []);
+
   useEffect(() => {
-    const timer: ReturnType<typeof setTimeout> = setTimeout(() => fetchProperties(), 0);
-    return () => clearTimeout(timer);
-  }, [fetchProperties]);
+    if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
+    fetchDebounceRef.current = setTimeout(() => fetchProperties(), 300);
+    return () => {
+      if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
+      if (fetchAbortRef.current) fetchAbortRef.current.abort();
+    };
+  }, [requestSignature, fetchProperties]);
 
   const toggleCompare = useCallback((id: number) => {
     setCompareIds((current) => {
@@ -406,7 +463,7 @@ function SearchPageContent() {
     if (filters.q?.trim()) {
       router.replace(`/search?q=${encodeURIComponent(filters.q.trim())}`, { scroll: false });
     }
-    fetchProperties();
+    fetchProperties({ isUserInitiated: true });
   };
 
   const clearSearch = () => {
@@ -480,7 +537,7 @@ function SearchPageContent() {
               onClear={clearLocation}
             />
             {userCoords && locState === "granted" && (
-              <Button size="sm" variant="outline" className="rounded-lg" onClick={fetchProperties}>
+              <Button size="sm" variant="outline" className="rounded-lg" onClick={() => fetchProperties({ isUserInitiated: true })}>
                 <LocateFixed className="mr-2 h-3.5 w-3.5" />
                 Refresh near me
               </Button>
@@ -504,7 +561,7 @@ function SearchPageContent() {
                 className="h-8 text-xs text-muted-foreground"
                 onClick={() => {
                   setFilters(({ q }) => ({ q }));
-                  setTimeout(fetchProperties, 0);
+                  setTimeout(() => fetchProperties({ isUserInitiated: true }), 0);
                 }}
               >
                 Reset filters
@@ -512,7 +569,7 @@ function SearchPageContent() {
             </div>
             <FilterControls filters={filters} onChange={patchFilters} />
             <div className="mt-4 flex justify-end">
-              <Button size="sm" className="rounded-lg" onClick={fetchProperties}>
+              <Button size="sm" className="rounded-lg" onClick={() => fetchProperties({ isUserInitiated: true })}>
                 Apply filters
               </Button>
             </div>
@@ -581,7 +638,7 @@ function SearchPageContent() {
             <p className="mt-2 max-w-sm text-muted-foreground">
               {searchError}
             </p>
-            <Button variant="outline" className="mt-6 rounded-lg" onClick={fetchProperties}>
+            <Button variant="outline" className="mt-6 rounded-lg" onClick={() => fetchProperties({ isUserInitiated: true })}>
               Retry search
             </Button>
           </div>

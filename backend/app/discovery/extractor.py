@@ -63,6 +63,14 @@ class PropertyCandidateExtractor:
     _SCHEMA_BEDROOM_KEYS = ("bedrooms", "numberOfBedrooms", "numberOfRooms")
     _SCHEMA_AREA_KEYS = ("floorSize", "area", "livingArea", "areaSqft")
 
+    _MIN_REALISTIC_PRICE = {
+        "INR": 1000,
+        "USD": 100,
+        "EUR": 100,
+        "GBP": 90,
+        "AED": 500,
+    }
+
     def extract(self, result: WebSearchResult, intent_city: Optional[str] = None, category: str = "PROPERTY_SALE") -> Optional[PropertyCandidate]:
         """Extract a candidate from one result. Returns None when unusable."""
         text = self._text(result)
@@ -130,10 +138,13 @@ class PropertyCandidateExtractor:
         """Return (price, currency, transaction_type, method)."""
         schema_value, schema_currency = self._schema_price(result)
         if schema_value is not None:
-            currency = schema_currency or None
+            currency = (schema_currency or None) if schema_currency != "" else None
             if currency is None:
                 return None, None, None, "schema"
-            return self._coerce_price(schema_value), currency, None, "schema"
+            coerced = self._coerce_price(schema_value)
+            if coerced is not None and not self._is_realistic_price(coerced, currency):
+                return None, None, None, "schema"
+            return coerced, currency, None, "schema"
 
         def _resolve_currency(symbol: Optional[str]) -> Optional[str]:
             if not symbol:
@@ -150,13 +161,19 @@ class PropertyCandidateExtractor:
         if rent_match:
             currency = _resolve_currency(rent_match.group(1))
             if not currency: return None, None, None, "snippet"
-            return self._coerce_price(rent_match.group(2)), currency, "rent", "snippet"
+            amount = self._coerce_price(rent_match.group(2))
+            if amount is None or not self._is_realistic_price(amount, currency, nightly=False):
+                return None, None, None, "snippet"
+            return amount, currency, "rent", "snippet"
 
         night_match = self._NIGHT_RE.search(text)
         if night_match:
             currency = _resolve_currency(night_match.group(1))
             if not currency: return None, None, None, "snippet"
-            return self._coerce_price(night_match.group(2)), currency, "rent", "snippet"
+            amount = self._coerce_price(night_match.group(2))
+            if amount is None or not self._is_realistic_price(amount, currency, nightly=True):
+                return None, None, None, "snippet"
+            return amount, currency, "rent", "snippet"
 
         unit_match = self._LARGE_UNIT_RE.search(text)
         if unit_match:
@@ -165,15 +182,40 @@ class PropertyCandidateExtractor:
             amount = self._coerce_price(unit_match.group(2))
             multiplier = _unit_multiplier((unit_match.group(3) or "").lower())
             if multiplier and amount is not None:
-                return amount * multiplier, currency, "sale", "snippet"
+                scaled = amount * multiplier
+                if self._is_realistic_price(scaled, currency):
+                    return scaled, currency, "sale", "snippet"
 
-        if re.search(r"\b(price|rent|rental|rate)\b", text, re.IGNORECASE):
-            generic = re.search(r"([$€£]|usd|eur|gbp|inr|₹|rs\.?|rupees|aed)?\s*([\d][\d,]+)\b", text, re.IGNORECASE)
+        if re.search(r"\b(price|rent|rental|rate|asking)\b", text, re.IGNORECASE):
+            generic = re.search(
+                r"([$€£]|usd|eur|gbp|inr|₹|rs\.?|rupees|aed)\s{0,2}([\d][\d,]*(?:\.\d+)?)\b(?!\s{0,2}(?:sq\.?|sqft|square|feet|meter|m2|acres?|beds?|br|bhk|baths?|ba|bed|bath|phone|tel|call|fax|id|#|rank|no\.?|number))",
+                text,
+                re.IGNORECASE,
+            )
             if generic:
                 currency = _resolve_currency(generic.group(1))
                 if not currency: return None, None, None, "snippet"
-                return self._coerce_price(generic.group(2)), currency, None, "snippet"
+                amount = self._coerce_price(generic.group(2))
+                if amount is None or not self._is_realistic_price(amount, currency):
+                    return None, None, None, "snippet"
+                return amount, currency, None, "snippet"
         return None, None, None, "snippet"
+
+    def _is_realistic_price(self, price: float, currency: str, *, nightly: bool = False) -> bool:
+        if not isinstance(price, (int, float)):
+            return False
+        price = float(price)
+        if price <= 0 or not price == price:
+            return False
+        if nightly:
+            return price >= 5
+        minimum = self._MIN_REALISTIC_PRICE.get(currency.upper() if currency else "")
+        if minimum is None:
+            # Unknown currency: the price is unreliable. Use the INR baseline so
+            # that a guessed/USD-only value (e.g. 178 -> "178 INR") is rejected
+            # and the UI shows "Price not available" instead of a wrong figure.
+            return price >= 1000
+        return price >= minimum
 
 
     def _schema_price(self, result: WebSearchResult) -> tuple[Optional[float], Optional[str]]:

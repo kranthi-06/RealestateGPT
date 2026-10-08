@@ -35,7 +35,6 @@ import type {
 import { resolveApiBase } from "./api-base";
 
 const API_BASE = resolveApiBase();
-const API_V1 = `${API_BASE}/api/v1`;
 
 export class ApiError extends Error {
   status: number;
@@ -64,7 +63,7 @@ async function request<T>(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_V1}${endpoint}`, {
+  const res = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers,
   });
@@ -242,8 +241,8 @@ export const searchApi = {
     listing_type?: string;
   }) => request<PropertyListResponse>("/search/near-me", { method: "POST", body: JSON.stringify(data) }),
 
-  unified: (data: UnifiedSearchRequest) =>
-    request<UnifiedSearchResponse>("/search/autonomous", { method: "POST", body: JSON.stringify(data) }),
+  unified: (data: UnifiedSearchRequest, signal?: AbortSignal) =>
+    request<UnifiedSearchResponse>("/search/autonomous", { method: "POST", body: JSON.stringify(data), signal }),
 };
 
 export const locationsApi = {

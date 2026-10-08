@@ -320,6 +320,10 @@ export interface WebDiscoveryCard {
   description?: string | null;
   price?: number | null;
   currency?: string;
+  original_price?: number | null;
+  original_currency?: string | null;
+  normalized_price?: number | null;
+  normalized_currency?: string | null;
   transaction_type?: string | null;
   category?: string;
   provenance?: string;
