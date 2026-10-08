@@ -29,7 +29,7 @@ export default function OpenStreetMapCanvas({ markers }: { markers: MapMarker[] 
     <div className="h-64 overflow-hidden rounded-xl border border-border/70">
       <MapContainer center={center} zoom={validMarkers.length ? 13 : 5} zoomControl={false} className="h-full w-full" scrollWheelZoom>
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | &copy; <a href="https://www.geoapify.com">Geoapify</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <ZoomControl position="bottomright" />

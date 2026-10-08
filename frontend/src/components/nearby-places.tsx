@@ -2,20 +2,24 @@
 
 import { useEffect, useState } from "react";
 import {
-  Bike, Car, HeartPulse, Loader2, MapPinned, ShoppingBasket, TrainFront,
-  School, Trees, BriefcaseBusiness, Footprints,
+  Bike, Car, HeartPulse, Loader2, MapPinned, ShoppingBasket,
+  School, Trees, Footprints, Building2, Utensils,
+  Store, Pill,
 } from "lucide-react";
 import { locationsApi } from "@/lib/api";
 import type { LiveNearbyResponse, LivePlace, MapProviderStatus } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 
 const categories = [
-  { key: "metro", label: "Metro", Icon: TrainFront },
   { key: "hospital", label: "Hospitals", Icon: HeartPulse },
   { key: "school", label: "Schools", Icon: School },
   { key: "supermarket", label: "Groceries", Icon: ShoppingBasket },
-  { key: "it_park", label: "IT parks", Icon: BriefcaseBusiness },
+  { key: "mall", label: "Shopping Malls", Icon: Store },
   { key: "park", label: "Parks", Icon: Trees },
+  { key: "hotel", label: "Hotels", Icon: Building2 },
+  { key: "restaurant", label: "Restaurants", Icon: Utensils },
+  { key: "shopping", label: "Shopping", Icon: Store },
+  { key: "pharmacy", label: "Pharmacies", Icon: Pill },
 ];
 const travelModes = [
   { key: "DRIVE", label: "Drive", Icon: Car },
@@ -103,7 +107,7 @@ export function NearbyPlaces({ propertyId, onPlacesChange }: { propertyId: numbe
           {selected.places.length === 0 && <p className="text-sm text-muted-foreground">No matching places were returned within this radius.</p>}
         </div>
       )}
-      {selected && <p className="mt-4 text-xs text-muted-foreground">Places from OpenStreetMap via Overpass. Distance and travel time are calculated by OSRM; no live traffic data is included.</p>}
+      {selected && <p className="mt-4 text-xs text-muted-foreground">Places from Geoapify / OpenStreetMap. Distance and travel time are calculated by Geoapify Routing; no live traffic data is included.</p>}
     </div>
   );
 }

@@ -408,7 +408,7 @@ export interface AssistantResponse {
 
 export interface MapProviderStatus { configured: boolean; provider: string; message: string; }
 export interface LivePlace {
-  provider: "google" | "openstreetmap";
+  provider: "geoapify" | "google" | "openstreetmap";
   place_id?: string;
   name: string;
   address?: string;
@@ -426,6 +426,7 @@ export interface LivePlace {
   website_url?: string;
   phone_number?: string;
   opening_hours?: string[];
+  categories?: string[];
 }
 export interface LiveNearbyResponse { property_id: number; category: string; radius_km: number; source: string; places: LivePlace[]; }
 

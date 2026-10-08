@@ -33,6 +33,9 @@ class LocationProviderInvalidRequest(LocationProviderUnavailable):
 def get_location_provider() -> LocationProvider:
     """Create only the provider selected by LOCATION_PROVIDER."""
     provider = settings.LOCATION_PROVIDER.strip().lower()
+    if provider == "geoapify":
+        from app.providers.geoapify.provider import GeoapifyLocationProvider
+        return GeoapifyLocationProvider()
     if provider == "osm":
         from app.providers.openstreetmap.provider import OpenStreetMapLocationProvider
         return OpenStreetMapLocationProvider()

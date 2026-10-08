@@ -112,9 +112,14 @@ class Settings(BaseSettings):
     S3_SECRET_KEY: Optional[str] = None
 
     # Location intelligence
-    #   osm    = OpenStreetMap (Nominatim + Overpass + OSRM) - default, no billing
-    #   google = Google Maps Platform (requires Google Cloud billing)
-    LOCATION_PROVIDER: str = "osm"
+    #   geoapify = Geoapify API (geocoding, places, routing) - default
+    #   osm      = OpenStreetMap (Nominatim + Overpass + OSRM) - fallback, no billing
+    #   google   = Google Maps Platform (requires Google Cloud billing)
+    LOCATION_PROVIDER: str = "geoapify"
+    GEOAPIFY_API_KEY: Optional[str] = None
+    GEOAPIFY_BASE_URL: str = "https://api.geoapify.com/v1"
+    GEOAPIFY_TIMEOUT_SECONDS: int = 15
+    # OSM fallback settings (used when LOCATION_PROVIDER=osm)
     NOMINATIM_BASE_URL: str = "https://nominatim.openstreetmap.org"
     OVERPASS_URL: str = "https://overpass-api.de/api/interpreter"
     OSRM_BASE_URL: str = "https://router.project-osrm.org"
@@ -351,14 +356,31 @@ class Settings(BaseSettings):
                 problems.append("AI_PROVIDER=groq and GROQ_API_KEY are required outside development.")
             if not self.CRON_SECRET or len(self.CRON_SECRET) < 16:
                 problems.append("CRON_SECRET must be a long random value outside development.")
-            if not (self.LOCATION_PROVIDER.strip().lower() in {"osm", "google"}):
-                problems.append("LOCATION_PROVIDER must be a configured provider.")
+            provider = self.LOCATION_PROVIDER.strip().lower()
+            if provider not in {"geoapify", "osm", "google"}:
+                problems.append("LOCATION_PROVIDER must be a configured provider (geoapify, osm, or google).")
+            elif not self._location_provider_configured(provider, self):
+                if provider == "geoapify":
+                    problems.append("LOCATION_PROVIDER=geoapify requires GEOAPIFY_API_KEY.")
+                elif provider == "google":
+                    problems.append("LOCATION_PROVIDER=google requires GOOGLE_MAPS_SERVER_KEY.")
             # Web discovery misconfiguration is NOT fatal: it is an optional
             # integration that must degrade to an honest WEB_SEARCH_NOT_CONFIGURED
             # state (see configuration_warnings). Failing startup here would take
             # down every endpoint — auth, health, inventory — because one optional
             # provider is unset.
         return problems
+
+    @staticmethod
+    def _location_provider_configured(provider: str, settings_obj: "Settings") -> bool:
+        provider = provider.strip().lower()
+        if provider == "geoapify":
+            return bool(settings_obj.GEOAPIFY_API_KEY)
+        if provider == "osm":
+            return True  # OSM uses public services
+        if provider == "google":
+            return bool(settings_obj.GOOGLE_MAPS_SERVER_KEY)
+        return False
 
     model_config = {
         "env_file": ".env",

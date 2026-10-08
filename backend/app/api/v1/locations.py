@@ -57,6 +57,11 @@ def _to_live_place(payload: dict, request: Request) -> LivePlace:
 @router.get("/status", response_model=MapProviderStatus)
 async def location_status():
     provider = settings.LOCATION_PROVIDER.strip().lower()
+    if provider == "geoapify" and settings.GEOAPIFY_API_KEY:
+        return MapProviderStatus(
+            configured=True, provider="geoapify",
+            message="Geoapify location services are configured.",
+        )
     if provider == "osm":
         return MapProviderStatus(
             configured=True, provider="osm",
@@ -103,7 +108,7 @@ async def nearby(
                 except LocationProviderUnavailable as route_error:
                     # A POI remains valid; do not invent a travel time.
                     logger.info("Route enrichment unavailable for %s: %s", place.get("place_id"), route_error)
-        source = "OpenStreetMap / Overpass" if provider.name == "osm" else "Google Places API (New)"
+        source = "Geoapify / OpenStreetMap" if provider.name == "geoapify" else ("OpenStreetMap / Overpass" if provider.name == "osm" else "Google Places API (New)")
         return LiveNearbyResponse(
             property_id=property_id, category=category, radius_km=radius_km,
             source=source, places=[_to_live_place(place, request) for place in places],

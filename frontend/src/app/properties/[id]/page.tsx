@@ -349,7 +349,7 @@ export default function PropertyDetailPage() {
               <div className="mb-5 flex justify-between items-end">
                 <div>
                   <h2 className="text-xl font-bold tracking-tight">Location Intelligence</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">Explore actual POIs and distances using OpenStreetMap.</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Explore actual POIs and distances using Geoapify / OpenStreetMap.</p>
                 </div>
               </div>
               <div className="rounded-2xl overflow-hidden border shadow-sm">
