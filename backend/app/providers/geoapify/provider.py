@@ -152,6 +152,60 @@ class GeoapifyLocationProvider:
         _cache.set(cache_key, normalized, 21_600)  # 6 hours
         return normalized
 
+    def reverse_geocode(self, latitude: float, longitude: float) -> dict[str, Any]:
+        """Reverse-geocode coordinates into a normalized place description.
+
+        Used by Near Me / Explore to turn browser coordinates into a real
+        city/area label before running location-anchored web searches.
+        """
+        if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+            raise LocationProviderInvalidRequest("Coordinates are out of range.")
+        cache_key = f"reverse:{latitude:.5f}:{longitude:.5f}"
+        cached = _cache.get(cache_key)
+        if cached is not None:
+            return cached
+        try:
+            with self._client() as client:
+                response = client.get(
+                    f"{settings.GEOAPIFY_BASE_URL.rstrip('/')}/geocode/reverse",
+                    params={
+                        "lat": latitude,
+                        "lon": longitude,
+                        "format": "json",
+                        "apiKey": self._api_key(),
+                    },
+                )
+                self._raise_for_status(response, "Geoapify Reverse Geocoding")
+            data = response.json()
+        except httpx.HTTPError as exc:
+            raise LocationProviderUnavailable("Geoapify Reverse Geocoding is temporarily unavailable.") from exc
+        rows = data.get("results") or []
+        if not rows:
+            raise LocationProviderInvalidRequest("Geoapify could not reverse-geocode that location.")
+        row = rows[0]
+        try:
+            parts: list[str] = []
+            for key in ("name", "district", "city", "county", "state", "country"):
+                value = row.get(key)
+                if value and value not in parts:
+                    parts.append(str(value))
+            normalized = {
+                "formatted_address": ", ".join(parts) or str(row.get("formatted") or ""),
+                "latitude": float(row.get("lat", latitude)),
+                "longitude": float(row.get("lon", longitude)),
+                "place_id": str(row.get("place_id") or row.get("osm_id") or ""),
+                "provider": "geoapify",
+                "city": row.get("city") or row.get("county") or row.get("town") or row.get("village"),
+                "state": row.get("state"),
+                "country": row.get("country"),
+            }
+        except (TypeError, ValueError) as exc:
+            raise LocationProviderUnavailable("Geoapify returned an invalid reverse-geocode response.") from exc
+        if not normalized["formatted_address"]:
+            normalized["formatted_address"] = f"{latitude:.5f}, {longitude:.5f}"
+        _cache.set(cache_key, normalized, 21_600)
+        return normalized
+
     def nearby(self, latitude: float, longitude: float, category: str, radius_km: float = 3.0) -> list[dict[str, Any]]:
         categories = _CATEGORY_FILTERS.get(category)
         if not categories:
@@ -184,6 +238,71 @@ class GeoapifyLocationProvider:
         places.sort(key=lambda item: item["distance_km"])
         normalized = places[:8]
         _cache.set(cache_key, normalized, 300)  # 5 minutes
+        return normalized
+
+    def reverse_geocode(self, latitude: float, longitude: float) -> dict[str, Any]:
+        """Resolve a lat/lon to an address string and city/state/country.
+
+        Geoapify's reverse-geocoding endpoint returns an array of ``results``;
+        the top row is the most specific match. The output shape follows the
+        ``LocationProvider`` contract used by the AI orchestrator so it can
+        pass coordinates into the web-search tool (Part 33).
+        """
+        if not settings.GEOAPIFY_API_KEY:
+            raise LocationProviderUnavailable("Geoapify API key is not configured.")
+
+        cache_key = f"reverse_geocode:{latitude:.6f}:{longitude:.6f}"
+        cached = _cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        try:
+            with self._client() as client:
+                response = client.get(
+                    "https://api.geoapify.com/v1/geocode/reverse",
+                    params={
+                        "lat": latitude,
+                        "lon": longitude,
+                        "format": "json",
+                        "apiKey": self._api_key(),
+                    },
+                )
+            self._raise_for_status(response, "Geoapify Reverse Geocoding")
+            data = response.json()
+        except httpx.HTTPError as exc:
+            raise LocationProviderUnavailable("Geoapify Reverse Geocoding is temporarily unavailable.") from exc
+
+        rows = data.get("results") or []
+        if not rows:
+            raise LocationProviderInvalidRequest("Geoapify could not reverse-geocode that location.")
+
+        row = rows[0]
+        try:
+            parts: list[str] = []
+            for key in ("name", "district", "city", "county", "state", "country"):
+                value = row.get(key)
+                if value and value not in parts:
+                    parts.append(str(value))
+
+            normalized = {
+                "formatted_address": ", ".join(parts) or str(row.get("formatted") or ""),
+                "latitude": float(row.get("lat", latitude)),
+                "longitude": float(row.get("lon", longitude)),
+                "place_id": str(row.get("place_id") or row.get("osm_id") or ""),
+                "provider": "geoapify",
+                "city": row.get("city") or row.get("county") or row.get("town") or row.get("village"),
+                "state": row.get("state"),
+                "country": row.get("country"),
+                "suburb": row.get("suburb") or row.get("neighborhood"),
+                "county": row.get("county"),
+            }
+        except (TypeError, ValueError) as exc:
+            raise LocationProviderUnavailable("Geoapify returned an invalid reverse-geocode response.") from exc
+
+        if not normalized["formatted_address"]:
+            normalized["formatted_address"] = f"{latitude:.5f}, {longitude:.5f}"
+
+        _cache.set(cache_key, normalized, 21_600)  # 6 hours
         return normalized
 
     def route(self, origin: tuple[float, float], destination: tuple[float, float], travel_mode: str = "DRIVE") -> dict[str, Any]:

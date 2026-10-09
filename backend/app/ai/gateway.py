@@ -13,8 +13,18 @@ logger = logging.getLogger(__name__)
 
 
 class AIError(RuntimeError):
+    """Provider-level error that preserves the underlying cause without leaking internals."""
+
     code = "AI_PROVIDER_ERROR"
     status_code = 502
+
+    def __init__(self, message: str, *, cause: Exception | None = None) -> None:
+        super().__init__(message)
+        self._cause = cause
+
+    @property
+    def message(self) -> str:
+        return str(self)
 
 
 class AIConfigurationError(AIError):
@@ -93,7 +103,7 @@ class GroqProvider:
             except httpx.TimeoutException as exc:
                 raise AITimeoutError("Groq request timed out") from exc
             except httpx.HTTPError as exc:
-                raise AIError("Groq request failed") from exc
+                raise AIError(f"Groq request failed: {exc}", cause=exc) from exc
             if response.status_code in (401, 403):
                 raise AIAuthenticationError("Groq authentication failed")
             if response.status_code == 429:
@@ -104,12 +114,25 @@ class GroqProvider:
                     continue
                 raise AIRateLimitError("Groq is rate limiting requests")
             if response.status_code >= 400:
-                logger.error("groq_http_error status=%s detail=%s", response.status_code, response.text[:500])
-                raise AIError(f"Groq returned HTTP {response.status_code}")
+                detail = response.text[:500]
+                logger.error("groq_http_error status=%s detail=%s", response.status_code, detail)
+                raise AIError(f"Groq returned HTTP {response.status_code}", cause=HTTPError(f"HTTP {response.status_code}: {detail}"))
             break
         try:
             body = response.json()
             message = body["choices"][0]["message"]
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise AIValidationError("Groq returned an invalid completion") from exc
+        if response.is_json:
+            try:
+                body = response.json()
+                if body.get("error"):
+                    err = body["error"]
+                    err_type = err.get("type", "unknown") if isinstance(err, dict) else "unknown"
+                    err_msg = err.get("message", response.text[:500]) if isinstance(err, dict) else response.text[:500]
+                    if err_type in {"rate_limit_error", "too_many_requests"}:
+                        raise AIRateLimitError(err_msg, retry_after=1.0)
+                    raise AIError(err_msg, cause=ValueError(err_msg))
+            except (ValueError, TypeError):
+                pass
         return {"message": message, "latency_ms": round((time.perf_counter() - started) * 1000, 1), "model": settings.GROQ_MODEL}

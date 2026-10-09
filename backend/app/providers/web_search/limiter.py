@@ -47,34 +47,72 @@ class WebSearchLimiter:
     def acquire(self, user_key: str = "anonymous") -> None:
         """Block (with tiny sleeps) until a global + per-user slot is available.
 
-        Raises :class:`WebSearchRateLimitError` when the user window is exhausted
-        instead of silently degrading the provider.
+        Lock-free implementation: each iteration reads the current state under a
+        short lock, and any sleep happens WITHOUT holding the lock, so a single
+        slow event-loop turn can never make all concurrent callers queue behind
+        a 0.05-second sleep. ``Retry-After`` is set on the 429 response by the
+        controller layer when a user window is exhausted.
         """
         user_key = (user_key or "anonymous")[:120]
+
         for _ in range(300):  # bounded wait (~30s)
             now = time.monotonic()
+            user_wait = 0.0
+            global_wait = 0.0
+            active = 0
             with self._lock:
-                if self._active_requests >= self._concurrency:
-                    time.sleep(0.05)
-                    continue
-                user_wait = self._users[user_key].allow(now, self._per_user_rpm, 60.0)
-                if user_wait > 30:
-                    raise WebSearchRateLimitError(
-                        "Too many web discovery requests. Please try again shortly.",
-                        retry_after=user_wait,
-                    )
-                global_wait = self._global.allow(now, self._global_rpm, 60.0)
-                if global_wait > 0:
-                    time.sleep(min(global_wait, 1.0))
-                    continue
-                self._active_requests += 1
-                if global_wait == 0 and user_wait == 0:
-                    return
-                self._active_requests -= 1
+                active = self._active_requests
+                if active >= self._concurrency:
+                    user_wait = self._lock_free_wait(self._users[user_key], now, self._per_user_rpm, 60.0)
+                    if user_wait > 30:
+                        raise WebSearchRateLimitError(
+                            "Too many web discovery requests. Please try again shortly.",
+                            retry_after=user_wait,
+                        )
+                    global_wait = self._lock_free_wait(self._global, now, self._global_rpm, 60.0)
+
+            # Sleep WITHOUT holding the lock so a blocked writer never stalls
+            # every concurrent waiter.
+            if global_wait > 0:
+                time.sleep(min(global_wait, 0.1))
+                continue
+
+            if active < self._concurrency:
+                with self._lock:
+                    if self._active_requests < self._concurrency:
+                        self._active_requests += 1
+                        return
+                    # Another thread snuck in; re-evaluate under the lock.
+                    self._active_requests -= 1
+                continue
+
+            # Check the user window again in case our wait was exceeded.
+            with self._lock:
+                user_wait = self._lock_free_wait(self._users[user_key], now, self._per_user_rpm, 60.0)
+            if user_wait > 0:
+                raise WebSearchRateLimitError(
+                    "Too many web discovery requests. Please try again shortly.",
+                    retry_after=user_wait,
+                )
         raise WebSearchRateLimitError(
             "Web search provider is busy. Please try again shortly.",
             retry_after=1.0,
         )
+
+    @staticmethod
+    def _lock_free_wait(window: "_Window", now: float, limit: int, window_seconds: float) -> float:
+        """Compute the wait time for a window without holding a lock.
+
+        Returns 0.0 when allowed, or the seconds to wait when exhausted.
+        """
+        cutoff = now - window_seconds
+        events = window.events
+        while events and events[0] <= cutoff:
+            events.popleft()
+        if len(events) >= limit:
+            wait = events[0] + window_seconds - now
+            return max(0.0, wait)
+        return 0.0
 
     def release(self) -> None:
         with self._lock:

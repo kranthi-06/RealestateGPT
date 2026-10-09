@@ -48,6 +48,78 @@ class GoogleMapsProvider:
             raise LocationProviderUnavailable("Google Maps integration is not configured.")
         object.__setattr__(self, "key", settings.GOOGLE_MAPS_SERVER_KEY)
 
+    def reverse_geocode(self, latitude: float, longitude: float) -> dict[str, Any]:
+        """Resolve a lat/lon to an address string and place details.
+
+        Google's reverse geocoding endpoint returns a list of results; the
+        first result is the most specific match. The output shape follows the
+        ``LocationProvider`` contract so it can be consumed by the AI
+        orchestrator for web-search context (Part 33).
+        """
+        if not settings.GOOGLE_MAPS_SERVER_KEY:
+            raise LocationProviderUnavailable("Google Maps server key is not configured.")
+
+        cache_key = f"reverse_geocode_google:{latitude:.6f}:{longitude:.6f}"
+        cached = _cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        try:
+            with self._client() as client:
+                response = client.get(
+                    f"{settings.GOOGLE_MAPS_BASE_URL.rstrip('/')}/maps/api/geocode/json",
+                    params={
+                        "latlng": f"{latitude},{longitude}",
+                        "key": settings.GOOGLE_MAPS_SERVER_KEY,
+                        "result_type": "locality|administrative|sublocality|street_address",
+                    },
+                )
+            self._raise_for_status(response, "Google Geocoding")
+            data = response.json()
+        except httpx.HTTPError as exc:
+            raise LocationProviderUnavailable("Google Geocoding is temporarily unavailable.") from exc
+
+        results = data.get("results") or []
+        if not results:
+            raise LocationProviderInvalidRequest("Google could not reverse-geocode that location.")
+
+        first = results[0]
+        address_components = first.get("address_components") or []
+        parts: list[str] = []
+        component_types: set[str] = set()
+        for comp in address_components:
+            for ctype in (comp.get("types") or []):
+                label = ctype.replace("_", " ").title()
+                if label not in component_types:
+                    component_types.add(label)
+                    if label not in parts:
+                        parts.append(label)
+
+        normalized = {
+            "formatted_address": first.get("formatted_address") or str(first.get("geometry", {}).get("location", {}) or ""),
+            "latitude": float(first.get("geometry", {}).get("location", {}).get("lat", latitude)),
+            "longitude": float(first.get("geometry", {}).get("location", {}).get("lng", longitude)),
+            "place_id": str(first.get("place_id") or ""),
+            "provider": "google",
+            "city": next((p for p in parts if "City" in p or "Town" in p or "Village" in p), None),
+            "state": next((p for p in parts if "state" in p.lower() or "Region" in p or "Province" in p), None),
+            "country": next((p for p in parts if "Country" in p or "Nation" in p), None),
+            "suburb": next((p for p in parts if "Sublocality" in p or "Neighborhood" in p or "Quarter" in p), None),
+            "county": next((p for p in parts if "County" in p), None),
+            "types": list(first.get("types") or [])[:4],
+        }
+
+        # fall back to the parsed address components
+        if not normalized["city"] and address_components:
+            normalized["city"] = next((a.get("long_name") for a in address_components if "locality" in (a.get("types") or [])), None)
+            normalized["state"] = next((a.get("long_name") for a in address_components if "administrative_area_level_1" in (a.get("types") or [])), None)
+            normalized["country"] = next((a.get("long_name") for a in address_components if "country" in (a.get("types") or [])), None)
+
+        if not normalized["formatted_address"]:
+            normalized["formatted_address"] = ", ".join([p for p in (normalized["city"], normalized["state"], normalized["country"]) if p] or [f"{latitude:.5f}, {longitude:.5f}"])
+
+        _cache.set(cache_key, normalized, 21_600)  # 6 hours
+        return normalized
     def nearby(self, latitude: float, longitude: float, category: str, radius_km: float = 3.0) -> list[dict[str, Any]]:
         included_types = PLACE_TYPES.get(category)
         if not included_types:
