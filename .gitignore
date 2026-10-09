@@ -71,3 +71,10 @@ infra/searxng/settings.production.local.yml
 .env*
 # ...but the secret-free environment templates belong in Git.
 !.env.production.example
+
+# IDE / editor configs
+.trae/
+
+# Temp files
+explore-head.tsx
+tmp_script/
