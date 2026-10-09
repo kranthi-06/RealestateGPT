@@ -34,9 +34,6 @@ import {
   Sparkles,
   Globe2,
   X,
-  ArrowDownAZ,
-  ArrowUpAZ,
-  Clock,
   LayoutList,
   LayoutGrid,
 } from "lucide-react";

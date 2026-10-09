@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState } from "react";
 import {
   LocateFixed,
   LocateOff,
@@ -9,8 +9,6 @@ import {
   Clock3,
   Sparkles,
   MapPin,
-  Globe,
-  XCircle,
 } from "lucide-react";
 import { searchApi, ApiError } from "@/lib/api";
 import type { Property, WebDiscoveryCard as WebDiscoveryCardData } from "@/lib/types";
@@ -635,6 +633,10 @@ export default function NearMePage() {
                 actionLabel="Browse search"
                 actionHref="/search"
               />
+            ) : webLoadState === "error" ? (
+              <p className="text-sm text-destructive">
+                {webError || "We couldn't load web results. Please try again."}
+              </p>
             ) : (
               <p className="text-sm text-muted-foreground">
                 Allow location access, then search to see web results near you.

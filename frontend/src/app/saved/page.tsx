@@ -61,15 +61,6 @@ export default function SavedPage() {
     }
   }, [isAuthenticated]);
 
-  const handleUnsave = async (propertyId: number) => {
-    try {
-      await savedApi.unsaveProperty(propertyId);
-      setSavedProperties((prev) => prev.filter((item) => item.property.id !== propertyId));
-    } catch {
-      setError("Failed to remove property from saved list.");
-    }
-  };
-
   const handleDeleteSearch = async (searchId: number) => {
     try {
       await savedApi.deleteSavedSearch(searchId);

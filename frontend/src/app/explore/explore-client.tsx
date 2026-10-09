@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { MapPin, Building2, Search, Globe, Loader2, AlertCircle } from "lucide-react";
 import { propertiesApi, locationsApi } from "@/lib/api";
 import type { Property, LivePlace } from "@/lib/types";
@@ -11,21 +11,17 @@ import { PropertyListRow } from "@/components/property-list-row";
 import { RealEstateMap } from "@/components/real-estate-map";
 import { EmptyState } from "@/components/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAuth } from "@/lib/auth-context";
 import Link from "next/link";
 
 export default function ExploreClient() {
-  const { user } = useAuth();
   const [query, setQuery] = useState("");
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [geocoding, setGeocoding] = useState(false);
   const [geocodeError, setGeocodeError] = useState<string | null>(null);
   const [places, setPlaces] = useState<LivePlace[]>([]);
   const [placesLoading, setPlacesLoading] = useState(false);
-  const [placesError, setPlacesError] = useState<string | null>(null);
   const [properties, setProperties] = useState<Property[] | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const mapMarkers = useMemo(() => {
     const all: Array<{ id: number; latitude: number; longitude: number; title: string; subtitle: string; kind: "property" | "place" }> = [];
@@ -34,28 +30,51 @@ export default function ExploreClient() {
         all.push({ id: p.id, latitude: p.latitude, longitude: p.longitude, title: p.title, subtitle: p.locality ?? p.city, kind: "property" });
       }
     });
-    places.forEach((pl) => {
-      all.push({ id: pl.place_id ? Number(pl.place_id.slice(-8)) : Date.now(), latitude: pl.latitude ?? 0, longitude: pl.longitude ?? 0, title: pl.name, subtitle: pl.address ?? pl.name, kind: "place" });
+    places.forEach((pl, idx) => {
+      all.push({
+        id: pl.place_id ? Number(pl.place_id.slice(-8)) : 900000 + idx,
+        latitude: pl.latitude ?? 0,
+        longitude: pl.longitude ?? 0,
+        title: pl.name,
+        subtitle: pl.address ?? pl.name,
+        kind: "place",
+      });
     });
     return all;
   }, [properties, places]);
 
   const loadPropertiesForLocation = useCallback(async (latitude: number, longitude: number) => {
     setLoading(true);
-    setError(null);
     try {
       const res = await propertiesApi.list({ latitude, longitude, page_size: 30 });
       setProperties(res.properties);
     } catch {
-      setError("Failed to load properties for this area");
       setProperties(null);
     } finally {
       setLoading(false);
     }
   }, []);
 
+  const loadNearbyPlaces = useCallback(async (latitude: number, longitude: number) => {
+    setPlacesLoading(true);
+    try {
+      const res = await locationsApi.nearbyCoordinates(latitude, longitude, "hospital", 5);
+      setPlaces(res.places ?? []);
+    } catch {
+      setPlaces([]);
+    } finally {
+      setPlacesLoading(false);
+    }
+  }, []);
+
   const geocodePlace = useCallback(async (text: string) => {
-    if (!text.trim()) { setCoords(null); setPlaces([]); setProperties(null); setGeocodeError(null); return; }
+    if (!text.trim()) {
+      setCoords(null);
+      setPlaces([]);
+      setProperties(null);
+      setGeocodeError(null);
+      return;
+    }
     setGeocoding(true);
     setGeocodeError(null);
     setPlaces([]);
@@ -65,7 +84,10 @@ export default function ExploreClient() {
       const c = { lat: geoData.latitude, lng: geoData.longitude };
       setCoords(c);
       setGeocodeError(null);
-      await loadPropertiesForLocation(c.lat, c.lng);
+      await Promise.all([
+        loadPropertiesForLocation(c.lat, c.lng),
+        loadNearbyPlaces(c.lat, c.lng),
+      ]);
     } catch (e) {
       setGeocodeError(e instanceof Error ? e.message : `Could not geocode "${text.trim()}".`);
       setCoords(null);
@@ -74,25 +96,18 @@ export default function ExploreClient() {
     } finally {
       setGeocoding(false);
     }
-  }, [loadPropertiesForLocation]);
-
-  useEffect(() => {
-    if (!coords) return;
-    setPlacesLoading(true);
-    setPlacesError(null);
-    locationsApi.nearbyCoordinates(coords.lat, coords.lng, "hospital", 5)
-      .then((res) => { setPlaces(res.places ?? []); })
-      .catch(() => { setPlacesError("Failed to load nearby places"); })
-      .finally(() => setPlacesLoading(false));
-  }, [coords]);
-
-  useEffect(() => {
-    if (coords && !geocoding) { loadPropertiesForLocation(coords.lat, coords.lng); }
-  }, [coords, geocoding, loadPropertiesForLocation]);
+  }, [loadPropertiesForLocation, loadNearbyPlaces]);
 
   const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); geocodePlace(query); };
 
-  const clear = () => { setQuery(""); setCoords(null); setPlaces([]); setProperties(null); setGeocodeError(null); setLoading(false); setError(null); };
+  const clear = () => {
+    setQuery("");
+    setCoords(null);
+    setPlaces([]);
+    setProperties(null);
+    setGeocodeError(null);
+    setLoading(false);
+  };
 
 
 
