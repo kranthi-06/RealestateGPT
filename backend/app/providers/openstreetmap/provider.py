@@ -112,6 +112,50 @@ class OpenStreetMapLocationProvider:
         _cache.set(cache_key, normalized, 21_600)
         return normalized
 
+    def reverse_geocode(self, latitude: float, longitude: float) -> dict[str, Any]:
+        """Reverse-geocode coordinates via Nominatim (public OSM service)."""
+        if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+            raise LocationProviderInvalidRequest("Coordinates are out of range.")
+        cache_key = f"reverse:{latitude:.5f}:{longitude:.5f}"
+        cached = _cache.get(cache_key)
+        if cached is not None:
+            return cached
+        self._nominatim_throttle()
+        try:
+            with self._client() as client:
+                response = client.get(
+                    f"{settings.NOMINATIM_BASE_URL.rstrip('/')}/reverse",
+                    params={"lat": latitude, "lon": longitude, "format": "jsonv2", "addressdetails": 1},
+                )
+                self._raise_for_status(response, "Nominatim")
+            data = response.json()
+        except httpx.HTTPError as exc:
+            raise LocationProviderUnavailable("Nominatim is temporarily unavailable.") from exc
+        if not isinstance(data, dict) or data.get("error") or not data.get("lat"):
+            raise LocationProviderInvalidRequest("OpenStreetMap could not reverse-geocode that location.")
+        address = data.get("address") or {}
+        parts: list[str] = []
+        for key in ("suburb", "neighbourhood", "quarter", "village", "town", "city", "county", "state", "country"):
+            value = address.get(key)
+            if value and value not in parts:
+                parts.append(str(value))
+        normalized = {
+            "formatted_address": ", ".join(parts) or str(data.get("display_name") or ""),
+            "latitude": float(data.get("lat")),
+            "longitude": float(data.get("lon")),
+            "place_id": str(data.get("osm_id") or data.get("place_id") or ""),
+            "provider": "nominatim",
+            "city": address.get("city") or address.get("town") or address.get("village") or address.get("county"),
+            "state": address.get("state"),
+            "country": address.get("country"),
+            "suburb": address.get("suburb") or address.get("neighbourhood") or address.get("quarter"),
+            "county": address.get("county"),
+        }
+        if not normalized["formatted_address"]:
+            normalized["formatted_address"] = f"{latitude:.5f}, {longitude:.5f}"
+        _cache.set(cache_key, normalized, 21_600)
+        return normalized
+
     def nearby(self, latitude: float, longitude: float, category: str, radius_km: float = 3.0) -> list[dict[str, Any]]:
         filters = _CATEGORY_FILTERS.get(category)
         if not filters:

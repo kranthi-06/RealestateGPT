@@ -191,7 +191,7 @@ export default function WebDiscoveryCard({
           onClick={(e) => e.stopPropagation()}
         >
           <ExternalLink className="h-3.5 w-3.5" />
-          View original listing
+          Visit Website
         </a>
         {isAuthenticated && (
           <Button

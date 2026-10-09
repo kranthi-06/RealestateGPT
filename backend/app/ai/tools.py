@@ -17,6 +17,7 @@ from app.finance.calculators import (
     calculate_affordability, calculate_emi, calculate_rental_yield, calculate_roi,
 )
 from app.location.service import LocationService, haversine_km
+from app.provider_registry.api import get_web_search_provider
 from app.repositories.property_repo import PropertyRepository
 from app.services.finance_service import FinanceService
 
@@ -108,6 +109,11 @@ class SearchWebInput(BaseModel):
     min_price: Optional[float] = Field(None, ge=0)
     max_price: Optional[float] = Field(None, ge=0)
     limit: int = Field(8, ge=1, le=20)
+    # Coordinates from the user's device / reverse geocoding. When both are
+    # present the agent MUST prefer the location-aware web tool so results
+    # are targeted at the user's actual area rather than a guessed city.
+    latitude: Optional[float] = Field(None, ge=-90, le=90)
+    longitude: Optional[float] = Field(None, ge=-180, le=180)
 
 @dataclass
 class Tool:
@@ -191,42 +197,69 @@ def _tool_search_web(db, user, parsed: SearchWebInput) -> dict:
     from app.ai.query_parser import parse_query
     from app.core.config import settings
     from app.discovery.service import WebDiscoveryService
+    from app.providers.location import get_location_provider
     from app.providers.web_search.models import WebSearchNotConfiguredError, WebSearchUnavailableError
 
-    intent = parse_query(parsed.query or "")
-    if not intent.city and parsed.city:
+    if user is not None and parsed.latitude is not None and parsed.longitude is not None:
+        try:
+            provider = get_location_provider()
+            reverse = provider.reverse_geocode(parsed.latitude, parsed.longitude)
+            if reverse.get("city"):
+                if not parsed.city:
+                    parsed.city = reverse["city"]
+                if not parsed.locality:
+                    parsed.locality = reverse.get("suburb") or reverse.get("city")
+                if not parsed.query:
+                    parsed.query = f"properties for sale near {reverse.get('formatted_address', parsed.query or '')}"
+        except Exception:
+            pass
+
+    query_str = parsed.query or f"properties in {parsed.city or ''} {parsed.locality or ''}".strip()
+    intent = parse_query(query_str or "properties for sale")
+    if parsed.city:
         intent.city = parsed.city
-    if not intent.locality and parsed.locality:
+    if parsed.locality:
         intent.locality = parsed.locality
+    if parsed.property_type:
+        intent.property_type = parsed.property_type
+    if parsed.bedrooms is not None:
+        intent.bedrooms = parsed.bedrooms
+    if parsed.min_price is not None:
+        intent.min_price = parsed.min_price
+    if parsed.max_price is not None:
+        intent.max_price = parsed.max_price
+
+    service = WebDiscoveryService(db)
     try:
-        outcome = WebDiscoveryService(db).discover(
-            intent,
-            max_queries=settings.WEB_SEARCH_MAX_QUERIES,
-            max_results=min(parsed.limit, settings.WEB_SEARCH_MAX_RESULTS),
-            enrich=False,
-        )
+        outcome = service.discover(intent, max_results=parsed.limit)
     except (WebSearchNotConfiguredError, WebSearchUnavailableError) as exc:
-        return {"status": "unavailable", "code": exc.code, "message": exc.message, "results": []}
+        return {
+            "status": "unavailable",
+            "code": getattr(exc, "code", "WEB_SEARCH_UNAVAILABLE"),
+            "message": str(exc),
+            "results": [],
+        }
 
     results = []
     for index, card in enumerate(outcome.cards[: parsed.limit]):
+        card_dict = card.model_dump() if hasattr(card, "model_dump") else (card if isinstance(card, dict) else {})
         results.append({
             "result_id": f"WEB-{index + 1:03d}",
-            "discovery_id": card.get("id"),
-            "title": card.get("title"),
-            "price": card.get("price"),
-            "currency": card.get("currency"),
-            "transaction_type": card.get("transaction_type"),
-            "bedrooms": card.get("bedrooms"),
-            "area": card.get("area"),
-            "area_unit": card.get("area_unit"),
-            "location": card.get("location_text") or card.get("locality") or card.get("city"),
-            "source": card.get("source_name") or card.get("source_domain"),
-            "source_domain": card.get("source_domain"),
-            "url": card.get("url"),
-            "description": card.get("description"),
-            "confidence": card.get("confidence"),
-            "freshness_label": card.get("freshness_label"),
+            "discovery_id": card_dict.get("id"),
+            "title": card_dict.get("title"),
+            "price": card_dict.get("price"),
+            "currency": card_dict.get("currency"),
+            "transaction_type": card_dict.get("transaction_type"),
+            "bedrooms": card_dict.get("bedrooms"),
+            "area": card_dict.get("area"),
+            "area_unit": card_dict.get("area_unit"),
+            "location": card_dict.get("location_text") or card_dict.get("locality") or card_dict.get("city"),
+            "source": card_dict.get("source_name") or card_dict.get("source_domain"),
+            "source_domain": card_dict.get("source_domain"),
+            "url": card_dict.get("url"),
+            "description": card_dict.get("description"),
+            "confidence": card_dict.get("confidence"),
+            "freshness_label": card_dict.get("freshness_label"),
             "verification_status": "web_discovery",  # NEVER verified inventory
         })
     return {

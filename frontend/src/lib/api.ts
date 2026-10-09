@@ -25,6 +25,7 @@ import type {
   DiscoverySearchResponse,
   MapProviderStatus,
   LiveNearbyResponse,
+  LivePlace,
   EmiResult,
   AffordabilityResult,
   PriceEstimate,
@@ -248,6 +249,8 @@ export const searchApi = {
 export const locationsApi = {
   status: () => request<MapProviderStatus>("/locations/status"),
   nearby: (propertyId: number, category: string, radiusKm = 3, travelMode = "WALK") => request<LiveNearbyResponse>(`/locations/properties/${propertyId}/nearby?category=${encodeURIComponent(category)}&radius_km=${radiusKm}&travel_mode=${travelMode}`),
+  nearbyCoordinates: (latitude: number, longitude: number, category = "hospital", radiusKm = 5) => request<{ latitude: number; longitude: number; category: string; radius_km: number; source: string; places: LivePlace[] }>(`/locations/nearby?latitude=${latitude}&longitude=${longitude}&category=${encodeURIComponent(category)}&radius_km=${radiusKm}`),
+  geocode: (address: string) => request<{ formatted_address: string; latitude: number; longitude: number; place_id?: string; provider?: string }>("/locations/geocode", { method: "POST", body: JSON.stringify({ address }) }),
 };
 export const discoveryApi = {
   get: (discoveryId: string) =>

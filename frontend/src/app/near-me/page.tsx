@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import {
   LocateFixed,
   LocateOff,
@@ -9,9 +9,12 @@ import {
   Clock3,
   Sparkles,
   MapPin,
+  Globe,
+  XCircle,
 } from "lucide-react";
 import { searchApi, ApiError } from "@/lib/api";
-import type { Property } from "@/lib/types";
+import type { Property, WebDiscoveryCard as WebDiscoveryCardData } from "@/lib/types";
+import WebDiscoveryCard from "@/components/web-discovery-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,6 +43,17 @@ function haversineKm(
     Math.sin(dLat / 2) ** 2 +
     Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function stripDuplicates<T extends { url: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of items) {
+    if (seen.has(item.url)) continue;
+    seen.add(item.url);
+    out.push(item);
+  }
+  return out;
 }
 
 function NearMeCard({
@@ -196,6 +210,10 @@ export default function NearMePage() {
   const [compareIds, setCompareIds] = useState<Set<number>>(new Set());
   const [radiusKm, setRadiusKm] = useState<number>(RADIUS_KM);
 
+  const [webResults, setWebResults] = useState<WebDiscoveryCardData[] | null>(null);
+  const [webLoadState, setWebLoadState] = useState<LoadState>("idle");
+  const [webError, setWebError] = useState<string | null>(null);
+
   const toggleCompare = (id: number) => {
     setCompareIds((prev) => {
       const next = new Set(prev);
@@ -240,7 +258,7 @@ export default function NearMePage() {
         const c = { lat: coords.latitude, lng: coords.longitude };
         setUserCoords(c);
         setLocState("granted");
-        await runSearch(c.lat, c.lng);
+        await Promise.all([runSearch(c.lat, c.lng), runWebSearch(c.lat, c.lng)]);
       },
       (err) => {
         if (err.code === 1) setLocState("denied");
@@ -272,9 +290,33 @@ export default function NearMePage() {
     }
   };
 
+  const runWebSearch = async (lat: number, lng: number) => {
+    setWebLoadState("loading");
+    setWebError(null);
+    try {
+      const res = await searchApi.unified({
+        query: "real estate properties and websites",
+        location: { latitude: lat, longitude: lng, radius_km: radiusKm },
+        include_web: true,
+      });
+      const cards: WebDiscoveryCardData[] = res.web_discoveries ?? [];
+      setWebResults(stripDuplicates(cards));
+      setWebLoadState("ready");
+    } catch (caught) {
+      setWebError(
+        caught instanceof ApiError ? caught.message : "We couldn't load web results. Please try again."
+      );
+      setWebLoadState("error");
+    }
+  };
+
   const refresh = () => {
-    if (userCoords) runSearch(userCoords.lat, userCoords.lng);
-    else requestLocation();
+    if (userCoords) {
+      runSearch(userCoords.lat, userCoords.lng);
+      runWebSearch(userCoords.lat, userCoords.lng);
+    } else {
+      requestLocation();
+    }
   };
 
   const clearLocation = () => {
@@ -284,6 +326,9 @@ export default function NearMePage() {
     setLoadState("idle");
     setErrorMsg(undefined);
     setCompareIds(new Set());
+    setWebResults(null);
+    setWebLoadState("idle");
+    setWebError(null);
   };
 
 
@@ -563,6 +608,41 @@ export default function NearMePage() {
           </section>
         </>
       )}
-    </main>
+          {/* Web discovery results (Near Me only — never duplicated on Explore) */}
+      {loadState === "ready" && properties && (
+        <section className="mt-6 border-t border-border/60">
+          <div className="flex items-center gap-2 px-1 py-3">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">Web results near you</h2>
+            <span className="ml-auto text-xs text-muted-foreground">
+              {webLoadState === "ready" ? "Powered by Tavily (server-side)" : "Click to search the web"}
+            </span>
+          </div>
+          <div className="bg-card rounded-xl border border-border/60 p-4">
+            {webResults && webResults.length > 0 ? (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {webResults.map((card) => (
+                  <WebDiscoveryCard
+                    key={card.id || card.url}
+                    discovery={card}
+                  />
+                ))}
+              </div>
+            ) : webLoadState === "ready" ? (
+              <EmptyState
+                title="No web results found"
+                description="No independent web sources matched your location yet. Try a city-based search or refine your query."
+                actionLabel="Browse search"
+                actionHref="/search"
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Allow location access, then search to see web results near you.
+              </p>
+            )}
+          </div>
+        </section>
+      )}
+</main>
   );
 }

@@ -430,6 +430,7 @@ export interface LivePlace {
   categories?: string[];
 }
 export interface LiveNearbyResponse { property_id: number; category: string; radius_km: number; source: string; places: LivePlace[]; }
+export interface CoordinateNearbyResponse { latitude: number; longitude: number; category: string; radius_km: number; source: string; places: LivePlace[]; }
 
 // ─── Finance ────────────────────────────────────────────
 
