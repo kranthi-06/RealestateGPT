@@ -77,6 +77,8 @@ class GroqToolCallingAgent:
                     # ultimately to the audit log instead of swallowing it.
                     logger.warning("tool_call tool=%s status=error message=%s", name, str(exc))
                     raise
+                if name == "search_properties":
+                    search_payload = result
                 records.append(ToolCallRecord(tool=name, input=self._safe_input(arguments), output_summary=self._summary(name, result)))
                 messages.append({"role": "tool", "tool_call_id": call.get("id"), "name": name,
                                  "content": json.dumps(result, default=str, separators=(",", ":"))})
