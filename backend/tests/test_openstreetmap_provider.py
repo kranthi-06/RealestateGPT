@@ -44,10 +44,14 @@ def test_geocode_normalizes_nominatim_response(monkeypatch):
 
 def test_nearby_normalizes_overpass_response(monkeypatch):
     provider = OpenStreetMapLocationProvider()
-    monkeypatch.setattr(OpenStreetMapLocationProvider, "_client", staticmethod(lambda: _Client(_response({"elements": [{
-        "type": "node", "id": 42, "lat": 17.444, "lon": 78.378,
-        "tags": {"name": "Example Hospital", "amenity": "hospital"},
-    }]}))))
+    monkeypatch.setattr(
+        OpenStreetMapLocationProvider,
+        "_client",
+        staticmethod(lambda **_kw: _Client(_response({"elements": [{
+            "type": "node", "id": 42, "lat": 17.444, "lon": 78.378,
+            "tags": {"name": "Example Hospital", "amenity": "hospital"},
+        }]}))),
+    )
 
     places = provider.nearby(17.4435, 78.3772, "hospital")
 

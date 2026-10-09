@@ -238,3 +238,41 @@ async def verify_property(
     if not prop:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Property not found")
     return {"message": f"Property {property_id} status updated to {status_name}"}
+
+
+@router.post("/promotions/web-discoveries")
+async def promote_web_discoveries(
+    limit: int = Query(200, ge=1, le=1000),
+    min_confidence: float = Query(0.0, ge=0.0, le=1.0),
+    current_user: User = Depends(get_current_admin),
+    db = Depends(get_db),
+):
+    """Explicitly promote bounded web discoveries into the catalogue.
+
+    This is the authorized promotion path: promoted listings are stored with
+    ``source_type=web_discovery`` and stay unverified, so they can never be
+    mistaken for verified inventory. The operation is idempotent — re-running
+    it refreshes records instead of duplicating them.
+    """
+    from app.services.discovery_promotion import promote_web_discoveries as promote
+
+    summary = promote(db, limit=limit, min_confidence=min_confidence)
+    AuditRepository(db).log(
+        action="admin.promote_web_discoveries",
+        user_id=current_user.id,
+        detail={
+            "fetched": summary.fetched,
+            "promoted": summary.promoted,
+            "skipped": summary.skipped,
+        },
+    )
+    return {
+        "message": (
+            f"Promoted {summary.promoted} of {summary.fetched} live web discoveries "
+            f"({summary.skipped} skipped); promoted listings remain unverified."
+        ),
+        "fetched": summary.fetched,
+        "promoted": summary.promoted,
+        "skipped": summary.skipped,
+        "skip_reasons": summary.skip_reasons,
+    }

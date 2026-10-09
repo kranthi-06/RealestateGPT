@@ -1,6 +1,8 @@
 """RealEstateGPT - Saved items API routes"""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from typing import List
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -13,6 +15,8 @@ from app.schemas import (
     PropertyResponse, PropertyCardResponse,
 )
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/saved", tags=["Saved"])
 
@@ -47,6 +51,14 @@ async def get_saved_properties(
     saved_items = repo.get_saved_properties(current_user.id)
     results = []
     for item in saved_items:
+        # A saved property whose catalogue record was removed must not crash
+        # the whole listing: skip the stale entry and keep serving the rest.
+        if item.property is None:
+            logger.info(
+                "Skipping stale saved record id=%s property_id=%s (property no longer exists)",
+                item.id, item.property_id,
+            )
+            continue
         results.append(SavedPropertyResponse(
             id=item.id,
             property_id=item.property_id,
@@ -69,6 +81,38 @@ async def unsave_property(
     if not removed:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Saved property not found")
     return {"message": "Property removed from saved"}
+
+
+@router.get("/discoveries")
+async def get_saved_discoveries(
+    limit: int = Query(50, ge=1, le=200),
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    """List the user's saved web discoveries.
+
+    Deliberately separate from saved catalogue properties: these are web
+    results the user bookmarked, never verified inventory.
+    """
+    from app.discovery.repository import SavedDiscoveryRepository, WebDiscoveryRepository
+    from app.discovery.service import doc_to_card
+
+    saved_repo = SavedDiscoveryRepository(db)
+    discovery_repo = WebDiscoveryRepository(db)
+    cards = []
+    for entry in saved_repo.list_for_user(current_user.id, limit=limit):
+        doc = discovery_repo.by_id(str(entry.get("discovery_id")))
+        if doc is None:
+            # The discovery expired and was cleaned up; keep the rest usable.
+            logger.info(
+                "Skipping stale saved discovery user_id=%s discovery_id=%s (expired)",
+                current_user.id, entry.get("discovery_id"),
+            )
+            continue
+        card = doc_to_card(doc, saved=True)
+        card["saved_at"] = entry.get("created_at")
+        cards.append(card)
+    return cards
 
 
 # ─── Saved Searches ──────────────────────────────────────

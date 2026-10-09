@@ -11,6 +11,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
+from typing import List
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -22,7 +23,7 @@ from app.providers.location import (
 )
 from app.repositories.property_repo import PropertyRepository
 from app.schemas.maps import (
-    CoordinateNearbyResponse, GeocodeRequest, GeocodeResponse,
+    CoordinateNearbyResponse, CoordinateMultiNearbyResponse, GeocodeRequest, GeocodeResponse,
     LiveNearbyResponse, LivePlace, MapProviderStatus, RouteRequest, RouteResponse,
 )
 
@@ -168,6 +169,36 @@ async def nearby_coordinates(
         )
     except (LocationProviderUnavailable, LocationProviderInvalidRequest) as exc:
         raise _http_error(exc) from exc
+
+
+@router.get("/nearby-multi", response_model=CoordinateMultiNearbyResponse)
+async def nearby_multi_coordinates(
+    request: Request,
+    latitude: float = Query(..., ge=-90, le=90),
+    longitude: float = Query(..., ge=-180, le=180),
+    categories: List[str] = Query(..., alias="category"),
+    radius_km: float = Query(5.0, gt=0, le=50),
+):
+    """Nearby places for several categories in one provider round trip.
+
+    Used by Explore: a single union query instead of one request per category
+    keeps public Overpass instances from rate limiting the search, and
+    guarantees every reported category count comes from the same successful
+    fetch.
+    """
+    try:
+        provider = _provider()
+        results = provider.nearby_multi(latitude, longitude, categories, radius_km)
+    except (LocationProviderUnavailable, LocationProviderInvalidRequest) as exc:
+        raise _http_error(exc) from exc
+    return CoordinateMultiNearbyResponse(
+        latitude=latitude, longitude=longitude, radius_km=radius_km,
+        source=_source_label(provider),
+        results={
+            category: [_to_live_place(place, request) for place in places]
+            for category, places in results.items()
+        },
+    )
 
 
 @router.get("/places/{place_id}", response_model=LivePlace)

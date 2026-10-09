@@ -19,7 +19,7 @@ from pydantic import ValidationError
 from app.models.property import Property
 from app.repositories.property_repo import PropertyRepository
 
-_SOURCE_TYPE_WHITELIST = {"licensed_feed", "partner_api", "admin", "user", "demo"}
+_SOURCE_TYPE_WHITELIST = {"licensed_feed", "partner_api", "admin", "user", "demo", "web_discovery"}
 
 
 def _slug(value: str) -> str:

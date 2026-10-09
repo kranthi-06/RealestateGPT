@@ -102,7 +102,10 @@ class Property(BaseModel):
 
     # Provenance + data quality
     source: str = Field(min_length=1, max_length=100)
-    source_type: Literal["licensed_feed", "partner_api", "admin", "user", "demo"]
+    # "web_discovery" marks listings promoted from the bounded web-discovery
+    # pipeline: real-world records that are intentionally NOT verified
+    # inventory, kept distinct from licensed feeds and admin imports.
+    source_type: Literal["licensed_feed", "partner_api", "admin", "user", "demo", "web_discovery"]
     source_url: Optional[str] = Field(default=None, max_length=2_000)
     source_id: Optional[str] = Field(default=None, min_length=1, max_length=255)
     source_listing_id: Optional[str] = Field(default=None, min_length=1, max_length=255)  # canonical

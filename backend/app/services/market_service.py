@@ -287,7 +287,9 @@ class MarketService:
     """Read-only aggregation over the stored property catalogue."""
 
     def __init__(self, db=None):
-        self.db = db or get_database()
+        # A pymongo ``Database`` is always truthy-testable against ``None`` only;
+        # using ``db or ...`` raises NotImplementedError on a real Database.
+        self.db = db if db is not None else get_database()
         self.properties = self.db["properties"]
         self.price_history = self.db["price_history"]
 

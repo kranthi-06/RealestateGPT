@@ -41,6 +41,21 @@ class CoordinateNearbyResponse(BaseModel):
     source: str
     places: list[LivePlace]
 
+class CoordinateMultiNearbyResponse(BaseModel):
+    """One Overpass fetch, bucketed per category.
+
+    Every category comes from the same successful provider call, so the
+    reported counts can never disagree because a single category silently
+    failed (which is what a per-category request loop does under rate
+    limiting).
+    """
+
+    latitude: float
+    longitude: float
+    radius_km: float
+    source: str
+    results: dict[str, list[LivePlace]]
+
 class RouteRequest(BaseModel):
     origin_latitude: float = Field(ge=-90, le=90)
     origin_longitude: float = Field(ge=-180, le=180)

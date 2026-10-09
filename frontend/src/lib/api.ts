@@ -258,6 +258,22 @@ export const locationsApi = {
   status: () => request<MapProviderStatus>("/locations/status"),
   nearby: (propertyId: number, category: string, radiusKm = 3, travelMode = "WALK") => request<LiveNearbyResponse>(`/locations/properties/${propertyId}/nearby?category=${encodeURIComponent(category)}&radius_km=${radiusKm}&travel_mode=${travelMode}`),
   nearbyCoordinates: (latitude: number, longitude: number, category = "hospital", radiusKm = 5) => request<{ latitude: number; longitude: number; category: string; radius_km: number; source: string; places: LivePlace[] }>(`/locations/nearby?latitude=${latitude}&longitude=${longitude}&category=${encodeURIComponent(category)}&radius_km=${radiusKm}`),
+  /** Several categories in one provider round trip (one combined Overpass query). */
+  nearbyMulti: (latitude: number, longitude: number, categories: string[], radiusKm = 5) => {
+    const params = new URLSearchParams({
+      latitude: String(latitude),
+      longitude: String(longitude),
+      radius_km: String(radiusKm),
+    });
+    categories.forEach((category) => params.append("category", category));
+    return request<{
+      latitude: number;
+      longitude: number;
+      radius_km: number;
+      source: string;
+      results: Record<string, LivePlace[]>;
+    }>(`/locations/nearby-multi?${params.toString()}`);
+  },
   geocode: (address: string) => request<{ formatted_address: string; latitude: number; longitude: number; place_id?: string; provider?: string }>("/locations/geocode", { method: "POST", body: JSON.stringify({ address }) }),
 };
 export const discoveryApi = {
