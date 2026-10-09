@@ -90,7 +90,6 @@ function FinancePageContent() {
     }
     return { label: "Not Affordable", icon: XCircle, color: "bg-destructive/10 text-destructive border-destructive/20", iconColor: "text-destructive" };
   };
-
   const status = affResult ? getAffordabilityStatus(affResult) : null;
   const StatusIcon = status?.icon || Shield;
 

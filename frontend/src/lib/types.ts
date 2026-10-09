@@ -449,7 +449,9 @@ export interface AffordabilityResult {
   max_loan_amount: number;
   max_property_price: number;
   recommended_emi: number;
+  /** EMI as a percentage of gross monthly income (0-100), not a fraction. */
   emi_to_income_ratio: number;
+  max_emi_share_of_income_pct: number;
   assumptions: string[];
   affordable: boolean;
 }
@@ -534,4 +536,72 @@ export interface AdminAiUsage {
   offline_mode: boolean;
   provider: string;
   by_action: Record<string, number>;
+}
+
+// ─── Market Intelligence ───────────────────────────────────────────────
+
+export interface PriceStat {
+  sample_size: number;
+  median: number | null;
+  mean: number | null;
+  p25: number | null;
+  p75: number | null;
+  min: number | null;
+  max: number | null;
+  /** True when the sample is large enough to be treated as a real measurement. */
+  is_measured: boolean;
+}
+
+export interface LocalityComparison {
+  locality: string;
+  listings: number;
+  median_price: number | null;
+  avg_price_per_sqft: number | null;
+  measured: boolean;
+}
+
+export interface PriceHistoryPoint {
+  month: string;
+  observations: number;
+  avg_price: number | null;
+  avg_previous_price: number | null;
+}
+
+export interface MarketSnapshotResponse {
+  generated_at: string;
+  source: string;
+  query: {
+    city: string | null;
+    locality: string | null;
+    listing_type: string | null;
+    property_type: string | null;
+    bedrooms: number | null;
+  };
+  localities: string[];
+  totals: { listings: number; sale: number; rent: number; verified_only: boolean };
+  bedroom_breakdown: Record<string, number>;
+  apartments: { prices: PriceStat; price_per_sqft: PriceStat };
+  houses: { prices: PriceStat; price_per_sqft: PriceStat };
+  land: { prices: PriceStat; price_per_sqft: PriceStat; price_per_sq_yard: PriceStat };
+  rents: { monthly: PriceStat; price_per_sqft_monthly: PriceStat };
+  locality_comparison: LocalityComparison[];
+  price_history: PriceHistoryPoint[];
+  trend: Record<string, unknown>;
+  indicators: { gross_rental_yield_pct: number | null; price_to_rent_ratio: number | null };
+  coverage: Record<string, unknown>;
+  insufficient_data?: { code: string; reason: string } | null;
+}
+
+export interface MarketSummaryResponse {
+  generated_at: string;
+  cities: {
+    city: string;
+    listings: number;
+    sale: number;
+    rent: number;
+    median_price: number | null;
+    locality_count: number;
+  }[];
+  minimum_sample: number;
+  note: string;
 }

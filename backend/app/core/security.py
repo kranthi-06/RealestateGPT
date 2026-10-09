@@ -4,14 +4,31 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import bcrypt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 
 from app.core.config import settings
+from app.core.cookies import token_from_request_cookie
 from app.core.database import get_db
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_PREFIX}/auth/login")
+# auto_error=False so a browser session cookie is accepted when no
+# ``Authorization`` header is present; get_current_user raises 401 only when
+# neither source carries a token.
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_PREFIX}/auth/login", auto_error=False)
+
+
+def _session_token(request: Request, header_token: Optional[str]) -> Optional[str]:
+    """Bearer token from the Authorization header, else the session cookie."""
+    return header_token or token_from_request_cookie(request.cookies)
+
+
+def _unauthorized() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 def hash_password(password: str) -> str:
@@ -65,12 +82,21 @@ def _user_id_from_token(token: str) -> int:
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
+    token: Optional[str] = Depends(oauth2_scheme),
     db=Depends(get_db),
 ):
-    """Dependency to get the current authenticated user."""
+    """Dependency to get the current authenticated user.
+
+    The bearer token is accepted from the ``Authorization`` header OR from the
+    HttpOnly session cookie, so browser clients never need the token in
+    JavaScript-reachable storage.
+    """
     from app.repositories.user_repo import UserRepository
 
+    token = _session_token(request, token)
+    if not token:
+        raise _unauthorized()
     user = UserRepository(db).get_by_id(_user_id_from_token(token))
     if user is None:
         raise HTTPException(
@@ -96,12 +122,14 @@ async def get_current_admin(current_user=Depends(get_current_user)):
 
 
 async def get_optional_user(
+    request: Request,
     token: Optional[str] = Depends(
         OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_PREFIX}/auth/login", auto_error=False)
     ),
     db=Depends(get_db),
 ):
     """Dependency that returns the user if authenticated, None otherwise."""
+    token = _session_token(request, token)
     if token is None:
         return None
     try:

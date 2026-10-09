@@ -22,20 +22,18 @@ import {
   X,
   Sparkles,
   Shield,
-  LocateFixed,
   Calculator,
   Map,
-  Brain,
   Home,
   List,
   ChevronDown,
+  TrendingUp,
 } from "lucide-react";
 import { useState } from "react";
 
 const navItems = [
   { href: "/", label: "Home", icon: Home, exact: true },
   { href: "/search", label: "Search", icon: Search, exact: false },
-  { href: "/near-me", label: "Near Me", icon: LocateFixed, exact: false },
   { href: "/explore", label: "Explore", icon: Map, exact: false },
   { href: "/assistant", label: "AI Assistant", icon: Sparkles, exact: false, auth: true },
   { href: "/compare", label: "Compare", icon: GitCompare, exact: false, auth: true },
@@ -44,8 +42,8 @@ const navItems = [
 
 const moreItems = [
   { href: "/affordability", label: "Affordability", icon: Calculator },
-  { href: "/area-intelligence", label: "Area Intelligence", icon: Brain },
   { href: "/market-intelligence", label: "Market Intelligence", icon: List },
+  { href: "/finance", label: "Investments", icon: TrendingUp },
 ];
 
 export default function Navbar() {

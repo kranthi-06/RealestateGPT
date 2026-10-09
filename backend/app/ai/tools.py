@@ -115,6 +115,28 @@ class SearchWebInput(BaseModel):
     latitude: Optional[float] = Field(None, ge=-90, le=90)
     longitude: Optional[float] = Field(None, ge=-180, le=180)
 
+
+class MarketStatsInput(BaseModel):
+    """Market Intelligence lookup by city and/or locality (no city allow-list)."""
+    city: Optional[str] = Field(None, max_length=100)
+    locality: Optional[str] = Field(None, max_length=100)
+    listing_type: Optional[str] = Field(None, pattern="^(sale|rent)$")
+    property_type: Optional[str] = Field(None, max_length=50)
+    bedrooms: Optional[int] = Field(None, ge=0, le=20)
+
+
+class LocationNearbyInput(BaseModel):
+    """Nearby facilities for an arbitrary place or coordinates (OSM/Overpass).
+
+    Either a free-text ``location`` (geocoded through Nominatim, so any city,
+    locality, landmark or address works) or explicit coordinates.
+    """
+    location: Optional[str] = Field(None, max_length=200)
+    latitude: Optional[float] = Field(None, ge=-90, le=90)
+    longitude: Optional[float] = Field(None, ge=-180, le=180)
+    category: str = Field("hospital", pattern="^(metro|hospital|school|college|supermarket|mall|park|it_park|hotel|restaurant|bank|shopping|pharmacy|public_transport)$")
+    radius_km: float = Field(3.0, ge=0.1, le=50)
+
 @dataclass
 class Tool:
     name: str
@@ -278,6 +300,118 @@ def _tool_search_web(db, user, parsed: SearchWebInput) -> dict:
     }
 
 
+def _tool_market_stats(db, user, parsed: MarketStatsInput) -> dict:
+    """Market Intelligence: real aggregated statistics for a place.
+
+    Every figure is measured from verified stored listings. When the sample is
+    too small the response says so instead of returning an invented number.
+    """
+    from app.services.market_service import MarketFilter, MarketService
+
+    if not parsed.city and not parsed.locality:
+        return {
+            "status": "invalid",
+            "message": "Provide a city or locality to get market statistics.",
+        }
+
+    service = MarketService(db)
+    snapshot = service.snapshot(
+        MarketFilter(
+            city=parsed.city,
+            locality=parsed.locality,
+            listing_type=parsed.listing_type,
+            property_type=parsed.property_type,
+            bedrooms=parsed.bedrooms,
+        )
+    )
+    payload = snapshot.to_dict()
+
+    if snapshot.total_listings == 0:
+        payload["status"] = "no_data"
+        payload["message"] = (
+            "No verified listings are stored for this location, so no price "
+            "statistics can be reported. Do not estimate prices for it."
+        )
+        return payload
+
+    payload["status"] = "ok"
+    payload["message"] = (
+        f"Statistics measured from {snapshot.total_listings} verified stored "
+        "listings. Figures flagged is_measured=false come from fewer than "
+        f"{payload['coverage'].get('minimum_sample', 3)} listings and are "
+        "indicative only."
+    )
+    return payload
+
+
+def _tool_location_nearby(db, user, parsed: LocationNearbyInput) -> dict:
+    """Nearby facilities for a place name or coordinates via the OSM provider."""
+    from app.providers.location import (
+        LocationProviderInvalidRequest,
+        LocationProviderUnavailable,
+        get_location_provider,
+    )
+
+    latitude, longitude = parsed.latitude, parsed.longitude
+    resolved = None
+    if latitude is None or longitude is None:
+        if not parsed.location:
+            return {
+                "status": "invalid",
+                "message": "Provide a location name or coordinates.",
+            }
+        try:
+            geo = get_location_provider().geocode(parsed.location)
+        except (LocationProviderUnavailable, LocationProviderInvalidRequest) as exc:
+            return {"status": "unavailable", "message": str(exc), "places": []}
+        latitude, longitude = geo.get("latitude"), geo.get("longitude")
+        resolved = geo.get("formatted_address")
+        if latitude is None or longitude is None:
+            return {
+                "status": "not_found",
+                "message": f"Could not geocode '{parsed.location}'.",
+                "places": [],
+            }
+
+    try:
+        places = get_location_provider().nearby(
+            latitude, longitude, parsed.category, parsed.radius_km
+        )
+    except (LocationProviderUnavailable, LocationProviderInvalidRequest) as exc:
+        return {
+            "status": "unavailable",
+            "message": str(exc),
+            "places": [],
+            "category": parsed.category,
+            "radius_km": parsed.radius_km,
+        }
+
+    return {
+        "status": "ok",
+        "resolved_location": resolved or f"{latitude:.4f},{longitude:.4f}",
+        "category": parsed.category,
+        "radius_km": parsed.radius_km,
+        "latitude": latitude,
+        "longitude": longitude,
+        "count": len(places),
+        "places": [
+            {
+                "name": p.get("name"),
+                "address": p.get("address"),
+                "distance_km": p.get("distance_km"),
+                "latitude": p.get("latitude"),
+                "longitude": p.get("longitude"),
+                "categories": p.get("categories"),
+            }
+            for p in places
+        ],
+        "message": (
+            f"Found {len(places)} {parsed.category} place(s) within "
+            f"{parsed.radius_km} km from OpenStreetMap/Overpass."
+        ),
+    }
+
+
 def _tool_distance(db, user, parsed: DistanceInput) -> dict:
     return {
         "distance_km": haversine_km(parsed.from_lat, parsed.from_lon,
@@ -373,6 +507,18 @@ TOOLS: List[Tool] = [
     Tool("find_nearby_places",
          "List places (metro, hospital, school, mall, park, airport, IT park) near a property.",
          NearbyInput, False, _tool_nearby),
+    Tool("get_market_stats",
+         "Market Intelligence for a city and/or locality: apartment/house/plot prices, "
+         "price per sq.ft and per sq.yard, typical rents, observed price changes, "
+         "locality comparison and coverage metadata. Works for ANY location, not a fixed "
+         "city list. Never use it to invent prices — report what the tool returns.",
+         MarketStatsInput, False, _tool_market_stats),
+    Tool("find_nearby_places_by_location",
+         "List facilities (hospitals, schools, restaurants, transport, shopping, parks) near "
+         "an arbitrary city, locality, landmark or address — geocoded via Nominatim — or near "
+         "explicit coordinates. Use this when the user asks about facilities 'near this location' "
+         "instead of near a specific saved property.",
+         LocationNearbyInput, False, _tool_location_nearby),
     Tool("calculate_distance",
          "Haversine distance between two coordinates in km.",
          DistanceInput, False, _tool_distance),

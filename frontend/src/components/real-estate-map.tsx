@@ -23,6 +23,14 @@ const OpenStreetMapCanvas = dynamic(
   },
 );
 
-export function RealEstateMap({ markers }: { markers: MapMarker[] }) {
-  return <OpenStreetMapCanvas markers={markers} />;
+export function RealEstateMap({
+  markers,
+  center,
+  zoom,
+}: {
+  markers: MapMarker[];
+  center?: [number, number];
+  zoom?: number;
+}) {
+  return <OpenStreetMapCanvas markers={markers} center={center ?? [20.5937, 78.9629]} zoom={zoom ?? 5} />;
 }

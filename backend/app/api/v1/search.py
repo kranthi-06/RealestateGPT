@@ -5,9 +5,10 @@ hardcoded numbers and no fabricated sections (see search_sections_service).
 """
 from __future__ import annotations
 
-from typing import Optional
-from datetime import datetime, timezone
 import hashlib
+import logging
+from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -29,6 +30,8 @@ from app.services.property_service import PropertyService
 from app.services.search_sections_service import SearchSectionsService
 from app.ai.query_parser import parse_query
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/search", tags=["Search"])
 

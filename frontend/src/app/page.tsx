@@ -25,7 +25,6 @@ import {
 import { propertiesApi } from "@/lib/api";
 
 const quickActions = [
-  { href: "/near-me", label: "Near Me", icon: LocateFixed, prefix: "📍" },
   { href: "/search?listing_type=sale", label: "Buy", icon: Home, prefix: "🏠" },
   { href: "/search?listing_type=rent", label: "Rent", icon: KeyRound, prefix: "🔑" },
   { href: "/search?property_type=plot", label: "Plots", icon: MapPin, prefix: "🗺️" },
@@ -301,18 +300,18 @@ export default function HomePage() {
               <CardContent className="p-5 sm:p-6">
                 <Badge variant="outline" className="gap-1 text-[10px] uppercase tracking-wide">
                   <LocateFixed className="h-3 w-3" />
-                  Near Me
+                  Near you
                 </Badge>
                 <h3 className="mt-3 text-xl font-semibold text-foreground">
-                  See what&apos;s actually around you
+                  Search around your current location
                 </h3>
                 <p className="mt-1.5 text-sm text-muted-foreground">
-                  Browser geolocation → FastAPI → MongoDB geospatial + nearby facilities.
-                  Distances, not guesses.
+                  Grant browser location access on the Search page to find verified listings
+                  within a radius of you — or search by city, locality, or address.
                 </p>
                 <Button asChild variant="outline" className="mt-4 gap-1.5">
-                  <Link href="/near-me">
-                    Use My Location <ArrowRight className="h-4 w-4" />
+                  <Link href="/search">
+                    Search near me <ArrowRight className="h-4 w-4" />
                   </Link>
                 </Button>
               </CardContent>

@@ -50,9 +50,13 @@ class FinanceService:
                 max(0.0, property_price - down_payment), interest_rate, tenure_years
             )
             result["recommended_emi"] = emi_on_price["monthly_emi"]
-            result["emi_to_income_ratio"] = round(
-                emi_on_price["monthly_emi"] / monthly_income, 3
+            # Percentage of gross monthly income consumed by the target property.
+            emi_share_pct = (
+                round(emi_on_price["monthly_emi"] / monthly_income * 100, 2)
+                if monthly_income > 0 else 0.0
             )
+            result["emi_to_income_ratio"] = emi_share_pct
+            result["max_emi_share_of_income_pct"] = emi_share_pct
             result["affordable"] = emi_on_price["monthly_emi"] <= result["max_monthly_emi"]
         return result
 

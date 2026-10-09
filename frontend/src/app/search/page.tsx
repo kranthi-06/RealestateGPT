@@ -14,34 +14,30 @@ import {
   TabsContent,
 } from "@/components/ui/tabs";
 import { Select } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { PropertyListRow } from "@/components/property-list-row";
-import { FilterSidebar, FilterSidebarSkeleton } from "@/components/filter-sidebar";
+import { HorizontalFilters } from "@/components/horizontal-filters";
 import PropertyCard from "@/components/property-card";
 import WebDiscoveryCard from "@/components/web-discovery-card";
 import { ApiError, searchApi } from "@/lib/api";
 import {
   Search,
-  SlidersHorizontal,
   MapPin,
   Building2,
   Loader2,
-  Navigation,
   LocateFixed,
   LocateOff,
   Clock3,
-  Command,
   Sparkles,
   Globe2,
   X,
   LayoutList,
   LayoutGrid,
+  Navigation,
 } from "lucide-react";
 import type { SearchFilters, SearchSectionsResponse, Property, SearchIntent, UnifiedSearchResponse } from "@/lib/types";
 
 type LocState = "idle" | "pending" | "granted" | "denied" | "timeout" | "unsupported";
 
-function NearMeCard({
+function NearMeBanner({
   locState,
   userCoords,
   onRequest,
@@ -171,7 +167,7 @@ function IntentChips({ intent }: { intent: SearchIntent | null }) {
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2" aria-label="Interpreted search">
       <span className="flex items-center gap-1 text-xs text-muted-foreground">
-        <Command className="h-3 w-3" /> Interpreted
+        <Sparkles className="h-3 w-3" /> Interpreted
       </span>
       {chips.map((chip) => (
         <Badge
@@ -312,9 +308,10 @@ function VerifiedSections({
             ) : (
               <div className="space-y-2">
                 {items.map((property) => (
-                  <PropertyListRow
+                  <PropertyCard
                     key={property.id}
                     property={property}
+                    variant="list"
                     onCompareToggle={onCompareToggle}
                     isCompareSelected={compareIds.has(property.id)}
                   />
@@ -328,7 +325,7 @@ function VerifiedSections({
   );
 }
 
-function SearchPageContent() {
+export function SearchPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -357,6 +354,8 @@ function SearchPageContent() {
   const fetchAbortRef = useRef<AbortController | null>(null);
   const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastClientErrorRef = useRef<number>(0);
+  const requestCacheRef = useRef<Map<string, { timestamp: number; data: UnifiedSearchResponse }>>(new Map());
+  const inFlightRef = useRef<Set<string>>(new Set());
 
   useEffect(() => { filtersRef.current = filters; }, [filters]);
   useEffect(() => { coordsRef.current = userCoords; }, [userCoords]);
@@ -430,6 +429,22 @@ function SearchPageContent() {
     if (!isUserInitiated && lastClientErrorRef.current > 0 && now - lastClientErrorRef.current < 5000) {
       return;
     }
+
+    const cacheKey = requestSignature;
+    const cached = requestCacheRef.current.get(cacheKey);
+    if (cached && now - cached.timestamp < 30000) {
+      setSectionsData({ sections: cached.data.sections });
+      setUnifiedData(cached.data);
+      setIntent(cached.data.parsed || null);
+      setLoading(false);
+      return;
+    }
+
+    if (inFlightRef.current.has(cacheKey)) {
+      return;
+    }
+    inFlightRef.current.add(cacheKey);
+
     if (fetchAbortRef.current) {
       fetchAbortRef.current.abort();
     }
@@ -476,6 +491,7 @@ function SearchPageContent() {
         },
         controller.signal
       );
+      requestCacheRef.current.set(cacheKey, { timestamp: now, data });
       setSectionsData({ sections: data.sections });
       setUnifiedData(data);
       setIntent(data.parsed || null);
@@ -494,6 +510,8 @@ function SearchPageContent() {
           setSearchError("Please sign in again before searching.");
         } else if (err.status === 422) {
           setSearchError("Check your search and filters, then try again.");
+        } else if (err.status === 429) {
+          setSearchError("Search is rate-limited. Please wait a moment and try again.");
         } else if (err.status >= 500) {
           setSearchError("We couldn't load property results. Please try again.");
         } else {
@@ -503,6 +521,7 @@ function SearchPageContent() {
         setSearchError("We couldn't load property results. Check your connection and try again.");
       }
     } finally {
+      inFlightRef.current.delete(cacheKey);
       if (fetchAbortRef.current === controller) {
         fetchAbortRef.current = null;
       }
@@ -510,7 +529,7 @@ function SearchPageContent() {
         setLoading(false);
       }
     }
-  }, []);
+  }, [requestSignature]);
 
   useEffect(() => {
     if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
@@ -564,6 +583,7 @@ function SearchPageContent() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Search Bar - Sticky at top */}
       <div className="sticky top-[65px] z-30 border-b border-border/60 bg-background/90 backdrop-blur">
         <div className="page-shell py-3">
           <form onSubmit={onSubmit} className="flex flex-col gap-2 sm:flex-row">
@@ -577,43 +597,23 @@ function SearchPageContent() {
                 aria-label="Search properties"
               />
             </div>
-            <div className="flex gap-2">
-              <Sheet>
-                <SheetTrigger >
-                  <Button type="button" variant="outline" className="h-10 rounded-xl px-3 gap-1.5 lg:hidden">
-                    <SlidersHorizontal className="h-4 w-4" />
-                    <span className="hidden sm:inline">Filters</span>
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="left" className="w-[320px] sm:w-[360px] overflow-y-auto">
-                  <SheetHeader>
-                    <SheetTitle className="text-sm">Filters</SheetTitle>
-                  </SheetHeader>
-                  <div className="mt-4">
-                    <FilterSidebar
-                      filters={filters}
-                      onChange={(next) => setFilters(next)}
-                      onReset={resetFilters}
-                    />
-                  </div>
-                </SheetContent>
-              </Sheet>
-              <Button type="submit" className="h-10 rounded-xl px-5 gap-1.5 text-sm font-medium shadow-sm">
-                {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Search className="h-4 w-4" />
-                )}
-                Search
-              </Button>
-            </div>
+            <Button type="submit" className="h-10 rounded-xl px-5 gap-1.5 text-sm font-medium shadow-sm">
+              {loading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
+              Search
+            </Button>
           </form>
         </div>
       </div>
 
+      {/* Main Content */}
       <div className="page-shell py-5">
+        {/* Near Me Banner */}
         <div className="mb-4">
-          <NearMeCard
+          <NearMeBanner
             locState={locState}
             userCoords={userCoords}
             onRequest={requestLocation}
@@ -622,7 +622,17 @@ function SearchPageContent() {
           />
         </div>
 
-        <div className="flex items-start gap-2 rounded-xl border border-border/50 bg-card/40 px-3 py-2 text-xs">
+        {/* Horizontal Filters */}
+        <div className="mb-4">
+          <HorizontalFilters
+            filters={filters}
+            onChange={(next) => setFilters(next)}
+            onReset={resetFilters}
+          />
+        </div>
+
+        {/* Include Web Toggle */}
+        <div className="mb-4 flex items-start gap-2 rounded-xl border border-border/50 bg-card/40 px-3 py-2 text-xs">
           <input
             id="include-web"
             type="checkbox"
@@ -636,8 +646,9 @@ function SearchPageContent() {
           </label>
         </div>
 
+        {/* Compare Bar */}
         {compareIds.size > 0 && (
-          <div className="sticky top-[118px] z-20 mt-4 mb-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/95 p-3 shadow-sm backdrop-blur-md">
+          <div className="sticky top-[118px] z-20 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/95 p-3 shadow-sm backdrop-blur-md">
             <div className="flex items-center gap-2 text-sm font-medium">
               <Badge variant="default" className="tabular-nums px-2 py-0.5 text-[11px]">
                 {compareIds.size}
@@ -668,191 +679,176 @@ function SearchPageContent() {
           </div>
         )}
 
-        <div className="mt-5 grid gap-6 lg:grid-cols-[280px_1fr]">
-          <aside className="hidden lg:block">
-            <div className="sticky top-[122px]">
-              {loading ? (
-                <FilterSidebarSkeleton />
-              ) : (
-                <FilterSidebar
-                  filters={filters}
-                  onChange={(next) => setFilters(next)}
-                  onReset={resetFilters}
-                />
-              )}
+        {/* Results */}
+        <main className="min-w-0">
+          {loading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Card key={i}>
+                  <CardContent className="flex gap-4 p-3.5">
+                    <Skeleton className="h-24 w-32 shrink-0 rounded-lg sm:block" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <Skeleton className="h-4 w-2/3" />
+                      <Skeleton className="h-3 w-1/2" />
+                      <Skeleton className="h-3 w-full" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-          </aside>
+          ) : searchError ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+                <Building2 className="h-14 w-14 text-muted-foreground/30" />
+                <h3 className="mt-4 text-base font-semibold text-foreground">
+                  Search is temporarily unavailable
+                </h3>
+                <p className="mt-2 max-w-sm text-sm text-muted-foreground">{searchError}</p>
+                <div className="mt-5 flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fetchProperties({ isUserInitiated: true })}
+                  >
+                    Retry search
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={clearSearch}>
+                    Clear
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (sectionsData && sectionsData.sections.length > 0) ||
+            (unifiedData && unifiedData.web_discoveries.length > 0) ? (
+            <>
+              <IntentChips intent={intent} />
 
-          <main className="min-w-0">
-            {loading ? (
-              <div className="space-y-3">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <Card key={i}>
-                    <CardContent className="flex gap-4 p-3.5">
-                      <Skeleton className="h-24 w-32 shrink-0 rounded-lg sm:block" />
-                      <div className="min-w-0 flex-1 space-y-2">
-                        <Skeleton className="h-4 w-2/3" />
-                        <Skeleton className="h-3 w-1/2" />
-                        <Skeleton className="h-3 w-full" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            ) : searchError ? (
-              <Card>
-                <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-                  <Building2 className="h-14 w-14 text-muted-foreground/30" />
-                  <h3 className="mt-4 text-base font-semibold text-foreground">
-                    Search is temporarily unavailable
-                  </h3>
-                  <p className="mt-2 max-w-sm text-sm text-muted-foreground">{searchError}</p>
-                  <div className="mt-5 flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => fetchProperties({ isUserInitiated: true })}
+              {(unifiedData && (unifiedData.verified_total > 0 || unifiedData.web_total > 0)) && (
+                <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+                  <Badge variant="outline" className="rounded-md tabular-nums">
+                    {unifiedData.verified_total} Verified
+                  </Badge>
+                  {unifiedData.web_total > 0 && (
+                    <Badge
+                      variant="secondary"
+                      className="rounded-md bg-amber-500/15 text-amber-800 tabular-nums"
                     >
-                      Retry search
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={clearSearch}>
-                      Clear
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : (sectionsData && sectionsData.sections.length > 0) ||
-              (unifiedData && unifiedData.web_discoveries.length > 0) ? (
-              <>
-                <IntentChips intent={intent} />
-
-                {(unifiedData && (unifiedData.verified_total > 0 || unifiedData.web_total > 0)) && (
-                  <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
-                    <Badge variant="outline" className="rounded-md tabular-nums">
-                      {unifiedData.verified_total} Verified
+                      {unifiedData.web_total} Web discoveries
                     </Badge>
-                    {unifiedData.web_total > 0 && (
-                      <Badge
-                        variant="secondary"
-                        className="rounded-md bg-amber-500/15 text-amber-800 tabular-nums"
-                      >
-                        {unifiedData.web_total} Web discoveries
-                      </Badge>
-                    )}
-                  </div>
-                )}
+                  )}
+                </div>
+              )}
 
-                {webNotice}
+              {webNotice}
 
-                {sectionsData?.sections && sectionsData.sections.length > 0 && (
-                  <Tabs defaultValue="verified" className="w-full">
-                    <TabsList variant="line" className="mb-3 h-auto w-full justify-start rounded-none border-b border-border p-0">
-                      <TabsTrigger value="verified" className="h-8 text-xs">
-                        Verified ({totalCount})
-                      </TabsTrigger>
-                      {unifiedData && unifiedData.web_discoveries.length > 0 && (
-                        <TabsTrigger value="web" className="h-8 text-xs">
-                          Web ({unifiedData.web_discoveries.length})
-                        </TabsTrigger>
-                      )}
-                    </TabsList>
-
-                    <TabsContent value="verified">
-                      <ResultHeader
-                        totalCount={totalCount}
-                        viewMode={viewMode}
-                        onViewModeChange={setViewMode}
-                        sort={sort}
-                        onSortChange={setSort}
-                      />
-                      <VerifiedSections
-                        sections={sectionsData.sections}
-                        onCompareToggle={toggleCompare}
-                        compareIds={compareIds}
-                        viewMode={viewMode}
-                        sort={sort}
-                      />
-                    </TabsContent>
-
+              {sectionsData?.sections && sectionsData.sections.length > 0 && (
+                <Tabs defaultValue="verified" className="w-full">
+                  <TabsList variant="line" className="mb-3 h-auto w-full justify-start rounded-none border-b border-border p-0">
+                    <TabsTrigger value="verified" className="h-8 text-xs">
+                      Verified ({totalCount})
+                    </TabsTrigger>
                     {unifiedData && unifiedData.web_discoveries.length > 0 && (
-                      <TabsContent value="web">
-                        <div className="mb-3 flex items-center gap-2">
-                          <Badge
-                            variant="secondary"
-                            className="rounded-md bg-amber-500/15 text-amber-800 text-xs"
-                          >
-                            <Globe2 className="h-3.5 w-3.5" /> Web Discovery
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">
-                            · {unifiedData.metadata?.cache_hit ? "cached" : "live search"}
-                          </span>
-                        </div>
-                        <p className="mb-4 text-xs text-muted-foreground/90">
-                          These listings were discovered from web sources and are not verified inventory.
-                          Check the original source for current availability.
-                        </p>
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                          {unifiedData.web_discoveries.map((d) => (
-                            <WebDiscoveryCard key={d.id} discovery={d} />
-                          ))}
-                        </div>
-                      </TabsContent>
+                      <TabsTrigger value="web" className="h-8 text-xs">
+                        Web ({unifiedData.web_discoveries.length})
+                      </TabsTrigger>
                     )}
-                  </Tabs>
-                )}
+                  </TabsList>
 
-                {(!sectionsData || sectionsData.sections.length === 0) &&
-                  unifiedData &&
-                  unifiedData.web_discoveries.length > 0 && (
-                    <>
+                  <TabsContent value="verified">
+                    <ResultHeader
+                      totalCount={totalCount}
+                      viewMode={viewMode}
+                      onViewModeChange={setViewMode}
+                      sort={sort}
+                      onSortChange={setSort}
+                    />
+                    <VerifiedSections
+                      sections={sectionsData.sections}
+                      onCompareToggle={toggleCompare}
+                      compareIds={compareIds}
+                      viewMode={viewMode}
+                      sort={sort}
+                    />
+                  </TabsContent>
+
+                  {unifiedData && unifiedData.web_discoveries.length > 0 && (
+                    <TabsContent value="web">
                       <div className="mb-3 flex items-center gap-2">
                         <Badge
                           variant="secondary"
                           className="rounded-md bg-amber-500/15 text-amber-800 text-xs"
                         >
-                          <Globe2 className="h-3.5 w-3.5" /> Web Discoveries
+                          <Globe2 className="h-3.5 w-3.5" /> Web Discovery
                         </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          · {unifiedData.metadata?.cache_hit ? "cached" : "live search"}
+                        </span>
                       </div>
+                      <p className="mb-4 text-xs text-muted-foreground/90">
+                        These listings were discovered from web sources and are not verified inventory.
+                        Check the original source for current availability.
+                      </p>
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                         {unifiedData.web_discoveries.map((d) => (
                           <WebDiscoveryCard key={d.id} discovery={d} />
                         ))}
                       </div>
-                    </>
+                    </TabsContent>
                   )}
-              </>
-            ) : webNotice ? (
-              <div>
-                <IntentChips intent={intent} />
-                {webNotice}
-              </div>
-            ) : (
-              <Card>
-                <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-                  <MapPin className="h-14 w-14 text-muted-foreground/30" />
-                  <h3 className="mt-4 text-base font-semibold text-foreground">No properties found</h3>
-                  <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-                    Nothing in the current inventory matches these criteria. Adjust location, filters, or
-                    budget — or ask the AI assistant for guidance.
-                  </p>
-                  <div className="mt-5 flex gap-2">
-                    <Button variant="outline" size="sm" onClick={clearSearch}>
-                      Clear search
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => router.push("/assistant")}
-                      className="gap-1"
-                    >
-                      <Sparkles className="h-4 w-4" />
-                      Ask assistant
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </main>
-        </div>
+                </Tabs>
+              )}
+
+              {(!sectionsData || sectionsData.sections.length === 0) &&
+                unifiedData &&
+                unifiedData.web_discoveries.length > 0 && (
+                  <>
+                    <div className="mb-3 flex items-center gap-2">
+                      <Badge
+                        variant="secondary"
+                        className="rounded-md bg-amber-500/15 text-amber-800 text-xs"
+                      >
+                        <Globe2 className="h-3.5 w-3.5" /> Web Discoveries
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {unifiedData.web_discoveries.map((d) => (
+                        <WebDiscoveryCard key={d.id} discovery={d} />
+                      ))}
+                    </div>
+                  </>
+                )}
+            </>
+          ) : webNotice ? (
+            <div>
+              <IntentChips intent={intent} />
+              {webNotice}
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+                <MapPin className="h-14 w-14 text-muted-foreground/30" />
+                <h3 className="mt-4 text-base font-semibold text-foreground">No properties found</h3>
+                <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+                  Nothing in the current inventory matches these criteria. Adjust location, filters, or
+                  budget — or ask the AI assistant for guidance.
+                </p>
+                <div className="mt-5 flex gap-2">
+                  <Button variant="outline" size="sm" onClick={clearSearch}>
+                    Clear search
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => router.push("/assistant")}
+                    className="gap-1"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    Ask assistant
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </main>
       </div>
     </div>
   );

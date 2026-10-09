@@ -16,27 +16,48 @@ const placeIcon = L.divIcon({
   iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -8],
 });
 
-export default function OpenStreetMapCanvas({ markers }: { markers: MapMarker[] }) {
+export default function OpenStreetMapCanvas({
+  markers,
+  center,
+  zoom,
+}: {
+  markers: MapMarker[];
+  center: [number, number];
+  zoom: number;
+}) {
   const validMarkers = markers.filter(
     (marker): marker is MapMarker & { latitude: number; longitude: number } =>
       marker.latitude != null && marker.longitude != null,
   );
-  const center: [number, number] = validMarkers[0]
-    ? [validMarkers[0].latitude, validMarkers[0].longitude]
-    : [20.5937, 78.9629];
 
   return (
     <div className="h-64 overflow-hidden rounded-xl border border-border/70">
-      <MapContainer center={center} zoom={validMarkers.length ? 13 : 5} zoomControl={false} className="h-full w-full" scrollWheelZoom>
+      <MapContainer
+        center={center}
+        zoom={zoom}
+        zoomControl={false}
+        className="h-full w-full"
+        scrollWheelZoom
+      >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | &copy; <a href="https://www.geoapify.com">Geoapify</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <ZoomControl position="bottomright" />
         {validMarkers.map((marker) => (
-          <Marker key={`${marker.kind ?? "property"}-${marker.id}`} position={[marker.latitude, marker.longitude]} icon={marker.kind === "place" ? placeIcon : propertyIcon}>
+          <Marker
+            key={`${marker.kind ?? "property"}-${marker.id}`}
+            position={[marker.latitude, marker.longitude]}
+            icon={marker.kind === "place" ? placeIcon : propertyIcon}
+          >
             <Popup>
-              <strong>{marker.title}</strong>{marker.subtitle ? <><br />{marker.subtitle}</> : null}
+              <strong>{marker.title}</strong>
+              {marker.subtitle ? (
+                <>
+                  <br />
+                  {marker.subtitle}
+                </>
+              ) : null}
             </Popup>
           </Marker>
         ))}

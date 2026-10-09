@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth-context";
+import { ApiError } from "@/lib/api";
 import { Building2, Loader2, Eye, EyeOff, ShieldCheck, UserRound } from "lucide-react";
 
 export default function LoginPage() {
@@ -35,12 +36,20 @@ export default function LoginPage() {
     try {
       const signedIn = await login(email, password);
       if (loginRole === "admin" && signedIn.role !== "admin") {
-        logout();
-        throw new Error("This account does not have administrator access.");
+        await logout();
+        setError("This account does not have administrator access.");
+        return;
       }
       router.push(loginRole === "admin" ? "/admin" : nextPath());
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      const message = err instanceof Error ? err.message : "Login failed";
+      if (err instanceof ApiError && err.status === 429) {
+        setError("Too many sign-in attempts. Please wait a minute and try again.");
+      } else if (err instanceof ApiError && err.status === 401) {
+        setError("The email or password is incorrect. Please try again.");
+      } else {
+        setError(message || "Login failed. Please check your details and try again.");
+      }
     } finally {
       setLoading(false);
     }

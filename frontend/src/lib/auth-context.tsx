@@ -6,12 +6,11 @@ import { authApi } from "@/lib/api";
 
 interface AuthContextType {
   user: User | null;
-  token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<User>;
   register: (email: string, fullName: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
 
@@ -19,47 +18,59 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load stored auth on mount
+  /**
+   * Session restoration uses the HttpOnly session cookie set by the backend.
+   *
+   * The JWT is intentionally NOT kept in localStorage: anything readable from
+   * JavaScript is exfiltrable by an XSS bug. The cookie is HttpOnly, so the
+   * browser attaches it and script cannot read it.
+   */
   useEffect(() => {
+    let cancelled = false;
     queueMicrotask(() => {
-      const storedToken = localStorage.getItem("auth_token");
-      if (!storedToken) { setIsLoading(false); return; }
-      setToken(storedToken);
-      authApi.getProfile().then(setUser).catch(() => {
-        localStorage.removeItem("auth_token"); setToken(null);
-      }).finally(() => setIsLoading(false));
+      authApi
+        .getProfile()
+        .then((profile) => {
+          if (!cancelled) setUser(profile);
+        })
+        .catch(() => {
+          if (!cancelled) setUser(null);
+        })
+        .finally(() => {
+          if (!cancelled) setIsLoading(false);
+        });
     });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
     const response = await authApi.login({ email, password });
-    localStorage.setItem("auth_token", response.access_token);
-    setToken(response.access_token);
     setUser(response.user);
     return response.user;
   }, []);
 
-  const register = useCallback(
-    async (email: string, fullName: string, password: string) => {
-      const response = await authApi.register({
-        email,
-        full_name: fullName,
-        password,
-      });
-      localStorage.setItem("auth_token", response.access_token);
-      setToken(response.access_token);
-      setUser(response.user);
-    },
-    []
-  );
+  const register = useCallback(async (email: string, fullName: string, password: string) => {
+    const response = await authApi.register({
+      email,
+      full_name: fullName,
+      password,
+    });
+    setUser(response.user);
+  }, []);
 
-  const logout = useCallback(() => {
-    localStorage.removeItem("auth_token");
-    setToken(null);
-    setUser(null);
+  const logout = useCallback(async () => {
+    // Clear the HttpOnly cookie server-side first, then drop local state.
+    try {
+      await authApi.logout();
+    } catch {
+      // Even if the request fails, drop local state so the UI signs out.
+    } finally {
+      setUser(null);
+    }
   }, []);
 
   const refreshProfile = useCallback(async () => {
@@ -67,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const profile = await authApi.getProfile();
       setUser(profile);
     } catch {
-      // ignore
+      setUser(null);
     }
   }, []);
 
@@ -75,7 +86,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
-        token,
         isLoading,
         isAuthenticated: !!user,
         login,

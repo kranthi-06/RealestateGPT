@@ -15,13 +15,32 @@ def calculate_emi(principal: float, annual_interest_rate: float, tenure_years: f
 def calculate_affordability(monthly_income: float, existing_obligations: float = 0.0,
                             down_payment: float = 0.0, annual_interest_rate: float = 7.5,
                             tenure_years: float = 20.0, max_income_ratio: float = 0.5) -> dict:
-    max_emi = max(0.0, monthly_income - existing_obligations) * max_income_ratio
+    """Affordability from net income, obligations and a maximum EMI share.
+
+    ``emi_to_income_ratio`` is returned as a PERCENTAGE (0-100), not a
+    fraction, so that the API, the UI and the assistant never mix units.
+    """
+    net_income = max(0.0, monthly_income - existing_obligations)
+    max_emi = net_income * max_income_ratio
     months, rate = int(round(tenure_years * 12)), annual_interest_rate / 1200
-    loan = max_emi * months if rate == 0 else max_emi * ((1 + rate) ** months - 1) / (rate * (1 + rate) ** months)
+    if rate == 0:
+        loan = max_emi * months
+    else:
+        loan = max_emi * ((1 + rate) ** months - 1) / (rate * (1 + rate) ** months)
+    emi_share_pct = round((max_emi / monthly_income * 100) if monthly_income > 0 else 0.0, 2)
     return {"max_monthly_emi": round(max_emi, 2), "max_loan_amount": round(loan, 2),
             "max_property_price": round(loan + down_payment, 2), "recommended_emi": round(max_emi, 2),
-            "emi_to_income_ratio": round(max_income_ratio, 3), "affordable": loan > 0,
-            "assumptions": [f"Interest rate {annual_interest_rate}% p.a. (illustrative)", f"Tenure of {int(tenure_years)} years", "Lender eligibility can differ."]}
+            "emi_to_income_ratio": emi_share_pct,
+            "max_emi_share_of_income_pct": emi_share_pct,
+            "affordable": loan > 0,
+            "assumptions": [
+                f"Monthly income of ₹{monthly_income:,.0f} less existing obligations of ₹{existing_obligations:,.0f} gives ₹{net_income:,.0f} of net monthly income.",
+                f"Maximum EMI is capped at {round(max_income_ratio * 100)}% of net monthly income (₹{max_emi:,.0f}).",
+                f"Interest rate {annual_interest_rate}% p.a. on a reducing balance (illustrative).",
+                f"Tenure of {int(tenure_years)} years ({months} monthly instalments).",
+                "No processing fee, insurance, stamp duty or registration cost is included.",
+                "This is an estimate, not a loan offer; lender eligibility can differ.",
+            ]}
 
 
 def calculate_rental_yield(property_price: float, monthly_rent: float, annual_expenses_pct: float = 0.0) -> dict:

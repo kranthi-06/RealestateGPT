@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import { Brain, Loader2, Send, Sparkles, Search, Home, TrendingUp, GitCompare, AlertCircle, MessageSquare, Bot, Zap, MapPin } from "lucide-react";
+import { Brain, Loader2, Send, Sparkles, Search, Home, TrendingUp, GitCompare, AlertCircle, MessageSquare, Bot, Zap, MapPin, Globe, BarChart3, Calculator, Navigation } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,27 +20,65 @@ type ChatMessage = {
 };
 
 const QUICK_ACTIONS = [
-  { label: "Find 2BHK under ₹70L", prompt: "Find a 2BHK in Hyderabad under 70 lakh near metro", icon: Home },
-  { label: "Family home near metro", prompt: "Show a family-friendly apartment in Bangalore under 1 crore near good schools", icon: Search },
-  { label: "Investment rental yield", prompt: "Find an investment property with good rental potential and appreciation", icon: TrendingUp },
-  { label: "Compare areas", prompt: "Compare Whitefield vs Koramangala for a 3BHK purchase", icon: GitCompare },
-  { label: "Explain price trends", prompt: "Why are prices rising in Gachibowli?", icon: AlertCircle },
+  {
+    label: "2BHK for rent in Nandyal",
+    prompt: "Find two-bedroom houses for rent in Nandyal",
+    icon: Home,
+  },
+  {
+    label: "Compare prices in Hyderabad",
+    prompt: "Compare apartment prices in Hyderabad",
+    icon: GitCompare,
+  },
+  {
+    label: "EMI for ₹40 lakh",
+    prompt: "What is the estimated EMI for a ₹40 lakh property?",
+    icon: TrendingUp,
+  },
+  {
+    label: "Hospitals & schools near me",
+    prompt: "Find hospitals and schools near this location",
+    icon: MapPin,
+  },
+  {
+    label: "Websites listing here",
+    prompt: "Show real-estate websites listing properties in this area",
+    icon: Globe,
+  },
 ];
 
 function ToolCallBadge({ tool }: { tool: string }) {
   const icons: Record<string, React.ComponentType<{ className?: string }>> = {
     search_properties: Search,
+    search_web_properties: Globe,
+    get_property: Search,
     get_price_intelligence: TrendingUp,
-    get_nearby: MapPin,
+    get_market_stats: BarChart3,
+    nearby_places: MapPin,
+    find_nearby_places_by_location: MapPin,
     compare_properties: GitCompare,
     get_area_intelligence: Brain,
     calculate_affordability: Zap,
+    calculate_emi: Calculator,
+    calculate_route: Navigation,
   };
   const Icon = icons[tool] || MessageSquare;
+  const labelMap: Record<string, string> = {
+    search_properties: "Verified listings",
+    search_web_properties: "Web discovery",
+    get_property: "Property details",
+    get_market_stats: "Market data",
+    nearby_places: "Near a property",
+    find_nearby_places_by_location: "Near this location",
+    compare_properties: "Comparison",
+    calculate_affordability: "Affordability",
+    calculate_emi: "EMI",
+    calculate_route: "Route",
+  };
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-slate-100 text-slate-600 rounded-full border border-slate-200">
+    <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
       <Icon className="h-3 w-3" />
-      {tool.replace(/_/g, " ")}
+      {labelMap[tool] ?? tool.replace(/_/g, " ")}
     </span>
   );
 }
@@ -178,6 +216,17 @@ export default function AssistantPage() {
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {message.toolCalls.map((tool) => (
                             <ToolCallBadge key={tool} tool={tool} />
+                          ))}
+                        </div>
+                      )}
+
+                      {message.response?.warnings && message.response.warnings.length > 0 && (
+                        <div className="mt-2 rounded-lg border border-amber-200/70 bg-amber-50/60 px-3 py-2 text-xs text-amber-900">
+                          {message.response.warnings.map((warning, i) => (
+                            <p key={i} className="flex items-start gap-1.5">
+                              <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                              {warning}
+                            </p>
                           ))}
                         </div>
                       )}

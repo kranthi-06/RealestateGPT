@@ -32,6 +32,8 @@ import type {
   PriceFairness,
   RentalYield,
   Roi,
+  MarketSnapshotResponse,
+  MarketSummaryResponse,
 } from "./types";
 import { resolveApiBase } from "./api-base";
 
@@ -48,7 +50,7 @@ export class ApiError extends Error {
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("auth_token");
+  return null;
 }
 
 async function request<T>(
@@ -60,6 +62,8 @@ async function request<T>(
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
+  // A bearer token is only attached when one is explicitly supplied. The browser
+  // session uses the HttpOnly cookie below, so no token is ever stored in JS.
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
@@ -67,6 +71,8 @@ async function request<T>(
   const res = await fetch(`${API_BASE}/api/v1${endpoint}`, {
     ...options,
     headers,
+    // Required so the backend's HttpOnly session cookie is sent and stored.
+    credentials: "include",
   });
 
   if (!res.ok) {
@@ -99,6 +105,8 @@ export const authApi = {
 
   login: (data: { email: string; password: string }) =>
     request<TokenResponse>("/auth/login", { method: "POST", body: JSON.stringify(data) }),
+
+  logout: () => request<{ message: string }>("/auth/logout", { method: "POST" }),
 
   getProfile: () => request<User>("/auth/me"),
 
@@ -284,6 +292,32 @@ export const financeApi = {
     request<Roi>("/finance/roi", { method: "POST", body: JSON.stringify(data) }),
   estimate: (propertyId: number) => request<PriceEstimate>(`/finance/properties/${propertyId}/estimate`),
   fairness: (propertyId: number) => request<PriceFairness>(`/finance/properties/${propertyId}/fairness`),
+};
+
+// ─── Market intelligence ───────────────────────────────────────────────
+export const marketApi = {
+  insights: (params: {
+    city?: string;
+    locality?: string;
+    listing_type?: "sale" | "rent";
+    property_type?: string;
+    bedrooms?: number;
+    min_price?: number;
+    max_price?: number;
+    include_history?: boolean;
+  }) => {
+    const search = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") {
+        search.append(key, String(value));
+      }
+    });
+    return request<MarketSnapshotResponse>(`/market/insights?${search.toString()}`);
+  },
+  summary: (city?: string) =>
+    request<MarketSummaryResponse>(
+      `/market/summary${city ? `?city=${encodeURIComponent(city)}` : ""}`
+    ),
 };
 
 // â”€â”€â”€ Admin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

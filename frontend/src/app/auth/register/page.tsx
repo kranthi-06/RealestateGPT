@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth-context";
+import { ApiError } from "@/lib/api";
 import { Building2, Loader2, Eye, EyeOff } from "lucide-react";
 
 export default function RegisterPage() {
@@ -42,7 +43,15 @@ export default function RegisterPage() {
       await register(email, fullName, password);
       router.push(nextPath());
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Registration failed");
+      if (err instanceof ApiError && err.status === 409) {
+        setError("An account with this email already exists. Try signing in instead.");
+      } else if (err instanceof ApiError && err.status === 422) {
+        setError("Check your details: email must be valid and the password needs at least 8 characters including a letter and a digit.");
+      } else if (err instanceof ApiError && err.status === 429) {
+        setError("Too many attempts. Please wait a minute and try again.");
+      } else {
+        setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
+      }
     } finally {
       setLoading(false);
     }

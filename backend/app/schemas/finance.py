@@ -35,7 +35,9 @@ class AffordabilityResponse(BaseModel):
     max_loan_amount: float
     max_property_price: float
     recommended_emi: float
+    """EMI as a percentage of gross monthly income (0-100), not a fraction."""
     emi_to_income_ratio: float
+    max_emi_share_of_income_pct: float = 0.0
     assumptions: List[str] = []
     affordable: bool = True
 
