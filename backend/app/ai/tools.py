@@ -17,7 +17,7 @@ from app.finance.calculators import (
     calculate_affordability, calculate_emi, calculate_rental_yield, calculate_roi,
 )
 from app.location.service import LocationService, haversine_km
-from app.provider_registry.api import get_web_search_provider
+from app.providers.web_search import get_web_search_provider
 from app.repositories.property_repo import PropertyRepository
 from app.services.finance_service import FinanceService
 
