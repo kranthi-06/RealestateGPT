@@ -54,50 +54,45 @@ class WebSearchLimiter:
         controller layer when a user window is exhausted.
         """
         user_key = (user_key or "anonymous")[:120]
-
-        for _ in range(300):  # bounded wait (~30s)
+        max_attempts = 150  # ~15 seconds maximum wait
+        for _ in range(max_attempts):
             now = time.monotonic()
-            user_wait = 0.0
-            global_wait = 0.0
-            active = 0
             with self._lock:
-                active = self._active_requests
-                if active >= self._concurrency:
-                    user_wait = self._lock_free_wait(self._users[user_key], now, self._per_user_rpm, 60.0)
-                    if user_wait > 30:
-                        raise WebSearchRateLimitError(
-                            "Too many web discovery requests. Please try again shortly.",
-                            retry_after=user_wait,
-                        )
-                    global_wait = self._lock_free_wait(self._global, now, self._global_rpm, 60.0)
+                # 1) Check per-user rate limit
+                user_wait = self._window_wait(self._users[user_key], now, self._per_user_rpm, 60.0)
+                if user_wait > 30.0:
+                    raise WebSearchRateLimitError(
+                        "Too many web discovery requests. Please try again shortly.",
+                        retry_after=user_wait,
+                    )
 
-            # Sleep WITHOUT holding the lock so a blocked writer never stalls
-            # every concurrent waiter.
-            if global_wait > 0:
-                time.sleep(min(global_wait, 0.1))
-                continue
+                # 2) Check global provider rate limit
+                global_wait = self._window_wait(self._global, now, self._global_rpm, 60.0)
 
-            if active < self._concurrency:
-                with self._lock:
-                    if self._active_requests < self._concurrency:
-                        self._active_requests += 1
-                        return
-                    # Another thread snuck in; re-evaluate under the lock.
-                    self._active_requests -= 1
-                continue
+                # 3) Check concurrency slot
+                if self._active_requests < self._concurrency and user_wait <= 0 and global_wait <= 0:
+                    self._active_requests += 1
+                    self._users[user_key].events.append(now)
+                    self._global.events.append(now)
+                    return
 
-            # Check the user window again in case our wait was exceeded.
-            with self._lock:
-                user_wait = self._lock_free_wait(self._users[user_key], now, self._per_user_rpm, 60.0)
-            if user_wait > 0:
-                raise WebSearchRateLimitError(
-                    "Too many web discovery requests. Please try again shortly.",
-                    retry_after=user_wait,
-                )
+                sleep_time = max(0.05, min(global_wait or 0.05, user_wait or 0.05, 0.2))
+
+            time.sleep(sleep_time)
+
         raise WebSearchRateLimitError(
             "Web search provider is busy. Please try again shortly.",
             retry_after=1.0,
         )
+
+    @staticmethod
+    def _window_wait(window: "_Window", now: float, limit: int, window_seconds: float) -> float:
+        cutoff = now - window_seconds
+        while window.events and window.events[0] <= cutoff:
+            window.events.popleft()
+        if len(window.events) >= limit:
+            return max(0.0, window.events[0] + window_seconds - now)
+        return 0.0
 
     @staticmethod
     def _lock_free_wait(window: "_Window", now: float, limit: int, window_seconds: float) -> float:
@@ -141,6 +136,6 @@ def get_web_search_limiter() -> WebSearchLimiter:
         _default_limiter = WebSearchLimiter(
             global_rpm=global_rpm,
             per_user_rpm=DEFAULT_PER_USER_RPM,
-            concurrency=settings.WEB_SEARCH_CONCURRENCY,
+            concurrency=max(6, settings.WEB_SEARCH_CONCURRENCY),
         )
     return _default_limiter

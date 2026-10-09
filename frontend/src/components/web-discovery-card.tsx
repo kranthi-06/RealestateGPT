@@ -1,33 +1,31 @@
 "use client";
 
-import Link from "next/link";
-import Image from "next/image";
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Building2,
   BedDouble,
   MapPin,
   ExternalLink,
   Globe2,
   Clock,
   Heart,
-  Star,
 } from "lucide-react";
 import type { WebDiscoveryCard as WebDiscoveryCardData } from "@/lib/types";
-import { formatPrice, getCurrencySymbol, getBedroomLabel } from "@/lib/format";
+import { formatPrice, getBedroomLabel } from "@/lib/format";
 import { discoveryApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useState, useCallback } from "react";
 
 /**
- * Premium card for WEB-DISCOVERED properties.
+ * Google Search style result card for WEB-DISCOVERED properties.
  *
- * Visually and semantically distinct from verified inventory:
- * - "WEB DISCOVERY" badge (never the verified checkmark)
- * - Source name + discovery freshness (never "Updated X ago")
- * - "View original listing" external CTA that preserves the returned URL
+ * Displays:
+ * - Favicon + Website name + Full breadcrumb URL
+ * - Bold clickable title linking directly to the original website
+ * - Descriptive snippet / summary
+ * - Key property metadata (Price, BHK, Locality)
+ * - Thumbnail image on the right (when available)
+ * - Clickable "View Website" button
  */
 export default function WebDiscoveryCard({
   discovery,
@@ -56,7 +54,7 @@ export default function WebDiscoveryCard({
         }
         onSaveToggle?.();
       } catch {
-        // keep previous state when the persisted update fails
+        // preserve previous state
       } finally {
         setSavingInProgress(false);
       }
@@ -64,148 +62,173 @@ export default function WebDiscoveryCard({
     [isAuthenticated, isSaved, discovery.id, savingInProgress, onSaveToggle]
   );
 
-  const area = discovery.area || discovery.area_sqft;
   const sourceLabel =
-    discovery.source_name || discovery.source_domain || "Web source";
+    discovery.source_name || discovery.source_domain || "Web portal";
+  const domain =
+    discovery.source_domain ||
+    (() => {
+      try {
+        return new URL(discovery.url).hostname.replace("www.", "");
+      } catch {
+        return "website";
+      }
+    })();
+
+  const faviconUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
   const safeImageUrl =
-    discovery.image_url && (discovery.image_url.startsWith("http://") || discovery.image_url.startsWith("https://"))
+    discovery.image_url &&
+    (discovery.image_url.startsWith("http://") || discovery.image_url.startsWith("https://"))
       ? discovery.image_url
       : null;
-  const isPersistedId =
-    typeof discovery.id === "string" &&
-    /^[0-9a-fA-F]{24}$/.test(discovery.id);
+
+  // Format breadcrumb-like URL: e.g. https://www.magicbricks.com › 2-bhk-flats...
+  const displayUrl = (() => {
+    try {
+      const u = new URL(discovery.url);
+      const pathParts = u.pathname.split("/").filter(Boolean);
+      const breadcrumb = pathParts.slice(0, 2).join(" › ");
+      return `${u.origin}${breadcrumb ? ` › ${breadcrumb}` : ""}`;
+    } catch {
+      return discovery.url;
+    }
+  })();
+
+  const area = discovery.area || discovery.area_sqft;
 
   return (
-    <Card className="group overflow-hidden border border-amber-300/30 surface-raised hover:border-amber-400/40 hover:-translate-y-1 transition-all duration-300 h-full flex flex-col rounded-[1.25rem]">
-      {/* Image / neutral no-photo state */}
-      <div className="relative h-48 bg-muted overflow-hidden">
-        {safeImageUrl ? (
-          <Image
-            src={safeImageUrl}
-            alt={discovery.title}
-            width={600}
-            height={400}
-            className="object-cover w-full h-full"
-            unoptimized
-          />
-        ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground/50 gap-2">
-            <Building2 className="h-12 w-12" />
-            <span className="text-xs font-medium">No photo available</span>
-          </div>
-        )}
-        {/* Badge: web discovery, never "verified" */}
-        <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
-          <Badge variant="secondary" className="rounded-md bg-amber-500/15 text-amber-800 text-[10px] font-semibold">
-            <Globe2 className="h-3 w-3" />
-            WEB DISCOVERY
-          </Badge>
-          {discovery.category && discovery.category !== "PROPERTY_SALE" && (
-            <Badge variant="secondary" className="rounded-md bg-white/90 text-slate-700 text-[10px] font-semibold">
-              {discovery.category.replaceAll("_", " ")}
+    <div className="group relative rounded-2xl border border-border/80 bg-card p-4 sm:p-5 shadow-xs hover:border-primary/40 hover:shadow-md transition-all duration-200">
+      <div className="flex flex-col sm:flex-row gap-4 justify-between items-start">
+        {/* Main content column */}
+        <div className="flex-1 min-w-0 space-y-2.5">
+          {/* Header row: Favicon + Source name + Breadcrumb */}
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="relative h-6 w-6 shrink-0 overflow-hidden rounded-full border border-border/60 bg-muted/50 p-0.5 flex items-center justify-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={faviconUrl}
+                alt={sourceLabel}
+                className="h-4 w-4 rounded-full object-contain"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = "none";
+                }}
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-semibold text-foreground tracking-tight">
+                  {sourceLabel}
+                </span>
+                <span className="text-[11px] text-muted-foreground/70 truncate max-w-[280px]">
+                  {displayUrl}
+                </span>
+              </div>
+            </div>
+            <Badge
+              variant="outline"
+              className="ml-auto shrink-0 gap-1 border-amber-300/50 bg-amber-50/50 text-[10px] text-amber-800 font-medium"
+            >
+              <Globe2 className="h-3 w-3 text-amber-600" />
+              Web Result
             </Badge>
+          </div>
+
+          {/* Title: Google Search style blue/primary link */}
+          <div>
+            <a
+              href={discovery.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block font-semibold text-base sm:text-lg text-primary hover:underline leading-snug line-clamp-2"
+            >
+              {discovery.title}
+            </a>
+          </div>
+
+          {/* Snippet / Description */}
+          {discovery.description && (
+            <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-3">
+              {discovery.description}
+            </p>
           )}
+
+          {/* Tags row: Price, BHK, Locality, Freshness */}
+          <div className="flex items-center flex-wrap gap-2 pt-1 text-xs">
+            {discovery.price != null && discovery.currency && (
+              <Badge variant="secondary" className="font-semibold text-emerald-800 bg-emerald-50">
+                {formatPrice(discovery.price, discovery.currency)}
+                {discovery.transaction_type === "rent" && " / mo"}
+              </Badge>
+            )}
+            {discovery.bedrooms != null && (
+              <Badge variant="outline" className="gap-1 border-border/80">
+                <BedDouble className="h-3 w-3 text-muted-foreground" />
+                {getBedroomLabel(discovery.bedrooms)}
+              </Badge>
+            )}
+            {(discovery.locality || discovery.city) && (
+              <Badge variant="outline" className="gap-1 border-border/80">
+                <MapPin className="h-3 w-3 text-muted-foreground" />
+                {[discovery.locality, discovery.city].filter(Boolean).join(", ")}
+              </Badge>
+            )}
+            {area != null && area > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {Math.round(area).toLocaleString("en-IN")} sq.ft
+              </span>
+            )}
+          </div>
+
+          {/* Action row: View Website button */}
+          <div className="pt-2 flex items-center gap-2">
+            <a
+              href={discovery.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors shadow-xs"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              View Website
+            </a>
+
+            {isAuthenticated && (
+              <Button
+                size="sm"
+                variant={isSaved ? "secondary" : "outline"}
+                className="h-7 rounded-lg text-xs px-2"
+                onClick={handleSave}
+                disabled={savingInProgress}
+                aria-label={isSaved ? "Remove saved discovery" : "Save discovery"}
+              >
+                <Heart className={`h-3.5 w-3.5 ${isSaved ? "fill-amber-500 text-amber-500" : ""}`} />
+              </Button>
+            )}
+
+            {discovery.freshness_label && (
+              <span className="ml-auto text-[11px] text-muted-foreground flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {discovery.freshness_label}
+              </span>
+            )}
+          </div>
         </div>
-      </div>
-      {/* Body */}
-      {isPersistedId ? (
-        <Link href={`/discoveries/${discovery.id}`} className="block px-4 pt-4 transition-colors">
-          <h3 className="mb-1 font-semibold text-[15px] leading-tight line-clamp-2 text-foreground group-hover:text-primary">
-            {discovery.title}
-          </h3>
-        </Link>
-      ) : (
-        <a
-          href={discovery.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block px-4 pt-4 transition-colors"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <h3 className="mb-1 font-semibold text-[15px] leading-tight line-clamp-2 text-foreground group-hover:text-primary">
-            {discovery.title}
-          </h3>
-        </a>
-      )}
 
-      <div className="mb-2 px-4">
-        <p className="text-foreground font-bold text-xl tracking-tight">
-          {discovery.original_price != null && discovery.original_currency ? (
-            <>
-              <span className="text-xl font-semibold">{getCurrencySymbol(discovery.original_currency)}</span>
-              <span className="text-xl font-semibold">{discovery.original_price.toLocaleString("en-IN")}</span>
-              {discovery.transaction_type === "rent" && (
-                <span className="text-sm font-normal text-muted-foreground ml-1">/ month</span>
-              )}
-            </>
-          ) : discovery.price != null && discovery.currency ? (
-            formatPrice(discovery.price, discovery.currency)
-          ) : (
-            "Price not available"
-          )}
-        </p>
-      </div>
-
-      <div className="flex items-center gap-1.5 text-muted-foreground px-4 mb-3">
-        <MapPin className="w-3.5 h-3.5 shrink-0" />
-        <span className="text-xs truncate">
-          {discovery.location_text || (discovery.locality && discovery.city ? `${discovery.locality}, ${discovery.city}` : discovery.locality || discovery.city) || "Location not available"}
-        </span>
-        {area != null && area > 0 && (
-          <span className="text-xs text-muted-foreground/80">· {Math.round(area).toLocaleString("en-IN")} sq.ft</span>
-        )}
-      </div>
-
-      {/* Specs */}
-      <div className="flex items-center gap-4 text-[13px] text-muted-foreground px-4 pb-3 border-b border-border/50">
-        {discovery.bedrooms != null && (
-          <div className="flex items-center gap-1.5">
-            <BedDouble className="w-4 h-4" />
-            <span>{getBedroomLabel(discovery.bedrooms)}</span>
+        {/* Thumbnail on the right (if available) */}
+        {safeImageUrl && (
+          <div className="shrink-0 w-full sm:w-36 h-28 sm:h-28 overflow-hidden rounded-xl border border-border/60 bg-muted/40 relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={safeImageUrl}
+              alt={discovery.title}
+              className="w-full h-full object-cover rounded-xl group-hover:scale-105 transition-transform duration-300"
+              loading="lazy"
+              onError={(e) => {
+                const parent = (e.target as HTMLElement).parentElement;
+                if (parent) parent.style.display = "none";
+              }}
+            />
           </div>
         )}
-          {discovery.furnishing && (
-            <span className="text-xs">{discovery.furnishing}</span>
-          )}
-          {discovery.rating != null && (
-            <span className="flex items-center gap-1 text-xs"><Star className="size-3 fill-amber-400 text-amber-400" />{discovery.rating}</span>
-          )}
       </div>
-
-      {/* Source + freshness */}
-      <div className="pt-2 flex items-center justify-between px-4 text-[11px] text-muted-foreground/80">
-        <span className="flex items-center gap-1.5">
-          <Clock className="w-3 h-3" />
-          <span>{discovery.freshness_label || "Source page date unavailable"}</span>
-        </span>
-        <span className="truncate max-w-[120px]">Source: {sourceLabel}</span>
-      </div>
-
-      {/* CTAs */}
-      <div className="pt-1 flex items-center gap-2 px-4">
-        <a
-          href={discovery.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/80 h-8 text-xs font-medium"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-          Visit Website
-        </a>
-        {isAuthenticated && (
-          <Button
-            size="sm"
-            variant={isSaved ? "secondary" : "outline"}
-            className="rounded-lg text-xs h-8 px-2.5"
-            onClick={handleSave}
-            disabled={savingInProgress}
-            aria-label={isSaved ? "Remove saved discovery" : "Save discovery"}
-          >
-            <Heart className={`h-3.5 w-3.5 ${isSaved ? "fill-amber-500" : ""}`} />
-          </Button>
-        )}
-      </div>
-    </Card>
+    </div>
   );
 }

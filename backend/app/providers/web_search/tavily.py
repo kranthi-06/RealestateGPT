@@ -81,6 +81,19 @@ _TIME_RANGE_ALIASES = {
 #: Result keys that are large or off by default and must not bloat the cache.
 _OMITTED_METADATA = frozenset({"title", "url", "content", "raw_content", "images"})
 
+_KNOWN_SOURCE_BRANDS = {
+    "magicbricks.com": "MagicBricks",
+    "99acres.com": "99acres",
+    "olx.in": "OLX",
+    "olx.com": "OLX",
+    "housing.com": "Housing.com",
+    "nobroker.in": "NoBroker",
+    "squareyards.com": "Square Yards",
+    "commonfloor.com": "CommonFloor",
+    "makaan.com": "Makaan",
+    "quikr.com": "Quikr",
+}
+
 
 def _parse_domain(url: str) -> str:
     try:
@@ -275,20 +288,34 @@ class TavilySearchProvider(BaseWebSearchProvider):
                 continue
             content = row.get("content")
             description = str(content).strip() if content else None
+
+            # Resolve clean source name (e.g. MagicBricks, 99acres, OLX)
+            source_brand = _KNOWN_SOURCE_BRANDS.get(domain, domain)
+
+            # Extract thumbnail image
+            thumbnail = None
+            raw_images = row.get("images") or []
+            if isinstance(raw_images, list):
+                for img in raw_images:
+                    if isinstance(img, str) and img.startswith(("http://", "https://")) and not img.endswith(".svg"):
+                        thumbnail = img
+                        break
+            if not thumbnail and isinstance(payload.get("images"), list) and payload["images"]:
+                for img in payload["images"]:
+                    if isinstance(img, str) and img.startswith(("http://", "https://")) and not img.endswith(".svg"):
+                        thumbnail = img
+                        break
+
             results.append(WebSearchResult(
                 id=_short_id(url, index),
                 title=title[:500],
                 url=url,
                 domain=domain,
                 description=description,
-                # The real source of a Tavily hit is the site that published it.
-                source_name=domain,
+                source_name=source_brand,
                 page_age=_published_text(row.get("published_date")),
-                # ``published_date`` is a publication date, not a fetch time, so
-                # ``page_fetched`` stays None and freshness falls back to
-                # ``discovered_at`` rather than claiming a fetch that never happened.
                 page_fetched=None,
-                thumbnail_url=None,
+                thumbnail_url=thumbnail,
                 language=None,
                 is_live=True,
                 schemas=[],

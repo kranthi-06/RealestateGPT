@@ -532,6 +532,10 @@ function SearchPageContent() {
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (fetchDebounceRef.current) {
+      clearTimeout(fetchDebounceRef.current);
+      fetchDebounceRef.current = null;
+    }
     if (filters.q?.trim()) {
       router.replace(`/search?q=${encodeURIComponent(filters.q.trim())}`, { scroll: false });
     }

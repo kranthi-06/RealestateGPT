@@ -293,7 +293,7 @@ export default function NearMePage() {
     setWebError(null);
     try {
       const res = await searchApi.unified({
-        query: "real estate properties and websites",
+        query: "properties and flats for rent and sale near me",
         location: { latitude: lat, longitude: lng, radius_km: radiusKm },
         include_web: true,
       });
@@ -607,18 +607,28 @@ export default function NearMePage() {
         </>
       )}
           {/* Web discovery results (Near Me only — never duplicated on Explore) */}
-      {loadState === "ready" && properties && (
-        <section className="mt-6 border-t border-border/60">
-          <div className="flex items-center gap-2 px-1 py-3">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">Web results near you</h2>
-            <span className="ml-auto text-xs text-muted-foreground">
-              {webLoadState === "ready" ? "Powered by Tavily (server-side)" : "Click to search the web"}
+      {(userCoords || webLoadState !== "idle") && (
+        <section className="mt-8 border-t border-border/60 pt-6">
+          <div className="flex items-center justify-between gap-2 px-1 mb-4">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              <h2 className="text-base font-semibold text-foreground">Web results near you</h2>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {webLoadState === "loading"
+                ? "Searching property portals…"
+                : "MagicBricks • 99acres • Housing • OLX"}
             </span>
           </div>
-          <div className="bg-card rounded-xl border border-border/60 p-4">
-            {webResults && webResults.length > 0 ? (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div>
+            {webLoadState === "loading" ? (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-44 rounded-xl border border-border/60 bg-muted/20 animate-pulse" />
+                ))}
+              </div>
+            ) : webResults && webResults.length > 0 ? (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {webResults.map((card) => (
                   <WebDiscoveryCard
                     key={card.id || card.url}
@@ -634,14 +644,10 @@ export default function NearMePage() {
                 actionHref="/search"
               />
             ) : webLoadState === "error" ? (
-              <p className="text-sm text-destructive">
+              <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
                 {webError || "We couldn't load web results. Please try again."}
-              </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Allow location access, then search to see web results near you.
-              </p>
-            )}
+              </div>
+            ) : null}
           </div>
         </section>
       )}

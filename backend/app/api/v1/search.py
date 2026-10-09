@@ -145,6 +145,54 @@ async def unified_search(
     intent = parse_query(data.query)
     user_id = current_user.id if current_user else None
 
+    # Fallback free-text place extraction if query_parser didn't find a known city alias
+    if not intent.city:
+        import re
+        place_match = re.search(r"\b(?:in|at|near|around)\s+([A-Za-z\s]+?)(?:\s+(?:under|below|for|with|magicbricks|99acres|housing|olx)|$)", data.query, re.IGNORECASE)
+        if place_match:
+            candidate_place = place_match.group(1).strip()
+            if candidate_place.lower() not in ("me", "my area", "here", "current location"):
+                intent.city = candidate_place.title()
+
+    # 0) Enrich intent from location coordinates (Near Me or GPS search)
+    loc = data.location
+    lat = loc.latitude if loc else (data.filters or {}).get("latitude")
+    lng = loc.longitude if loc else (data.filters or {}).get("longitude")
+    if lat is not None and lng is not None:
+        try:
+            from app.location.service import LocationService
+            geo = LocationService(db).reverse_geocode(float(lat), float(lng))
+            resolved = geo.get("city") or geo.get("suburb") or geo.get("county") or geo.get("state")
+            if resolved:
+                if not intent.city or intent.city.lower() in ("near me", "current location", "me"):
+                    intent.city = resolved
+                if not intent.locality and geo.get("suburb"):
+                    intent.locality = geo.get("suburb")
+        except Exception as exc:
+            logger.warning("reverse_geocode_enrich_failed lat=%s lng=%s err=%s", lat, lng, exc)
+
+    # Enrich intent from explicit UI filters (BHK, property type, price)
+    if data.filters:
+        if intent.bedrooms is None and data.filters.get("bedrooms") is not None:
+            try:
+                intent.bedrooms = int(data.filters["bedrooms"])
+            except (ValueError, TypeError):
+                pass
+        if not intent.property_type and data.filters.get("property_type"):
+            intent.property_type = str(data.filters["property_type"])
+        if not intent.max_price and data.filters.get("max_price"):
+            try:
+                intent.max_price = float(data.filters["max_price"])
+            except (ValueError, TypeError):
+                pass
+        if not intent.min_price and data.filters.get("min_price"):
+            try:
+                intent.min_price = float(data.filters["min_price"])
+            except (ValueError, TypeError):
+                pass
+        if data.filters.get("listing_type") in ("rent", "sale"):
+            intent.listing_type = data.filters["listing_type"]
+
     # 1) Verified inventory — deterministic MongoDB-first discovery.
     verified = AiSearchService(db).search(data.query, data.limit, data.filters)
     verified_properties = [item.model_dump() for item in verified["results"]]
@@ -163,28 +211,27 @@ async def unified_search(
 
     web_outcome = None
     if data.include_web:
-        from app.providers.web_search.limiter import get_web_search_limiter
-        from app.providers.web_search.models import WebSearchRateLimitError
-
-        limiter = get_web_search_limiter()
-        limiter_held = False
-        try:
-            limiter.acquire(user_key=f"user_{user_id or 'anonymous'}")
-            limiter_held = True
-        except WebSearchRateLimitError as exc:
-            raise HTTPException(status_code=429, detail=exc.message)
         web_started = time.perf_counter()
         service = WebDiscoveryService(db)
-        web_outcome = await asyncio.to_thread(
-            service.discover,
-            intent,
-            max_queries=settings.WEB_SEARCH_MAX_QUERIES,
-            max_results=settings.WEB_SEARCH_MAX_RESULTS,
-            saved_ids=saved_ids,
-        )
+        try:
+            web_outcome = await asyncio.to_thread(
+                service.discover,
+                intent,
+                max_queries=settings.WEB_SEARCH_MAX_QUERIES,
+                max_results=settings.WEB_SEARCH_MAX_RESULTS,
+                saved_ids=saved_ids,
+            )
+        except Exception as exc:
+            logger.warning("web_discovery_failed query=%s err=%s", data.query, exc)
+            from app.discovery.service import WebDiscoveryOutcome
+            web_outcome = WebDiscoveryOutcome(
+                status="unavailable",
+                code="WEB_SEARCH_ERROR",
+                message="Web search is temporarily busy. Please try again shortly.",
+                cards=[],
+            )
+
         web_latency_ms = round((time.perf_counter() - web_started) * 1000, 1)
-        if limiter_held:
-            limiter.release()
         web_discoveries = web_outcome.cards
         web_total = len(web_discoveries)
         web_metadata = {
