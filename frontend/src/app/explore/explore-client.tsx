@@ -321,6 +321,10 @@ export default function ExploreClient() {
       setPlacesByCategory({});
       setPlacesError(null);
       setProperties(null);
+      // Start each new search from the full result set; a category that the
+      // previous location had may legitimately have zero results here, and a
+      // vanished category must never stay selected.
+      setSelected("all");
 
       try {
         const geo = await locationsApi.geocode(text);
@@ -390,21 +394,40 @@ export default function ExploreClient() {
     inputRef.current?.focus();
   };
 
-  const filterTabs = [
-    { key: "all" as const, label: "All", count: allPlaces.length + verifiedCount, icon: Globe },
-    ...FACILITY_CATEGORIES.map((category) => ({
-      key: category.key,
-      label: category.label,
-      count: categoryCounts[category.key] ?? 0,
-      icon: category.icon,
-    })),
-    {
-      key: "verified" as const,
-      label: "Verified Properties",
-      count: verifiedCount,
-      icon: Building2,
-    },
-  ];
+  const hasResults = allPlaces.length > 0 || verifiedCount > 0;
+
+  type FilterTab = {
+    key: FacilityKey | "all" | "verified";
+    label: string;
+    count: number;
+    icon: React.ComponentType<{ className?: string }>;
+  };
+
+  /**
+   * Only categories that actually returned results are offered. A category
+   * with zero results — including the "All" total and verified properties — is
+   * not shown at all, so a failed or empty fetch can never be mistaken for
+   * "there is nothing here".
+   */
+  const filterTabs = useMemo<FilterTab[]>(() => {
+    const tabs: FilterTab[] = hasResults
+      ? [{ key: "all", label: "All", count: allPlaces.length + verifiedCount, icon: Globe }]
+      : [];
+    for (const category of FACILITY_CATEGORIES) {
+      const count = categoryCounts[category.key] ?? 0;
+      if (count === 0) continue;
+      tabs.push({ key: category.key, label: category.label, count, icon: category.icon });
+    }
+    if (verifiedCount > 0) {
+      tabs.push({
+        key: "verified",
+        label: "Verified Properties",
+        count: verifiedCount,
+        icon: Building2,
+      });
+    }
+    return tabs;
+  }, [allPlaces.length, verifiedCount, categoryCounts, hasResults]);
 
   return (
     <div className="page-shell py-6">
@@ -515,8 +538,8 @@ export default function ExploreClient() {
             </CardContent>
           </Card>
 
-          {/* Category filter chips */}
-          {geoState === "ready" && (
+          {/* Category filter chips — only categories with real results */}
+          {geoState === "ready" && filterTabs.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {filterTabs.map((tab) => {
                 const Icon = tab.icon;
@@ -530,8 +553,7 @@ export default function ExploreClient() {
                       "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                       active
                         ? "border-primary bg-primary/10 text-primary"
-                        : "border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground",
-                      tab.count === 0 && !active && "opacity-50"
+                        : "border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground"
                     )}
                     aria-pressed={active}
                   >
@@ -544,7 +566,7 @@ export default function ExploreClient() {
             </div>
           )}
 
-          {/* Listings header */}
+          {/* Listings header — the count is only shown when there is one */}
           {geoState === "ready" && (
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-base font-semibold text-foreground">
@@ -553,14 +575,20 @@ export default function ExploreClient() {
                   : selected === "all"
                     ? "All nearby places"
                     : FACILITY_CATEGORIES.find((c) => c.key === selected)?.label}
-                <span className="ml-1.5 text-sm font-normal tabular-nums text-muted-foreground">
-                  {selected === "verified"
-                    ? verifiedCount
-                    : selected === "all"
-                      ? allPlaces.length
-                      : visiblePlaces.length}{" "}
-                  result{visiblePlaces.length === 1 && selected !== "verified" ? "" : "s"}
-                </span>
+                {(() => {
+                  const count =
+                    selected === "verified"
+                      ? verifiedCount
+                      : selected === "all"
+                        ? allPlaces.length
+                        : visiblePlaces.length;
+                  if (count === 0) return null;
+                  return (
+                    <span className="ml-1.5 text-sm font-normal tabular-nums text-muted-foreground">
+                      {count} result{count === 1 ? "" : "s"}
+                    </span>
+                  );
+                })()}
               </h2>
               {(placesLoading || propertiesLoading) && (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -645,33 +673,31 @@ export default function ExploreClient() {
             </div>
           )}
 
-          {/* Verified properties */}
-          {geoState === "ready" && (selected === "verified" || selected === "all") && (
-            <div className="space-y-2">
-              {selected === "all" && (
-                <h3 className="flex items-center gap-1.5 pt-1 text-sm font-semibold text-foreground">
-                  <Building2 className="h-4 w-4 text-primary" />
-                  Verified Properties
-                  <span className="text-xs font-normal tabular-nums text-muted-foreground">
-                    ({verifiedCount})
-                  </span>
-                </h3>
-              )}
-              {propertiesLoading ? (
-                Array.from({ length: 3 }).map((_, i) => (
-                  <Skeleton key={i} className="h-24 rounded-xl" />
-                ))
-              ) : verifiedCount === 0 ? (
-                <p className="rounded-xl border border-dashed border-border bg-muted/20 px-3 py-5 text-center text-xs text-muted-foreground">
-                  No verified catalogue listings within 25 km of this location.
-                </p>
-              ) : (
-                (properties ?? []).map((property) => (
-                  <PropertyListRow key={property.id} property={property} showDistance={false} />
-                ))
-              )}
-            </div>
-          )}
+          {/* Verified properties — the whole block stays hidden until there are real results */}
+          {geoState === "ready" &&
+            (selected === "verified" || selected === "all") &&
+            (propertiesLoading || verifiedCount > 0) && (
+              <div className="space-y-2">
+                {selected === "all" && (
+                  <h3 className="flex items-center gap-1.5 pt-1 text-sm font-semibold text-foreground">
+                    <Building2 className="h-4 w-4 text-primary" />
+                    Verified Properties
+                    <span className="text-xs font-normal tabular-nums text-muted-foreground">
+                      ({verifiedCount})
+                    </span>
+                  </h3>
+                )}
+                {propertiesLoading ? (
+                  Array.from({ length: 3 }).map((_, i) => (
+                    <Skeleton key={i} className="h-24 rounded-xl" />
+                  ))
+                ) : (
+                  (properties ?? []).map((property) => (
+                    <PropertyListRow key={property.id} property={property} showDistance={false} />
+                  ))
+                )}
+              </div>
+            )}
 
           {geoState === "idle" && (
             <EmptyState
@@ -721,11 +747,11 @@ export default function ExploreClient() {
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-2.5 w-2.5 rounded-full bg-teal-700" />
-                Facility ({visiblePlaces.length})
+                Facility{visiblePlaces.length > 0 ? ` (${visiblePlaces.length})` : ""}
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-2.5 w-2.5 rotate-45 rounded-bl-full rounded-br-full bg-[#3155a6]" />
-                Verified property
+                Verified property{verifiedCount > 0 ? ` (${verifiedCount})` : ""}
               </span>
               <span className="ml-auto flex items-center gap-1">
                 <MapPin className="h-3 w-3" />
@@ -734,14 +760,14 @@ export default function ExploreClient() {
             </div>
           </Card>
 
-          {/* Legend / counts */}
-          {geoState === "ready" && (
+          {/* Legend / counts — only categories that returned results */}
+          {geoState === "ready" && activeCategories.length > 0 && (
             <Card className="mt-3">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Nearby places by category</CardTitle>
               </CardHeader>
               <CardContent className="grid grid-cols-2 gap-2 pt-0 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4">
-                {FACILITY_CATEGORIES.map((category) => {
+                {activeCategories.map((category) => {
                   const Icon = category.icon;
                   const count = categoryCounts[category.key] ?? 0;
                   const active = selected === category.key;
