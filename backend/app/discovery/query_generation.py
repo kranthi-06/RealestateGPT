@@ -124,27 +124,26 @@ def build_search_queries(intent: SearchIntent, max_queries: int = 3) -> list[str
     if not core:
         core = "property for sale" if intent.listing_type != "rent" else "rental properties"
 
-    # 1) Portal-targeted query for real estate portals (MagicBricks, 99acres, OLX, Housing)
-    portal_targets = "magicbricks 99acres housing olx"
-    if place:
-        portal_q = _join([core, "in", place, portal_targets])
-        if portal_q not in queries:
-            queries.append(portal_q)
-
-    # 2) Standard search engine query: core + budget + place
+    # 1) Standard search engine query: core + budget + place
     primary = _join([core, budget])
     if place:
         primary = _join([primary, "in", place])
     if primary not in queries:
         queries.append(primary)
 
-    # 3) Nearby variant (no budget — search engines handle locality better).
+    # 2) Nearby variant (no budget — search engines handle locality better).
     if nearby and len(queries) < max_queries:
         nearby_q = _join([core, "in", place] if place else [core])
         if nearby not in nearby_q.split():
             nearby_q = _join([nearby_q, nearby])
         if nearby_q not in queries:
             queries.append(nearby_q)
+
+    # 3) Portal-targeted query for Indian property portals (MagicBricks, 99acres, OLX, Housing)
+    if len(queries) < max_queries and place:
+        portal_q = _join([core, "in", place, "magicbricks 99acres housing olx"])
+        if portal_q not in queries:
+            queries.append(portal_q)
 
     base_words = set((primary + " " + core).lower().split())
 
