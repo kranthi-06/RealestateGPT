@@ -7,11 +7,14 @@ never be mixed with provider results.
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import Dict, List, Optional
 
 from app.providers.location import get_location_provider
 from app.repositories.property_repo import PropertyRepository
+
+logger = logging.getLogger(__name__)
 
 PLACE_CATEGORIES = {
     "metro": "transport",
@@ -63,6 +66,19 @@ class LocationService:
 
     def _property(self, property_id: int):
         return self.properties_repo.get_by_id(property_id, include_inactive=True)
+
+    def reverse_geocode(self, latitude: float, longitude: float) -> Dict:
+        """Resolve coordinates to a place name via the configured provider.
+
+        Used by search so a GPS-derived location can constrain queries to the
+        user's actual city. Degrades to an empty dict (never a guess) when the
+        provider cannot resolve the coordinates.
+        """
+        try:
+            return self.provider.reverse_geocode(latitude, longitude) or {}
+        except Exception:  # noqa: BLE001 - never break search on geocoding
+            logger.info("reverse_geocode_unavailable lat=%s lng=%s", latitude, longitude)
+            return {}
 
     def list_for_property(self, property_id: int, city: Optional[str] = None) -> List[dict]:
         """Return only current provider POIs; ``city`` is retained for API compatibility."""

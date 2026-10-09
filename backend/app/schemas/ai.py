@@ -17,6 +17,9 @@ class ParsedQuery(BaseModel):
     raw_text: str
     city: Optional[str] = None
     locality: Optional[str] = None
+    # State/region disambiguates small towns (e.g. "Panyam, Andhra Pradesh")
+    # and is used only to build a more specific web-search phrase.
+    state: Optional[str] = Field(default=None, max_length=100)
     property_type: Optional[str] = None
     # Inventory category is intentionally separate from property_type. It
     # routes a search to the correct discovery policies without pretending a

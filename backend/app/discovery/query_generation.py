@@ -79,9 +79,20 @@ def _accommodation_phrase(intent: SearchIntent) -> Optional[str]:
 
 
 def _place_phrase(intent: SearchIntent) -> Optional[str]:
-    if intent.locality and intent.city:
-        return f"{intent.locality}, {intent.city}"
-    return intent.city or intent.locality
+    """Place phrase for search engines.
+
+    Small towns (a village or small municipality) rarely have dedicated portal
+    pages, so the state is appended to give the search engine a usable
+    geographic scope. The state is never appended when it would duplicate the
+    city text.
+    """
+    place = intent.locality or intent.city
+    if not place:
+        return None
+    state = (intent.state or "").strip()
+    if state and state.lower() not in place.lower() and state.lower() != place.lower():
+        return f"{place}, {state}"
+    return place
 
 
 def _nearby_phrase(intent: SearchIntent) -> Optional[str]:

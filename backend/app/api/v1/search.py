@@ -171,17 +171,27 @@ async def unified_search(
         lng = filters_dict.get("longitude")
 
     if lat is not None and lng is not None:
+        # Enrich the parsed intent from the user's granted coordinates so the
+        # query is scoped to the place they are actually standing in, instead of
+        # falling back to whatever the search engine returns for a bare "1 BHK".
         try:
             from app.location.service import LocationService
+
             geo = LocationService(db).reverse_geocode(float(lat), float(lng))
-            resolved = geo.get("city") or geo.get("suburb") or geo.get("county") or geo.get("state")
-            if resolved:
-                if not intent.city or intent.city.lower() in ("near me", "current location", "me"):
-                    intent.city = resolved
-                if not intent.locality and geo.get("suburb"):
-                    intent.locality = geo.get("suburb")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - never break search on geocoding
             logger.warning("reverse_geocode_enrich_failed lat=%s lng=%s err=%s", lat, lng, exc)
+            geo = {}
+
+        resolved_city = geo.get("city") or geo.get("county") or geo.get("municipality")
+        resolved_state = geo.get("state") or geo.get("region")
+        if resolved_state:
+            intent.state = resolved_state
+        if resolved_city:
+            placeholder = ("near me", "current location", "me", "my area", "here")
+            if not intent.city or intent.city.strip().lower() in placeholder:
+                intent.city = resolved_city
+        if not intent.locality and geo.get("suburb"):
+            intent.locality = geo.get("suburb")
 
     # Enrich intent from explicit UI filters (BHK, property type, price)
     if filters_dict:

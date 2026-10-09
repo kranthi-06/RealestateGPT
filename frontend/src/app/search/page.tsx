@@ -354,6 +354,7 @@ export function SearchPageContent() {
   const fetchAbortRef = useRef<AbortController | null>(null);
   const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastClientErrorRef = useRef<number>(0);
+  const lastSignatureRef = useRef<string>("");
   const requestCacheRef = useRef<Map<string, { timestamp: number; data: UnifiedSearchResponse }>>(new Map());
   const inFlightRef = useRef<Set<string>>(new Set());
 
@@ -426,9 +427,19 @@ export function SearchPageContent() {
   const fetchProperties = useCallback(async (opts?: { isUserInitiated?: boolean }) => {
     const isUserInitiated = opts?.isUserInitiated ?? false;
     const now = Date.now();
-    if (!isUserInitiated && lastClientErrorRef.current > 0 && now - lastClientErrorRef.current < 5000) {
+    // Back-off only applies to repeated automatic retries of the SAME failed
+    // request. A changed query, filter set or location always proceeds, so
+    // adjusting filters never appears to be ignored.
+    const signatureChanged = lastSignatureRef.current !== requestSignature;
+    if (
+      !isUserInitiated &&
+      !signatureChanged &&
+      lastClientErrorRef.current > 0 &&
+      now - lastClientErrorRef.current < 5000
+    ) {
       return;
     }
+    lastSignatureRef.current = requestSignature;
 
     const cacheKey = requestSignature;
     const cached = requestCacheRef.current.get(cacheKey);

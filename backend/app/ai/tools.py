@@ -104,6 +104,7 @@ class SearchWebInput(BaseModel):
     query: str = Field(..., min_length=1, max_length=1000)
     city: Optional[str] = None
     locality: Optional[str] = None
+    state: Optional[str] = Field(None, max_length=100)
     property_type: Optional[str] = None
     bedrooms: Optional[int] = Field(None, ge=0, le=20)
     min_price: Optional[float] = Field(None, ge=0)
@@ -231,17 +232,24 @@ def _tool_search_web(db, user, parsed: SearchWebInput) -> dict:
                     parsed.city = reverse["city"]
                 if not parsed.locality:
                     parsed.locality = reverse.get("suburb") or reverse.get("city")
+                if not parsed.state and reverse.get("state"):
+                    parsed.state = reverse["state"]
                 if not parsed.query:
-                    parsed.query = f"properties for sale near {reverse.get('formatted_address', parsed.query or '')}"
+                    parsed.query = (
+                        f"properties for sale near "
+                        f"{reverse.get('formatted_address') or reverse['city']}"
+                    )
         except Exception:
             pass
-
     query_str = parsed.query or f"properties in {parsed.city or ''} {parsed.locality or ''}".strip()
     intent = parse_query(query_str or "properties for sale")
     if parsed.city:
         intent.city = parsed.city
     if parsed.locality:
         intent.locality = parsed.locality
+    # Carry the state through so small towns get a usable geographic scope.
+    if getattr(parsed, "state", None):
+        intent.state = parsed.state
     if parsed.property_type:
         intent.property_type = parsed.property_type
     if parsed.bedrooms is not None:
