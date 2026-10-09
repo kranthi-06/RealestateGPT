@@ -156,8 +156,17 @@ async def unified_search(
 
     # 0) Enrich intent from location coordinates (Near Me or GPS search)
     loc = data.location
-    lat = loc.latitude if loc else (data.filters or {}).get("latitude")
-    lng = loc.longitude if loc else (data.filters or {}).get("longitude")
+    lat = None
+    lng = None
+    if loc:
+        lat = loc.get("latitude") if isinstance(loc, dict) else getattr(loc, "latitude", None)
+        lng = loc.get("longitude") if isinstance(loc, dict) else getattr(loc, "longitude", None)
+    filters_dict = data.filters if isinstance(data.filters, dict) else (data.filters.model_dump() if hasattr(data.filters, "model_dump") else {})
+    if lat is None and filters_dict:
+        lat = filters_dict.get("latitude")
+    if lng is None and filters_dict:
+        lng = filters_dict.get("longitude")
+
     if lat is not None and lng is not None:
         try:
             from app.location.service import LocationService
@@ -172,29 +181,39 @@ async def unified_search(
             logger.warning("reverse_geocode_enrich_failed lat=%s lng=%s err=%s", lat, lng, exc)
 
     # Enrich intent from explicit UI filters (BHK, property type, price)
-    if data.filters:
-        if intent.bedrooms is None and data.filters.get("bedrooms") is not None:
+    if filters_dict:
+        if intent.bedrooms is None and filters_dict.get("bedrooms") is not None:
             try:
-                intent.bedrooms = int(data.filters["bedrooms"])
+                intent.bedrooms = int(filters_dict["bedrooms"])
             except (ValueError, TypeError):
                 pass
-        if not intent.property_type and data.filters.get("property_type"):
-            intent.property_type = str(data.filters["property_type"])
-        if not intent.max_price and data.filters.get("max_price"):
+        if not intent.property_type and filters_dict.get("property_type"):
+            intent.property_type = str(filters_dict["property_type"])
+        if not intent.max_price and filters_dict.get("max_price"):
             try:
-                intent.max_price = float(data.filters["max_price"])
+                intent.max_price = float(filters_dict["max_price"])
             except (ValueError, TypeError):
                 pass
-        if not intent.min_price and data.filters.get("min_price"):
+        if not intent.min_price and filters_dict.get("min_price"):
             try:
-                intent.min_price = float(data.filters["min_price"])
+                intent.min_price = float(filters_dict["min_price"])
             except (ValueError, TypeError):
                 pass
-        if data.filters.get("listing_type") in ("rent", "sale"):
-            intent.listing_type = data.filters["listing_type"]
+        if filters_dict.get("listing_type") in ("rent", "sale"):
+            intent.listing_type = filters_dict["listing_type"]
 
     # 1) Verified inventory — deterministic MongoDB-first discovery.
-    verified = AiSearchService(db).search(data.query, data.limit, data.filters)
+    user_filters = dict(filters_dict) if filters_dict else {}
+    if loc:
+        loc_lat = loc.get("latitude") if isinstance(loc, dict) else getattr(loc, "latitude", None)
+        loc_lng = loc.get("longitude") if isinstance(loc, dict) else getattr(loc, "longitude", None)
+        loc_radius = loc.get("radius_km") if isinstance(loc, dict) else getattr(loc, "radius_km", 5.0)
+        if loc_lat is not None and loc_lng is not None:
+            user_filters.setdefault("latitude", loc_lat)
+            user_filters.setdefault("longitude", loc_lng)
+            user_filters.setdefault("radius_km", loc_radius or 5.0)
+
+    verified = AiSearchService(db).search(data.query, data.limit, user_filters)
     verified_properties = [item.model_dump() for item in verified["results"]]
 
     # 2) Web discovery — bounded provider search in a thread (never the event loop).
