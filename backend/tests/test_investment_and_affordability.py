@@ -1,4 +1,4 @@
-﻿"""Tests for the finance calculators added by the investment/affordability work.
+"""Tests for the finance calculators added by the investment/affordability work.
 
 Every test asserts against an independently computed expected value, not
 against whatever the implementation happens to return.
@@ -166,7 +166,7 @@ class TestFullAffordability:
         )
         ratio = result["property_assessment"]["emi_to_income_ratio_pct"]
         assert 0 < ratio < 100
-        # 40,00,000 at 8.5% over 20 years is roughly â‚¹35k on â‚¹1,00,000 income.
+        # 40,00,000 at 8.5% over 20 years is roughly ₹35k on ₹1,00,000 income.
         assert 30 < ratio < 40
 
     def test_affordability_is_not_decided_by_price_alone(self):

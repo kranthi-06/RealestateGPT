@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect, useCallback, Suspense, useRef, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -63,7 +63,7 @@ function NearMeBanner({
             <span className="font-medium tabular-nums">
               {userCoords.lat.toFixed(4)}, {userCoords.lng.toFixed(4)}
             </span>
-            <span className="text-emerald-700/70"> Â· within 5 km</span>
+            <span className="text-emerald-700/70"> · within 5 km</span>
           </span>
         </div>
         <div className="flex gap-2">
@@ -141,7 +141,7 @@ function NearMeBanner({
         ) : (
           <LocateFixed className="mr-2 h-3.5 w-3.5" />
         )}
-        {locState === "pending" ? "Requestingâ€¦" : "Allow location"}
+        {locState === "pending" ? "Requesting…" : "Allow location"}
       </Button>
     </div>
   );
@@ -155,7 +155,7 @@ function IntentChips({ intent }: { intent: SearchIntent | null }) {
   if (intent.bedrooms != null) chips.push(`${intent.bedrooms} BHK`);
   if (intent.max_price != null) {
     const lakh = intent.max_price / 100000;
-    chips.push(`Under â‚¹${lakh % 1 === 0 ? lakh.toFixed(0) : lakh.toFixed(1)}L`);
+    chips.push(`Under ₹${lakh % 1 === 0 ? lakh.toFixed(0) : lakh.toFixed(1)}L`);
   }
   if (intent.min_price != null) chips.push("Premium");
   if (intent.city) chips.push(intent.city);
@@ -611,7 +611,7 @@ export function SearchPageContent() {
               <Input
                 value={filters.q || ""}
                 onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
-                placeholder='Try "3 BHK under â‚¹90L near metro in Hyderabad"'
+                placeholder='Try "3 BHK under ₹90L near metro in Hyderabad"'
                 className="h-10 rounded-xl border-border/70 bg-card pl-9 pr-3 text-sm shadow-sm focus-visible:ring-primary"
                 aria-label="Search properties"
               />
@@ -661,7 +661,7 @@ export function SearchPageContent() {
           />
           <label htmlFor="include-web" className="text-muted-foreground">
             Include web listings
-            <span className="text-muted-foreground/70"> Â· bounded web discovery, labeled separately</span>
+            <span className="text-muted-foreground/70"> · bounded web discovery, labeled separately</span>
           </label>
         </div>
 
@@ -787,7 +787,7 @@ export function SearchPageContent() {
                           <Globe2 className="h-3.5 w-3.5" /> Web Discovery
                         </Badge>
                         <span className="text-xs text-muted-foreground">
-                          Â· {unifiedData.metadata?.cache_hit ? "cached" : "live search"}
+                          · {unifiedData.metadata?.cache_hit ? "cached" : "live search"}
                         </span>
                       </div>
                       <p className="mb-4 text-xs text-muted-foreground/90">
@@ -836,7 +836,7 @@ export function SearchPageContent() {
                 <h3 className="mt-4 text-base font-semibold text-foreground">No properties found</h3>
                 <p className="mt-2 max-w-sm text-sm text-muted-foreground">
                   Nothing in the current inventory matches these criteria. Adjust location, filters, or
-                  budget â€” or ask the AI assistant for guidance.
+                  budget — or ask the AI assistant for guidance.
                 </p>
                 <div className="mt-5 flex gap-2">
                   <Button variant="outline" size="sm" onClick={clearSearch}>

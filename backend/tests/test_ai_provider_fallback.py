@@ -1,4 +1,4 @@
-﻿"""Multi-provider fallback, resilience and format-translation tests.
+"""Multi-provider fallback, resilience and format-translation tests.
 
 Every failure path is mocked: no real quota is consumed to test a 429, a
 timeout, an invalid key or a full outage.

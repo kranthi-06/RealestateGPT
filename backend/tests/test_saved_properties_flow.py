@@ -1,4 +1,4 @@
-﻿"""Saved-properties API behaviour: persistence, authorization, and validation.
+"""Saved-properties API behaviour: persistence, authorization, and validation.
 
 The core regression this file guards against is a saved property not appearing
 on the Saved Properties page. It asserts the full round trip — save, list,

@@ -1,4 +1,4 @@
-﻿"""OpenAI-compatible providers (Groq and OpenAI).
+"""OpenAI-compatible providers (Groq and OpenAI).
 
 Both expose ``POST {base}/chat/completions`` with the same request and response
 shape, so one adapter serves both; only the base URL, key and model differ.

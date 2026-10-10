@@ -4,13 +4,10 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   SlidersHorizontal,
@@ -65,9 +62,12 @@ function FilterDropdown({
   children: React.ReactNode;
   activeCount?: number;
 }) {
+  // Popover, not Menu: these panels contain inputs, and Base UI Menu
+  // popups own the keyboard (arrow keys + typeahead), which swallows character
+  // keystrokes and makes text/number inputs inside them untypeable.
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+    <Popover>
+      <PopoverTrigger>
         <Button
           variant="outline"
           size="sm"
@@ -88,11 +88,11 @@ function FilterDropdown({
           )}
           <ChevronDown className="h-3 w-3 opacity-50" />
         </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-64">
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64">
         {children}
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -140,8 +140,9 @@ function PriceFilter({
           <div>
             <label className="mb-1 block text-[11px] text-muted-foreground">Min (₹)</label>
             <Input
-              type="number"
+              type="text"
               inputMode="numeric"
+              autoComplete="off"
               placeholder="0"
               className="h-8 text-xs tabular-nums"
               value={minPrice}
@@ -152,8 +153,9 @@ function PriceFilter({
           <div>
             <label className="mb-1 block text-[11px] text-muted-foreground">Max (₹)</label>
             <Input
-              type="number"
+              type="text"
               inputMode="numeric"
+              autoComplete="off"
               placeholder="Any"
               className="h-8 text-xs tabular-nums"
               value={maxPrice}
@@ -265,22 +267,22 @@ function PropertyTypeFilter({
         <Building2 className="h-3 w-3" />
         Property Type
       </DropdownMenuLabel>
-      <DropdownMenuSeparator />
-      <div className="p-2">
+      <div className="max-h-64 overflow-y-auto p-1">
         {PROPERTY_TYPES.map((type) => (
-          <DropdownMenuItem
+          <button
             key={type}
+            type="button"
             onClick={() =>
               onChange({
                 ...filters,
                 property_type: selected === type ? undefined : type,
               })
             }
-            className="flex items-center justify-between text-sm capitalize"
+            className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-sm capitalize transition-colors hover:bg-accent hover:text-accent-foreground"
           >
             {type.replace(/_/g, " ")}
             {selected === type && <Check className="h-3.5 w-3.5 text-primary" />}
-          </DropdownMenuItem>
+          </button>
         ))}
       </div>
     </>
@@ -323,8 +325,9 @@ function AreaFilter({
           <div>
             <label className="mb-1 block text-[11px] text-muted-foreground">Min</label>
             <Input
-              type="number"
+              type="text"
               inputMode="numeric"
+              autoComplete="off"
               placeholder="0"
               className="h-8 text-xs tabular-nums"
               value={minArea}
@@ -335,8 +338,9 @@ function AreaFilter({
           <div>
             <label className="mb-1 block text-[11px] text-muted-foreground">Max</label>
             <Input
-              type="number"
+              type="text"
               inputMode="numeric"
+              autoComplete="off"
               placeholder="Any"
               className="h-8 text-xs tabular-nums"
               value={maxArea}
@@ -365,22 +369,22 @@ function FurnishingFilter({
   return (
     <>
       <DropdownMenuLabel>Furnishing</DropdownMenuLabel>
-      <DropdownMenuSeparator />
-      <div className="p-2">
+      <div className="p-1">
         {FURNISHING_OPTIONS.map((opt) => (
-          <DropdownMenuItem
+          <button
             key={opt}
+            type="button"
             onClick={() =>
               onChange({
                 ...filters,
                 furnishing: selected === opt ? undefined : opt,
               })
             }
-            className="flex items-center justify-between text-sm"
+            className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
           >
             {opt.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
             {selected === opt && <Check className="h-3.5 w-3.5 text-primary" />}
-          </DropdownMenuItem>
+          </button>
         ))}
       </div>
     </>

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState, useCallback, FormEvent, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
@@ -31,7 +31,7 @@ import { cn } from "@/lib/utils";
 /* â”€â”€ Indian formatting helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function inr(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "â€”";
+  if (value == null || !Number.isFinite(value)) return "—";
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
@@ -40,17 +40,17 @@ function inr(value: number | null | undefined): string {
 }
 
 function inrCompact(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "â€”";
+  if (value == null || !Number.isFinite(value)) return "—";
   const abs = Math.abs(value);
   const sign = value < 0 ? "-" : "";
-  if (abs >= 1_00_00_000) return `${sign}â‚¹${(abs / 1_00_00_000).toFixed(2)} Cr`;
-  if (abs >= 1_00_000) return `${sign}â‚¹${(abs / 1_00_000).toFixed(abs >= 10_00_000 ? 0 : 1)} L`;
-  if (abs >= 1_000) return `${sign}â‚¹${(abs / 1_000).toFixed(1)} K`;
-  return `${sign}â‚¹${abs.toFixed(0)}`;
+  if (abs >= 1_00_00_000) return `${sign}₹${(abs / 1_00_00_000).toFixed(2)} Cr`;
+  if (abs >= 1_00_000) return `${sign}₹${(abs / 1_00_000).toFixed(abs >= 10_00_000 ? 0 : 1)} L`;
+  if (abs >= 1_000) return `${sign}₹${(abs / 1_000).toFixed(1)} K`;
+  return `${sign}₹${abs.toFixed(0)}`;
 }
 
 function pct(value: number | null | undefined, digits = 1): string {
-  if (value == null || !Number.isFinite(value)) return "â€”";
+  if (value == null || !Number.isFinite(value)) return "—";
   return `${value.toFixed(digits)}%`;
 }
 
@@ -230,7 +230,7 @@ function AffordabilityCalculator() {
   const [result, setResult] = useState<FullAffordabilityResult | null>(null);
   const prefilled = useRef(false);
 
-  // Deep links from a property detail page carry ?price=â€¦&tenure=â€¦&down=â€¦
+  // Deep links from a property detail page carry ?price=…&tenure=…&down=…
   // Apply them once so the property is checked with the user's own finances.
   useEffect(() => {
     if (prefilled.current) return;
@@ -333,7 +333,7 @@ function AffordabilityCalculator() {
   const status = useMemo(() => {
     if (!result) return null;
     // Trust the server's verdict, which accounts for both EMI capacity and
-    // the cash needed upfront â€” not the price on its own.
+    // the cash needed upfront — not the price on its own.
     const tone: Tone =
       result.verdict === "not_affordable" ? "danger"
       : result.verdict === "strained" ? "warning"
@@ -405,7 +405,7 @@ function AffordabilityCalculator() {
               <Input inputMode="numeric" placeholder="e.g. 1000000" className="pl-9 tabular-nums" value={downPayment} onChange={(e) => setDownPayment(digits(e.target.value))} />
             </div>
           </Field>
-          <Field label="Target property price" hint="Optional â€” checks a specific property">
+          <Field label="Target property price" hint="Optional — checks a specific property">
             <div className="relative">
               <IndianRupee className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
               <Input inputMode="numeric" placeholder="e.g. 5000000" className="pl-9 tabular-nums" value={propertyPrice} onChange={(e) => setPropertyPrice(digits(e.target.value))} />
@@ -432,25 +432,25 @@ function AffordabilityCalculator() {
         icon={Receipt}
       >
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Field label="Maintenance (â‚¹/month)">
+          <Field label="Maintenance (₹/month)">
             <div className="relative">
               <IndianRupee className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
               <Input inputMode="numeric" placeholder="e.g. 3000" className="pl-9 tabular-nums" value={maintenance} onChange={(e) => setMaintenance(digits(e.target.value))} />
             </div>
           </Field>
-          <Field label="Property tax (â‚¹/year)">
+          <Field label="Property tax (₹/year)">
             <div className="relative">
               <IndianRupee className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
               <Input inputMode="numeric" placeholder="e.g. 12000" className="pl-9 tabular-nums" value={propertyTax} onChange={(e) => setPropertyTax(digits(e.target.value))} />
             </div>
           </Field>
-          <Field label="Insurance (â‚¹/year)">
+          <Field label="Insurance (₹/year)">
             <div className="relative">
               <IndianRupee className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
               <Input inputMode="numeric" placeholder="e.g. 0" className="pl-9 tabular-nums" value={insurance} onChange={(e) => setInsurance(digits(e.target.value))} />
             </div>
           </Field>
-          <Field label="Other (â‚¹/month)">
+          <Field label="Other (₹/month)">
             <div className="relative">
               <IndianRupee className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
               <Input inputMode="numeric" placeholder="e.g. 0" className="pl-9 tabular-nums" value={other} onChange={(e) => setOther(digits(e.target.value))} />
@@ -521,7 +521,7 @@ function AffordabilityCalculator() {
                 <p className="text-2xl font-bold tabular-nums text-foreground">
                   {pct(result.emi_to_income_ratio)}
                 </p>
-                <p className="text-xs text-muted-foreground">ideal â‰¤ 30% Â· max 40%</p>
+                <p className="text-xs text-muted-foreground">ideal â‰¤ 30% · max 40%</p>
               </div>
             </CardContent>
           </Card>
@@ -629,7 +629,7 @@ function AffordabilityCalculator() {
               {!assessment.is_affordable && (
                 <ErrorNote>
                   On these inputs this property is not affordable: the EMI, the upfront cash, or both,
-                  exceed your capacity. This is not a lender decision â€” see the note below.
+                  exceed your capacity. This is not a lender decision — see the note below.
                 </ErrorNote>
               )}
             </>
@@ -669,7 +669,7 @@ export default function AffordabilityPage() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold tracking-tight text-slate-900">Affordability</h1>
         <p className="mt-2 max-w-2xl text-slate-600">
-          Work out what you can actually borrow and buy â€” the EMI, the cash you need up front, and
+          Work out what you can actually borrow and buy — the EMI, the cash you need up front, and
           what is left of your income and savings afterwards.
         </p>
       </div>

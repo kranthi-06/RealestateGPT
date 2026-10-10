@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -57,22 +57,22 @@ const NEARBY_CATEGORIES = [
 /* â”€â”€ Indian currency formatting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function inr(value: number | null | undefined, digits = 0): string {
-  if (value == null || !Number.isFinite(value)) return "â€”";
-  return `â‚¹${value.toLocaleString("en-IN", { maximumFractionDigits: digits, minimumFractionDigits: 0 })}`;
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `₹${value.toLocaleString("en-IN", { maximumFractionDigits: digits, minimumFractionDigits: 0 })}`;
 }
 
 /** Compact Indian notation: 95.5 L, 1.2 Cr, 45.5 K. */
 function inrCompact(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "â€”";
+  if (value == null || !Number.isFinite(value)) return "—";
   const abs = Math.abs(value);
-  if (abs >= 1_00_00_000) return `â‚¹${(value / 1_00_00_000).toFixed(2)} Cr`;
-  if (abs >= 1_00_000) return `â‚¹${(value / 1_00_000).toFixed(abs >= 10_000_00 ? 0 : 1)} L`;
-  if (abs >= 1_000) return `â‚¹${(value / 1_000).toFixed(1)} K`;
-  return `â‚¹${value.toFixed(0)}`;
+  if (abs >= 1_00_00_000) return `₹${(value / 1_00_00_000).toFixed(2)} Cr`;
+  if (abs >= 1_00_000) return `₹${(value / 1_00_000).toFixed(abs >= 10_000_00 ? 0 : 1)} L`;
+  if (abs >= 1_000) return `₹${(value / 1_000).toFixed(1)} K`;
+  return `₹${value.toFixed(0)}`;
 }
 
 function num(value: number | null | undefined, digits = 0): string {
-  if (value == null || !Number.isFinite(value)) return "â€”";
+  if (value == null || !Number.isFinite(value)) return "—";
   return value.toLocaleString("en-IN", { maximumFractionDigits: digits });
 }
 
@@ -137,9 +137,9 @@ function RangeBlock({
   const empty = stat.sample_size === 0;
   const fmt =
     unit === "psq_yard"
-      ? (v: number | null) => (v == null ? "â€”" : `â‚¹${num(v)}`)
+      ? (v: number | null) => (v == null ? "—" : `₹${num(v)}`)
       : unit === "psf"
-        ? (v: number | null) => (v == null ? "â€”" : `â‚¹${num(v)}/sq.ft`)
+        ? (v: number | null) => (v == null ? "—" : `₹${num(v)}/sq.ft`)
         : (v: number | null) => inrCompact(v);
 
   return (
@@ -166,9 +166,9 @@ function RangeBlock({
                 <p className="text-lg font-bold tabular-nums text-foreground">{fmt(stat.median)}</p>
               </div>
               <div className="text-right">
-                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Range (P25â€“P75)</p>
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Range (P25–P75)</p>
                 <p className="text-sm font-medium tabular-nums text-muted-foreground">
-                  {fmt(stat.p25)} â€“ {fmt(stat.p75)}
+                  {fmt(stat.p25)} – {fmt(stat.p75)}
                 </p>
               </div>
             </div>
@@ -189,7 +189,7 @@ function RangeBlock({
             <p className="text-[11px] text-muted-foreground">{rangeLabel}</p>
             {!stat.is_measured && (
               <p className="text-[11px] text-amber-700">
-                Small sample â€” treat as indicative, not a market rate.
+                Small sample — treat as indicative, not a market rate.
               </p>
             )}
           </div>
@@ -562,8 +562,8 @@ function MarketIntelligenceContent() {
             <MapPin className="h-14 w-14 text-muted-foreground/30" />
             <h2 className="mt-4 text-base font-semibold text-foreground">Search a city or locality</h2>
             <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-              Enter any city or neighbourhood â€” for example â€œNandyal, Andhra Pradeshâ€ or
-              â€œBanjara Hills, Hyderabadâ€. Data is not limited to a fixed list of cities.
+              Enter any city or neighbourhood — for example “Nandyal, Andhra Pradesh” or
+              “Banjara Hills, Hyderabad”. Data is not limited to a fixed list of cities.
             </p>
           </CardContent>
         </Card>
@@ -587,11 +587,11 @@ function MarketIntelligenceContent() {
           <div>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-lg font-semibold text-foreground">
-                Overview Â· <span className="text-primary">{areaLabel}</span>
+                Overview · <span className="text-primary">{areaLabel}</span>
               </h2>
               <span className="text-xs text-muted-foreground">
                 {snapshot.totals.listings} verified listing
-                {snapshot.totals.listings === 1 ? "" : "s"} Â·{" "}
+                {snapshot.totals.listings === 1 ? "" : "s"} ·{" "}
                 {snapshot.totals.sale} sale / {snapshot.totals.rent} rent
               </span>
             </div>
@@ -604,13 +604,13 @@ function MarketIntelligenceContent() {
                 measured={snapshot.apartments.prices.is_measured}
               />
               <StatCard
-                label="Avg â‚¹/sq.ft (sale)"
+                label="Avg ₹/sq.ft (sale)"
                 value={
                   snapshot.apartments.price_per_sqft.median != null
                     ? inr(snapshot.apartments.price_per_sqft.median)
                     : snapshot.houses.price_per_sqft.median != null
                       ? inr(snapshot.houses.price_per_sqft.median)
-                      : "â€”"
+                      : "—"
                 }
                 hint="apartments, else houses"
                 icon={IndianRupee}
@@ -631,7 +631,7 @@ function MarketIntelligenceContent() {
                 value={
                   snapshot.indicators.gross_rental_yield_pct != null
                     ? `${num(snapshot.indicators.gross_rental_yield_pct, 2)}%`
-                    : "â€”"
+                    : "—"
                 }
                 hint="median rent / median price"
                 icon={TrendingUp}
@@ -678,14 +678,14 @@ function MarketIntelligenceContent() {
           {/* Price per sqft + rents */}
           <div className="grid gap-4 lg:grid-cols-2">
             <RangeBlock
-              title="Apartment â‚¹/sq.ft"
+              title="Apartment ₹/sq.ft"
               icon={IndianRupee}
               stat={snapshot.apartments.price_per_sqft}
               unit="psf"
               rangeLabel="Per-square-foot asking price from verified apartment listings."
             />
             <RangeBlock
-              title="House / villa â‚¹/sq.ft"
+              title="House / villa ₹/sq.ft"
               icon={IndianRupee}
               stat={snapshot.houses.price_per_sqft}
               unit="psf"
@@ -704,7 +704,7 @@ function MarketIntelligenceContent() {
                 rangeLabel="Monthly asking rent normalised from verified rent listings."
               />
               <RangeBlock
-                title="Rent â‚¹/sq.ft per month"
+                title="Rent ₹/sq.ft per month"
                 icon={KeyRound}
                 stat={snapshot.rents.price_per_sqft_monthly}
                 unit="psf"
@@ -733,9 +733,9 @@ function MarketIntelligenceContent() {
                   data={snapshot.price_distribution.map((bucket) => ({
                     label: bucket.label
                       ? bucket.label.length > 14
-                        ? `${bucket.label.slice(0, 13)}â€¦`
+                        ? `${bucket.label.slice(0, 13)}…`
                         : bucket.label
-                      : "â€”",
+                      : "—",
                     value: bucket.count,
                     hint: `${bucket.label}: ${bucket.count} listing${bucket.count === 1 ? "" : "s"}`,
                   }))}
@@ -770,7 +770,7 @@ function MarketIntelligenceContent() {
                     <span className="text-2xl font-bold tabular-nums text-foreground">
                       {trend.change_pct != null
                         ? `${(trend.change_pct as number) > 0 ? "+" : ""}${num(trend.change_pct as number, 1)}%`
-                        : "â€”"}
+                        : "—"}
                     </span>
                     <span className="text-sm text-muted-foreground">
                       {trend.from_month as string} â†’ {trend.to_month as string}
@@ -798,7 +798,7 @@ function MarketIntelligenceContent() {
                   )}
                   {trend.is_measured === false && (
                     <p className="text-[11px] text-amber-700">
-                      Fewer than {coverage.minimum_sample as number} observations â€” indicative only.
+                      Fewer than {coverage.minimum_sample as number} observations — indicative only.
                     </p>
                   )}
                 </div>
@@ -840,7 +840,7 @@ function MarketIntelligenceContent() {
                       <th className="pb-2 pr-3 font-medium">Locality</th>
                       <th className="pb-2 pr-3 font-medium">Listings</th>
                       <th className="pb-2 pr-3 font-medium">Median price</th>
-                      <th className="pb-2 font-medium">Avg â‚¹/sq.ft</th>
+                      <th className="pb-2 font-medium">Avg ₹/sq.ft</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -854,10 +854,10 @@ function MarketIntelligenceContent() {
                         </td>
                         <td className="py-2.5 pr-3 tabular-nums text-muted-foreground">{row.listings}</td>
                         <td className="py-2.5 pr-3 tabular-nums text-foreground">
-                          {row.median_price != null ? inrCompact(row.median_price) : "â€”"}
+                          {row.median_price != null ? inrCompact(row.median_price) : "—"}
                         </td>
                         <td className="py-2.5 tabular-nums text-foreground">
-                          {row.avg_price_per_sqft != null ? inr(row.avg_price_per_sqft) : "â€”"}
+                          {row.avg_price_per_sqft != null ? inr(row.avg_price_per_sqft) : "—"}
                         </td>
                       </tr>
                     ))}
@@ -883,7 +883,7 @@ function MarketIntelligenceContent() {
                   onClick={() => areaLabel && void loadNearby(snapshot.query.city || areaLabel, snapshot.query.locality || "")}
                   className="ml-auto text-[11px] font-normal text-primary hover:underline"
                 >
-                  {nearbyLoading ? "Loadingâ€¦" : "Refresh"}
+                  {nearbyLoading ? "Loading…" : "Refresh"}
                 </button>
               </CardTitle>
             </CardHeader>
@@ -918,7 +918,7 @@ function MarketIntelligenceContent() {
                             {list.slice(0, 4).map((place) => (
                               <li key={place.place_id ?? place.name} className="text-[11px] text-muted-foreground">
                                 <span className="font-medium text-foreground">{place.name}</span>
-                                {place.address ? ` Â· ${place.address}` : ""}
+                                {place.address ? ` · ${place.address}` : ""}
                               </li>
                             ))}
                           </ul>
