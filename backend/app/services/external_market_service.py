@@ -46,14 +46,6 @@ _QUERY_TEMPLATES = (
     "{location} property rates trends {year}",
 )
 
-#: Extraction of "X per sq ft/sqft/sq. ft/sq.m" amounts from retrieved text.
-_PSF_RE = re.compile(
-    r"(?:rs\.?|₹|inr|\$|usd|£|gbp|€|eur)?\s*([\d][\d,]*(?:\.\d+)?)\s*"
-    r"(?:per\s*(?:square\s*(?:foot|feet|ft)|sq\.?\s?(?:ft|feet|m|meter|metre)s?)|"
-    r"/\s*(?:sq\.?\s?(?:ft|feet|m)|sqft)\b)",
-    re.IGNORECASE,
-)
-
 #: Conversational trend phrases -> direction. Only reported when matched in
 #: retrieved text; never inferred from price math.
 _TREND_PHRASES = (
@@ -64,6 +56,42 @@ _TREND_PHRASES = (
 
 #: Minimum retrieved observations before a statistic is "measured".
 MIN_OBSERVATIONS = 3
+
+#: Plausibility bounds for a *property-scale* asking price, per currency.
+#: Retrieved pages mix per-square-foot rates, monthly rents, project totals and
+#: nightly holiday rates into the same prose. A figure below the floor or above
+#: the ceiling is not a residential asking price, so it is excluded from the
+#: asking-price statistic instead of being averaged in. This is data hygiene,
+#: never estimation: excluded values are reported as a count, not a number.
+ASKING_PRICE_BOUNDS: dict[str, tuple[float, float]] = {
+    "INR": (500_000.0, 2_000_000_000.0),      # ₹5 L … ₹200 Cr
+    "USD": (100_000.0, 100_000_000.0),        # $100 K … $100 M
+    "GBP": (50_000.0, 50_000_000.0),
+    "EUR": (50_000.0, 50_000_000.0),
+    "AED": (200_000.0, 500_000_000.0),
+}
+
+#: Plausibility floor for a *monthly* rent, per currency.
+MONTHLY_RENT_FLOOR: dict[str, float] = {
+    "INR": 1_000.0,
+    "USD": 100.0,
+    "GBP": 100.0,
+    "EUR": 100.0,
+    "AED": 500.0,
+}
+
+#: A property asking price must not be phrased as a rate. If any of these
+#: markers appears close before the amount, the figure is a per-area or
+#: per-period rate, not a whole-property price.
+_RATE_CONTEXT_RE = re.compile(
+    r"(?:per\s*(?:square|sq|cent|acre|sqft|sq\.?\s?ft|sqm|month|mo|night|year|yr|annum)"
+    r"|/\s*(?:sq|sqft|sq\.?\s?ft|sqm|month|mo|night|yr|year)"
+    r"|\bper\s+(?:sqft|sq\.?\s?ft|sqm)\b)",
+    re.IGNORECASE,
+)
+
+#: How far before an amount to look for a rate marker.
+_RATE_CONTEXT_WINDOW = 200
 
 
 # ── market amount extraction (retrieved text only) ─────────────────────────
@@ -79,11 +107,6 @@ _RENT_RE = re.compile(
 _RENT_YEAR_RE = re.compile(
     rf"(?P<cur>{_CURRENCY_MARKER})\.?\s*(?P<num>\d[\d,]*(?:\.\d+)?)\s*"
     r"(?:/|\sper\s|\s)?(?:year|yr|annum|annually|annual|p\.a\.)\b",
-    re.IGNORECASE,
-)
-_NIGHT_RE = re.compile(
-    rf"(?P<cur>{_CURRENCY_MARKER})\.?\s*(?P<num>\d[\d,]*(?:\.\d+)?)\s*"
-    r"(?:/|\sper\s|\s)?(?:night|nightly)\b",
     re.IGNORECASE,
 )
 _PSF_RE = re.compile(
@@ -169,6 +192,13 @@ def _extract_amounts(text: str) -> list[_Amount]:
     "Rs 12,000/month" is a rent observation, not an asking price. Every amount
     must carry an explicit currency marker (``Rs``, ``₹``, ``$``, ``£`` …);
     unmarked numbers are not evidence and are skipped.
+
+    Whole-property asking prices are additionally constrained to a
+    currency-specific plausibility band and must not be phrased as a rate.
+    Retrieved pages routinely mix per-square-foot rates, monthly rents, project
+    totals and nightly holiday rates into one paragraph; admitting those as
+    "asking prices" would make the median meaningless, so they are excluded
+    (never silently — the response reports how many were excluded).
     """
     found: list[_Amount] = []
     consumed: list[tuple[int, int]] = []
@@ -176,33 +206,54 @@ def _extract_amounts(text: str) -> list[_Amount]:
     def _overlaps(start: int, end: int) -> bool:
         return any(start < c_end and end > c_start for c_start, c_end in consumed)
 
+    def _is_rate_context(start: int) -> bool:
+        """True when the same clause immediately before ``start`` states a rate.
+
+        Bounded to the current clause (the text since the last sentence or list
+        boundary): an unrelated "per square foot" in a previous sentence must
+        not disqualify a genuine property price.
+        """
+        prefix = text[max(0, start - 200): start]
+        boundary = max(prefix.rfind(ch) for ch in ".,;:!?\n|")
+        clause = prefix[boundary + 1:]
+        return bool(_RATE_CONTEXT_RE.search(clause))
+
+    def _asking_ok(currency: str, value: float, start: int) -> bool:
+        bounds = ASKING_PRICE_BOUNDS.get(currency)
+        if bounds is None:
+            return False
+        low, high = bounds
+        if not (low <= value <= high):
+            return False
+        # "₹45,990 per sq ft" / "from ₹8,211 per square foot" are rates.
+        return not _is_rate_context(start)
+
     # 1) Monthly rent.
     for match in _RENT_RE.finditer(text):
         currency = _currency_of(match.group("cur"))
         value = _number(match.group("num"))
-        if currency and value:
-            found.append(_Amount("rent", round(value, 2), currency, "per_month"))
-            consumed.append(match.span())
-
-    # 2) Nightly rent (holiday/short-let context).
-    for match in _NIGHT_RE.finditer(text):
-        if _overlaps(*match.span()):
+        if not (currency and value):
             continue
-        currency = _currency_of(match.group("cur"))
-        value = _number(match.group("num"))
-        if currency and value:
-            found.append(_Amount("rent", round(value, 2), currency, "per_night"))
-            consumed.append(match.span())
+        floor = MONTHLY_RENT_FLOOR.get(currency)
+        if floor is not None and value < floor:
+            continue
+        found.append(_Amount("rent", round(value, 2), currency, "per_month"))
+        consumed.append(match.span())
 
-    # 2b) Annual rent, normalised to a monthly figure.
+    # 2) Annual rent, normalised to a monthly figure.
     for match in _RENT_YEAR_RE.finditer(text):
         if _overlaps(*match.span()):
             continue
         currency = _currency_of(match.group("cur"))
         value = _number(match.group("num"))
-        if currency and value:
-            found.append(_Amount("rent", round(value / 12.0, 2), currency, "per_month"))
-            consumed.append(match.span())
+        if not (currency and value):
+            continue
+        monthly = round(value / 12.0, 2)
+        floor = MONTHLY_RENT_FLOOR.get(currency)
+        if floor is not None and monthly < floor:
+            continue
+        found.append(_Amount("rent", monthly, currency, "per_month"))
+        consumed.append(match.span())
 
     # 3) Price per square foot / square metre (number before or after the unit).
     for pattern in (_PSF_RE, _PSF_REVERSED_RE):
@@ -224,10 +275,13 @@ def _extract_amounts(text: str) -> list[_Amount]:
         currency = _currency_of(match.group("cur"))
         value = _number(match.group("num"))
         multiplier = _UNIT_MULTIPLIER.get(match.group("unit").lower())
-        if currency and value and multiplier:
-            scaled = round(value * multiplier, 2)
-            found.append(_Amount("asking_price", scaled, currency, None))
-            consumed.append(match.span())
+        if not (currency and value and multiplier):
+            continue
+        scaled = round(value * multiplier, 2)
+        if not _asking_ok(currency, scaled, match.start()):
+            continue
+        found.append(_Amount("asking_price", scaled, currency, None))
+        consumed.append(match.span())
 
     # 4b) Bare Indian magnitude units ("1.2 Cr") after a price keyword: the unit
     # word itself fixes the currency to INR, and the keyword fixes the context.
@@ -240,10 +294,15 @@ def _extract_amounts(text: str) -> list[_Amount]:
             continue
         if not _PRICE_KEYWORD_RE.search(text[max(0, match.start() - 45): match.start()]):
             continue
-        found.append(_Amount("asking_price", round(value * multiplier, 2), "INR", None))
+        scaled = round(value * multiplier, 2)
+        if not _asking_ok("INR", scaled, match.start()):
+            continue
+        found.append(_Amount("asking_price", scaled, "INR", None))
         consumed.append(match.span())
 
-    # 5) A currency-marked amount near a price keyword, then any marked amount.
+    # 5) A bare currency-marked amount that is large enough to be a whole
+    # property. Small amounts near a price word are almost always a rate
+    # ("₹8,211 per square foot", "₹32,000 per month") and are rejected above.
     for match in _BARE_AMOUNT_RE.finditer(text):
         if _overlaps(*match.span()):
             continue
@@ -251,15 +310,13 @@ def _extract_amounts(text: str) -> list[_Amount]:
         value = _number(match.group("num"))
         if not (currency and value):
             continue
-        near_keyword = bool(
-            _PRICE_KEYWORD_RE.search(text[max(0, match.start() - 45): match.start()])
-        )
-        if near_keyword or value >= 100_000:
-            found.append(_Amount("asking_price", round(value, 2), currency, None))
-            consumed.append(match.span())
+        if not _asking_ok(currency, value, match.start()):
+            continue
+        found.append(_Amount("asking_price", round(value, 2), currency, None))
+        consumed.append(match.span())
 
-    # De-duplicate identical amounts; keep at most one asking price per source
-    # unless the page states several distinct values.
+    # De-duplicate identical amounts; keep at most three asking prices per
+    # source unless the page states several distinct values.
     unique: list[_Amount] = []
     seen: set[tuple] = set()
     asking_seen = 0
@@ -678,16 +735,58 @@ class ExternalMarketService:
 
     # ── statistics ──────────────────────────────────────────────────────
     def _statistics(self, observations: list[Observation], flt: MarketResearchFilter) -> dict:
+        """Aggregate retrieved observations.
+
+        Statistics are computed **per currency**: a median across ₹ and $ values
+        is meaningless, so the currency with the most observations is treated as
+        the primary series and the others are reported as a count rather than
+        being blended in.
+        """
+
+        def dominant_currency(kind: str, unit: Optional[str] = None) -> str:
+            counts: dict[str, int] = {}
+            for o in observations:
+                if o.kind != kind or o.value is None:
+                    continue
+                if unit is not None and o.unit != unit:
+                    continue
+                counts[o.currency] = counts.get(o.currency, 0) + 1
+            if not counts:
+                return flt.currency
+            return max(counts, key=counts.get)
+
         def stats_for(kind: str, unit: Optional[str] = None) -> dict:
+            currency = dominant_currency(kind, unit)
             values = [
                 o.value for o in observations
-                if o.kind == kind and o.value is not None and (unit is None or o.unit == unit)
+                if o.kind == kind and o.value is not None
+                and o.currency == currency and (unit is None or o.unit == unit)
             ]
+            # Observations in other currencies are real, but not comparable.
+            other = sum(
+                1 for o in observations
+                if o.kind == kind and o.value is not None
+                and o.currency != currency and (unit is None or o.unit == unit)
+            )
             count = len(values)
             measured = count >= MIN_OBSERVATIONS
             if count == 0:
-                return {"available": False, "sample_size": 0}
-            return {
+                return {
+                    "available": False,
+                    "sample_size": 0,
+                    "currency": currency,
+                    "excluded_other_currencies": other,
+                }
+            note = (
+                "Median of retrieved external observations. Asking prices from "
+                "third-party pages are not verified listings. Whole-property "
+                "figures only: per-square-foot rates and smaller amounts are "
+                "excluded, not averaged in."
+                if kind == "asking_price" else
+                "Median of retrieved external rent observations. Actual rents vary "
+                "by furnishing, floor and exact location."
+            )
+            block = {
                 "available": True,
                 "sample_size": count,
                 "is_measured": measured,
@@ -697,39 +796,74 @@ class ExternalMarketService:
                 "max": round(max(values), 2),
                 "p25": round(_percentile(values, 0.25) or 0, 2),
                 "p75": round(_percentile(values, 0.75) or 0, 2),
-                "currency": observations[0].currency if observations else flt.currency,
-                "note": (
-                    "Median of retrieved external observations. Asking prices from "
-                    "third-party pages are not verified listings."
-                    if kind != "rent" else
-                    "Median of retrieved external rent observations. Actual rents vary "
-                    "by furnishing, floor and exact location."
-                ),
+                "currency": currency,
+                "excluded_other_currencies": other,
+                "note": note,
             }
+            return block
 
         asking = stats_for("asking_price")
         rent = stats_for("rent")
         psf = stats_for("price_per_sqft", "per_sqft")
         psqm = stats_for("price_per_sqft", "per_sqm")
 
-        # Gross/net rental yield are computed only when BOTH an asking price and a
-        # rent observation exist — never by pairing unrelated figures.
+        # Gross rental yield requires BOTH an asking price and a rent observation
+        # in the SAME currency, both measured, and a plausible result. An
+        # implausible yield means the paired medians are not comparable, so it
+        # is reported as unavailable rather than as a number.
         yields = {
             "gross_rental_yield_pct": None,
             "net_rental_yield_pct": None,
             "basis": None,
+            "reason": None,
         }
-        if asking.get("available") and rent.get("available") and asking.get("median") and rent.get("median"):
+        same_currency = (
+            asking.get("available") and rent.get("available")
+            and asking.get("currency") == rent.get("currency")
+        )
+        if not (asking.get("available") and rent.get("available")):
+            yields["reason"] = "Requires both an external asking price and an external rent observation."
+        elif not same_currency:
+            yields["reason"] = (
+                "Asking prices and rents were retrieved in different currencies, "
+                "so no yield is computed."
+            )
+        elif not (asking.get("is_measured") and rent.get("is_measured")):
+            yields["reason"] = (
+                f"Fewer than {MIN_OBSERVATIONS} observations in one of the series; "
+                "treat any yield as indicative rather than a market rate."
+            )
+            # A single retrieved (price, rent) pair is still real evidence, so
+            # the yield is computed but flagged as not measured.
             gross = round(rent["median"] * 12 / asking["median"] * 100, 2)
-            yields = {
-                "gross_rental_yield_pct": gross,
-                "net_rental_yield_pct": None,  # expenses are user-assumptions; not invented
-                "basis": (
-                    "annualised median external rent ÷ median external asking price. "
-                    "Expense inputs are not part of external research."
-                ),
-                "is_measured": bool(asking.get("is_measured") and rent.get("is_measured")),
-            }
+            if 0.5 <= gross <= 25.0:
+                yields["gross_rental_yield_pct"] = gross
+                yields["basis"] = (
+                    "annualised median external rent ÷ median external asking "
+                    "price, both in the same currency. Expense inputs are not "
+                    "part of external research."
+                )
+                yields["is_measured"] = False
+        else:
+            gross = round(rent["median"] * 12 / asking["median"] * 100, 2)
+            if 0.5 <= gross <= 25.0:
+                yields = {
+                    "gross_rental_yield_pct": gross,
+                    "net_rental_yield_pct": None,  # expenses are user-assumptions
+                    "basis": (
+                        "annualised median external rent ÷ median external asking "
+                        "price, both in the same currency. Expense inputs are not "
+                        "part of external research."
+                    ),
+                    "reason": None,
+                    "is_measured": True,
+                }
+            else:
+                yields["reason"] = (
+                    f"The computed yield ({gross}%) is outside the plausible range for "
+                    "residential property, so the medians are not comparable and no "
+                    "yield is reported."
+                )
 
         bedrooms_seen = sorted({
             o.bedrooms for o in observations if o.bedrooms is not None

@@ -315,3 +315,169 @@ def test_ai_failure_never_breaks_research(monkeypatch):
     research = _service(provider).research(MarketResearchFilter(location="X"), use_cache=False)
     assert research["status"] == "ok"
     assert research["ai_summary"] is None
+
+
+# ─── data quality: per-sqft rates must not become asking prices ────────────
+
+def test_per_sqft_rates_are_not_counted_as_asking_prices():
+    """The exact production bug: "₹8,211 per square foot" is a rate, not a price."""
+    from app.services.external_market_service import _extract_amounts
+
+    text = (
+        "Average property prices reached approximately Rs 8,211 per square foot. "
+        "A 2 BHK flat typically costs Rs 75,00,000. Monthly rent is Rs 25,000/month."
+    )
+    found = _extract_amounts(text)
+    asking = [a.value for a in found if a.kind == "asking_price"]
+    psf = [a.value for a in found if a.kind == "price_per_sqft"]
+    rent = [a.value for a in found if a.kind == "rent"]
+    print("asking:", asking, "psf:", psf, "rent:", rent)
+    # The per-sqft figure must appear ONLY as a psf rate.
+    assert 8211.0 not in asking
+    assert 8211.0 in psf
+    # The real property price and rent are still captured.
+    assert 7500000.0 in asking
+    assert 25000.0 in rent
+
+
+def test_small_amounts_near_price_words_are_rejected():
+    """A price keyword must not launder a rate into an asking price."""
+    from app.services.external_market_service import _extract_amounts
+
+    for text in [
+        "Property price starts at Rs 7,000 per sq ft here.",
+        "The average price is Rs 32,000 per sq ft in this locality.",
+        "Rent price from Rs 12,000/month.",
+    ]:
+        asking = [a.value for a in _extract_amounts(text) if a.kind == "asking_price"]
+        assert asking == [], f"{text!r} produced asking prices {asking}"
+
+
+def test_nightly_vacation_rates_are_excluded():
+    """KAYAK-style "$10/night" holiday lets are not residential market data."""
+    from app.services.external_market_service import _extract_amounts
+
+    text = "Hyderabad Vacation Rentals from $10/night on KAYAK."
+    found = _extract_amounts(text)
+    rents = [a for a in found if a.kind == "rent"]
+    assert all(a.unit != "per_night" for a in found)
+    assert all(a.unit == "per_month" for a in rents)
+
+
+def test_implausible_project_totals_are_rejected():
+    """A ₹45.99 billion figure is a portfolio total, not a property price."""
+    from app.services.external_market_service import _extract_amounts
+
+    found = _extract_amounts("Total project value Rs 45,990 Cr for the township.")
+    asking = [a.value for a in found if a.kind == "asking_price"]
+    assert 459900000000.0 not in asking
+
+
+def test_currency_bounds_are_applied():
+    from app.services.external_market_service import _extract_amounts
+
+    # $15 is below the USD property floor -> not an asking price.
+    assert not [a for a in _extract_amounts("Home listed at $15 today.") if a.kind == "asking_price"]
+    # $350,000 is a plausible US property.
+    assert [a for a in _extract_amounts("Home listed at $350,000 today.") if a.kind == "asking_price"]
+
+
+def test_statistics_are_computed_per_currency_not_blended():
+    """A median across ₹ and $ values is meaningless; they must not be blended."""
+    from app.services.external_market_service import ExternalMarketService, Observation
+
+    service = _service(FakeSearchProvider([]))
+    observations = [
+        Observation("asking_price", 1_000_000.0, "INR"),
+        Observation("asking_price", 1_100_000.0, "INR"),
+        Observation("asking_price", 1_200_000.0, "INR"),
+        # One tiny USD figure must not drag the INR median down.
+        Observation("asking_price", 15.0, "USD"),
+    ]
+    stats = service._statistics(observations, MarketResearchFilter(location="X"))
+    assert stats["asking_price"]["currency"] == "INR"
+    assert stats["asking_price"]["median"] == 1_100_000.0
+    assert stats["asking_price"]["excluded_other_currencies"] == 1
+
+
+def test_implausible_yield_is_reported_as_unavailable():
+    """The 1383% bug: pairing a psf figure with a rent must not yield a number."""
+    from app.services.external_market_service import ExternalMarketService, Observation
+
+    service = _service(FakeSearchProvider([]))
+    observations = [
+        # Asking median lands on a per-sqft-scale figure.
+        Observation("asking_price", 32_000.0, "INR"),
+        Observation("asking_price", 33_000.0, "INR"),
+        Observation("asking_price", 31_000.0, "INR"),
+        Observation("rent", 36_899.0, "INR", "per_month"),
+        Observation("rent", 37_000.0, "INR", "per_month"),
+        Observation("rent", 35_000.0, "INR", "per_month"),
+    ]
+    stats = service._statistics(observations, MarketResearchFilter(location="X"))
+    assert stats["rental_yield"]["gross_rental_yield_pct"] is None
+    assert stats["rental_yield"]["reason"]
+    assert "plausible" in stats["rental_yield"]["reason"]
+
+
+def test_plausible_yield_is_still_reported():
+    from app.services.external_market_service import ExternalMarketService, Observation
+
+    service = _service(FakeSearchProvider([]))
+    observations = [
+        Observation("asking_price", 5_000_000.0, "INR"),
+        Observation("asking_price", 5_200_000.0, "INR"),
+        Observation("asking_price", 4_800_000.0, "INR"),
+        Observation("rent", 20_000.0, "INR", "per_month"),
+        Observation("rent", 21_000.0, "INR", "per_month"),
+        Observation("rent", 19_000.0, "INR", "per_month"),
+    ]
+    stats = service._statistics(observations, MarketResearchFilter(location="X"))
+    assert stats["rental_yield"]["gross_rental_yield_pct"] == pytest.approx(4.8, abs=0.1)
+
+
+def test_yield_is_not_computed_across_currencies():
+    from app.services.external_market_service import ExternalMarketService, Observation
+
+    service = _service(FakeSearchProvider([]))
+    observations = [
+        Observation("asking_price", 5_000_000.0, "INR"),
+        Observation("asking_price", 5_200_000.0, "INR"),
+        Observation("asking_price", 4_800_000.0, "INR"),
+        Observation("rent", 2_000.0, "USD", "per_month"),
+        Observation("rent", 2_100.0, "USD", "per_month"),
+        Observation("rent", 1_900.0, "USD", "per_month"),
+    ]
+    stats = service._statistics(observations, MarketResearchFilter(location="X"))
+    assert stats["rental_yield"]["gross_rental_yield_pct"] is None
+    assert "different currencies" in stats["rental_yield"]["reason"]
+
+
+def test_end_to_end_extraction_produces_sane_asking_price():
+    """The full pipeline on realistic page text must give a property-scale median."""
+    from app.services.external_market_service import ExternalMarketService, Observation
+
+    service = _service(FakeSearchProvider([
+        _result(
+            "Property rates in Hyderabad",
+            "https://a.example/rates",
+            "Average price is Rs 8,211 per square foot. 2 BHK flats start at Rs 85,00,000.",
+        ),
+        _result(
+            "Hyderabad rents",
+            "https://b.example/rents",
+            "Monthly rent for a 2 BHK is Rs 28,000/month in Gachibowli.",
+        ),
+        _result(
+            "Hyderabad market trends",
+            "https://c.example/trends",
+            "Apartments range from Rs 65,00,000 to Rs 1.4 Cr. Prices have risen this year.",
+        ),
+    ]))
+    research = service.research(MarketResearchFilter(location="Hyderabad"), use_cache=False)
+    asking = research["statistics"]["asking_price"]
+    assert asking["available"] is True
+    # Median must be a property-scale figure, not a per-sqft rate.
+    assert asking["median"] >= 500_000, f"asking median {asking['median']} looks like a rate"
+    assert 8211.0 not in [o["value"] for o in research["observations"] if o["kind"] == "asking_price"]
+    assert research["statistics"]["price_per_sqft"]["median"] == 8211.0

@@ -291,11 +291,25 @@ function ExternalMarketSection({ research }: { research: ExternalMarketResearch 
               : "Data unavailable"}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {stats.rental_yield?.basis ??
-              "Requires both an external asking price and an external rent observation."}
+            {stats.rental_yield?.gross_rental_yield_pct != null
+              ? (stats.rental_yield.basis ??
+                "Annualised median external rent ÷ median external asking price.")
+              : (stats.rental_yield?.reason ??
+                "Requires both an external asking price and an external rent observation.")}
           </p>
         </div>
       </div>
+
+      {/* Currency / coverage honesty note */}
+      {(stats.asking_price?.excluded_other_currencies ||
+        stats.rent_monthly?.excluded_other_currencies) ? (
+        <p className="text-xs text-muted-foreground">
+          Statistics are computed per currency and never blended. Observations in
+          other currencies ({stats.asking_price?.excluded_other_currencies ?? 0} asking,{" "}
+          {stats.rent_monthly?.excluded_other_currencies ?? 0} rent) were retrieved but
+          excluded from the medians above.
+        </p>
+      ) : null}
 
       {stats.trend_direction && (
         <p className="text-xs text-muted-foreground">

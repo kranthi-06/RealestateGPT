@@ -781,6 +781,8 @@ export interface ExternalStatBlock {
   p25?: number | null;
   p75?: number | null;
   currency?: string;
+  /** Real observations in other currencies, excluded rather than blended. */
+  excluded_other_currencies?: number;
   note?: string;
 }
 
@@ -793,6 +795,8 @@ export interface ExternalStatistics {
     gross_rental_yield_pct: number | null;
     net_rental_yield_pct: number | null;
     basis: string | null;
+    /** Why no yield is reported, when it is not. */
+    reason?: string | null;
     is_measured?: boolean;
   };
   bedrooms_observed: number[];
