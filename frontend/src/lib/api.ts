@@ -5,6 +5,7 @@ import type {
   Property,
   PropertyListResponse,
   SavedPropertyItem,
+  SavePropertyResult,
   SavedSearch,
   Comparison,
   SearchFilters,
@@ -28,12 +29,15 @@ import type {
   LivePlace,
   EmiResult,
   AffordabilityResult,
+  FullAffordabilityResult,
+  InvestmentResponse,
   PriceEstimate,
   PriceFairness,
   RentalYield,
   Roi,
   MarketSnapshotResponse,
   MarketSummaryResponse,
+  MarketCompareResponse,
 } from "./types";
 import { resolveApiBase } from "./api-base";
 
@@ -157,15 +161,42 @@ export const propertiesApi = {
 
 export const savedApi = {
   saveProperty: (property_id: number, notes?: string) =>
-    request<{ id: number; message: string }>("/saved/properties", {
+    request<SavePropertyResult>("/saved/properties", {
       method: "POST",
       body: JSON.stringify({ property_id, notes }),
     }),
 
   unsaveProperty: (property_id: number) =>
-    request<{ message: string }>(`/saved/properties/${property_id}`, { method: "DELETE" }),
+    request<{ message: string; property_id?: number }>(`/saved/properties/${property_id}`, { method: "DELETE" }),
 
-  getSavedProperties: () => request<SavedPropertyItem[]>("/saved/properties"),
+  getSavedProperties: (params: {
+    q?: string;
+    city?: string;
+    locality?: string;
+    property_type?: string;
+    listing_type?: "sale" | "rent";
+    bedrooms?: number;
+    min_price?: number;
+    max_price?: number;
+    sort_by?: "created_at" | "price" | "property_id";
+    sort_order?: "asc" | "desc";
+  } = {}) => {
+    const search = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") {
+        search.append(key, String(value));
+      }
+    });
+    return request<SavedPropertyItem[]>(`/saved/properties?${search.toString()}`);
+  },
+
+  getSavedIds: () => request<{ property_ids: number[] }>("/saved/properties/ids"),
+
+  updateNotes: (property_id: number, notes: string) =>
+    request<{ message: string }>(`/saved/properties/${property_id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ notes }),
+    }),
 
   saveSearch: (data: {
     name: string;
@@ -294,6 +325,7 @@ export const discoveryApi = {
 export const financeApi = {
   emi: (data: { principal: number; annual_interest_rate: number; tenure_years: number }) =>
     request<EmiResult>("/finance/emi", { method: "POST", body: JSON.stringify(data) }),
+
   affordability: (data: {
     monthly_income: number;
     existing_obligations?: number;
@@ -302,10 +334,65 @@ export const financeApi = {
     annual_interest_rate?: number;
     tenure_years?: number;
   }) => request<AffordabilityResult>("/finance/affordability", { method: "POST", body: JSON.stringify(data) }),
+
+  fullAffordability: (data: {
+    monthly_income: number;
+    existing_obligations?: number;
+    savings?: number;
+    down_payment?: number;
+    property_price?: number;
+    property_id?: number;
+    monthly_rent?: number;
+    maintenance_monthly?: number;
+    property_tax_annual?: number;
+    insurance_annual?: number;
+    other_monthly?: number;
+    annual_interest_rate?: number;
+    tenure_years?: number;
+    max_income_ratio?: number;
+    stamp_duty_pct?: number;
+    registration_pct?: number;
+    brokerage_pct?: number;
+    gst_pct?: number;
+    legal_and_misc?: number;
+    loan_processing_pct?: number;
+  }) =>
+    request<FullAffordabilityResult>("/finance/affordability/full", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  investment: (data: {
+    property_ids: number[];
+    monthly_rent?: number;
+    down_payment_pct?: number;
+    down_payment_amount?: number;
+    annual_interest_rate?: number;
+    tenure_years?: number;
+    maintenance_monthly?: number;
+    property_tax_annual?: number;
+    insurance_annual?: number;
+    other_monthly?: number;
+    stamp_duty_pct?: number;
+    registration_pct?: number;
+    brokerage_pct?: number;
+    gst_pct?: number;
+    legal_and_misc?: number;
+    loan_processing_pct?: number;
+    expected_vacancy_pct?: number;
+    rent_growth_pct?: number;
+    conservative_appreciation_pct?: number;
+    base_appreciation_pct?: number;
+    optimistic_appreciation_pct?: number;
+    holding_years?: number;
+  }) => request<InvestmentResponse>("/finance/investment", { method: "POST", body: JSON.stringify(data) }),
+
   rentalYield: (data: { property_price: number; monthly_rent: number; annual_expenses_pct?: number }) =>
     request<RentalYield>("/finance/rental-yield", { method: "POST", body: JSON.stringify(data) }),
+
   roi: (data: { purchase_price: number; annual_rent: number; annual_expenses?: number; appreciation_pct?: number; years?: number }) =>
     request<Roi>("/finance/roi", { method: "POST", body: JSON.stringify(data) }),
+
   estimate: (propertyId: number) => request<PriceEstimate>(`/finance/properties/${propertyId}/estimate`),
   fairness: (propertyId: number) => request<PriceFairness>(`/finance/properties/${propertyId}/fairness`),
 };
@@ -334,6 +421,15 @@ export const marketApi = {
     request<MarketSummaryResponse>(
       `/market/summary${city ? `?city=${encodeURIComponent(city)}` : ""}`
     ),
+  compare: (cities: string[], params: { listing_type?: "sale" | "rent"; property_type?: string; bedrooms?: number } = {}) => {
+    const search = new URLSearchParams({ cities: cities.join(",") });
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") {
+        search.append(key, String(value));
+      }
+    });
+    return request<MarketCompareResponse>(`/market/compare?${search.toString()}`);
+  },
 };
 
 // â”€â”€â”€ Admin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

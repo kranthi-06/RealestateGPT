@@ -37,6 +37,40 @@ class PriceHistoryPointResponse(BaseModel):
     avg_previous_price: Optional[float] = None
 
 
+class PriceDistributionBucketResponse(BaseModel):
+    """One histogram bucket of observed asking prices.
+
+    ``from``/``to`` come straight from the service; the aliases keep the JSON
+    keys readable while ``from_value``/``to_value`` avoid shadowing a builtin
+    inside Python.
+    """
+
+    model_config = {"populate_by_name": True}
+
+    label: str = ""
+    from_value: Optional[float] = Field(default=None, alias="from")
+    to_value: Optional[float] = Field(default=None, alias="to")
+    count: int = 0
+
+
+class PriceStatGroup(BaseModel):
+    """A price stat plus its price-per-square-foot counterpart."""
+
+    prices: PriceStatResponse = Field(default_factory=PriceStatResponse)
+    price_per_sqft: PriceStatResponse = Field(default_factory=PriceStatResponse)
+
+
+class LandStatGroup(PriceStatGroup):
+    """A land group also reports price per square yard."""
+
+    price_per_sq_yard: PriceStatResponse = Field(default_factory=PriceStatResponse)
+
+
+class RentStatGroup(BaseModel):
+    monthly: PriceStatResponse = Field(default_factory=PriceStatResponse)
+    price_per_sqft_monthly: PriceStatResponse = Field(default_factory=PriceStatResponse)
+
+
 class MarketSnapshotResponse(BaseModel):
     generated_at: datetime
     source: str
@@ -44,12 +78,13 @@ class MarketSnapshotResponse(BaseModel):
     localities: List[str] = []
     totals: Dict[str, Any]
     bedroom_breakdown: Dict[str, int] = {}
-    apartments: Dict[str, Any]
-    houses: Dict[str, Any]
-    land: Dict[str, Any]
-    rents: Dict[str, Any]
+    apartments: PriceStatGroup = Field(default_factory=PriceStatGroup)
+    houses: PriceStatGroup = Field(default_factory=PriceStatGroup)
+    land: LandStatGroup = Field(default_factory=LandStatGroup)
+    rents: RentStatGroup = Field(default_factory=RentStatGroup)
     locality_comparison: List[LocalityComparisonResponse] = []
     price_history: List[PriceHistoryPointResponse] = []
+    price_distribution: List[PriceDistributionBucketResponse] = []
     trend: Dict[str, Any] = {}
     indicators: Dict[str, Any] = {}
     coverage: Dict[str, Any] = {}

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from pymongo.database import Database
+from pymongo.errors import DuplicateKeyError
 
 from app.core.database import next_id
 from app.models.saved import SavedProperty, SavedSearch, Comparison, SearchHistory
@@ -28,6 +29,11 @@ class SavedRepository:
     # ─── Saved properties ───────────────────────────────────────────────
 
     def save_property(self, user_id: int, property_id: int, notes: Optional[str] = None) -> SavedProperty:
+        """Idempotent save.
+
+        The unique ``(user_id, property_id)`` index is the authority: a double
+        submit from a slow connection cannot create a duplicate row.
+        """
         existing = self.saved_props.find_one(
             {"user_id": user_id, "property_id": property_id}
         )
@@ -44,7 +50,12 @@ class SavedRepository:
             "_id": sid, "user_id": user_id, "property_id": property_id,
             "notes": notes, "created_at": _utcnow(),
         }
-        self.saved_props.insert_one(doc)
+        try:
+            self.saved_props.insert_one(doc)
+        except DuplicateKeyError:  # lost a race; the row already exists
+            return SavedProperty.from_doc(
+                self.saved_props.find_one({"user_id": user_id, "property_id": property_id})
+            )
         return SavedProperty.from_doc(doc)
 
     def unsave_property(self, user_id: int, property_id: int) -> bool:
@@ -53,18 +64,45 @@ class SavedRepository:
         )
         return result.deleted_count > 0
 
-    def get_saved_properties(self, user_id: int) -> List[SavedProperty]:
-        """Return saved properties with the joined property card attached."""
+    def get_saved_properties(
+        self,
+        user_id: int,
+        *,
+        property_ids: Optional[List[int]] = None,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+        limit: Optional[int] = None,
+    ) -> List[SavedProperty]:
+        """Return saved rows with the joined property card attached.
+
+        One indexed query for the saved rows and a single ``$in`` lookup for the
+        properties, instead of one database round trip per saved item.
+        """
         from app.repositories.property_repo import PropertyRepository
 
-        docs = list(
-            self.saved_props.find({"user_id": user_id}).sort("created_at", -1)
-        )
+        query: dict = {"user_id": user_id}
+        if property_ids:
+            query["property_id"] = {"$in": property_ids}
+        allowed_sorts = {"created_at": "created_at", "price": "price", "property_id": "property_id"}
+        field = allowed_sorts.get(sort_by, "created_at")
+        direction = -1 if sort_order != "asc" else 1
+        cursor = self.saved_props.find(query).sort(field, direction)
+        if limit:
+            cursor = cursor.limit(limit)
+        docs = list(cursor)
+        if not docs:
+            return []
+
         items = [SavedProperty.from_doc(doc) for doc in docs if doc]
-        engines = PropertyRepository(self.db)
+        properties = {p.id: p for p in PropertyRepository(self.db).get_by_ids(
+            [item.property_id for item in items]
+        )}
         for item in items:
-            item.property = engines.get_by_id(item.property_id)
+            item.property = properties.get(item.property_id)
         return items
+
+    def count_saved_for_user(self, user_id: int) -> int:
+        return self.saved_props.count_documents({"user_id": user_id})
 
     def is_saved(self, user_id: int, property_id: int) -> bool:
         return (
@@ -115,6 +153,9 @@ class SavedRepository:
         }
         self.comparisons.insert_one(doc)
         return Comparison.from_doc(doc)
+
+    def count_comparisons_for_user(self, user_id: int) -> int:
+        return self.comparisons.count_documents({"user_id": user_id})
 
     def get_comparison(self, comparison_id: int, user_id: int) -> Optional[Comparison]:
         return Comparison.from_doc(

@@ -1,11 +1,12 @@
-"use client";
+﻿"use client";
 
-import { useMemo, useState, FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, FormEvent, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import {
   Calculator,
   Loader2,
   Home,
-  ShieldCheck,
   AlertTriangle,
   CheckCircle2,
   XCircle,
@@ -15,26 +16,22 @@ import {
   Wallet,
   Banknote,
   Info,
+  PiggyBank,
+  Receipt,
+  TrendingDown,
 } from "lucide-react";
 import { financeApi, ApiError } from "@/lib/api";
-import type { EmiResult, AffordabilityResult } from "@/lib/types";
+import type { FullAffordabilityResult } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-/* ── Indian formatting helpers ───────────────────────────────────────── */
+/* â”€â”€ Indian formatting helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
-/** Full Indian-grouped rupee string, e.g. ₹1,23,45,678. */
 function inr(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "—";
+  if (value == null || !Number.isFinite(value)) return "â€”";
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
@@ -42,19 +39,18 @@ function inr(value: number | null | undefined): string {
   }).format(value);
 }
 
-/** Compact Indian notation: ₹45.5 L / ₹1.20 Cr / ₹95 K. */
 function inrCompact(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "—";
+  if (value == null || !Number.isFinite(value)) return "â€”";
   const abs = Math.abs(value);
   const sign = value < 0 ? "-" : "";
-  if (abs >= 1_00_00_000) return `${sign}₹${(abs / 1_00_00_000).toFixed(2)} Cr`;
-  if (abs >= 1_00_000) return `${sign}₹${(abs / 1_00_000).toFixed(abs >= 10_00_000 ? 0 : 1)} L`;
-  if (abs >= 1_000) return `${sign}₹${(abs / 1_000).toFixed(1)} K`;
-  return `${sign}₹${abs.toFixed(0)}`;
+  if (abs >= 1_00_00_000) return `${sign}â‚¹${(abs / 1_00_00_000).toFixed(2)} Cr`;
+  if (abs >= 1_00_000) return `${sign}â‚¹${(abs / 1_00_000).toFixed(abs >= 10_00_000 ? 0 : 1)} L`;
+  if (abs >= 1_000) return `${sign}â‚¹${(abs / 1_000).toFixed(1)} K`;
+  return `${sign}â‚¹${abs.toFixed(0)}`;
 }
 
 function pct(value: number | null | undefined, digits = 1): string {
-  if (value == null || !Number.isFinite(value)) return "—";
+  if (value == null || !Number.isFinite(value)) return "â€”";
   return `${value.toFixed(digits)}%`;
 }
 
@@ -63,7 +59,6 @@ function digits(raw: string): string {
   return raw.replace(/[^\d]/g, "");
 }
 
-/** Accept a positive decimal number (for interest rates). */
 function decimal(raw: string): string {
   const cleaned = raw.replace(/[^\d.]/g, "");
   const parts = cleaned.split(".");
@@ -75,7 +70,7 @@ function toNumber(raw: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-/* ── Small pieces ────────────────────────────────────────────────────── */
+/* â”€â”€ Small pieces â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function InputCard({
   title,
@@ -202,309 +197,181 @@ function EstimateNote() {
       <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
       <p>
         <span className="font-semibold text-foreground">These are estimates, not approvals.</span>{" "}
-        Figures assume the rate and tenure you enter, ignore processing fees, insurance, stamp duty
-        and registration charges, and do not reflect any lender&apos;s eligibility rules or credit
-        assessment. Actual loan terms are decided only by the lender after reviewing your documents.
+        Figures use the income, savings, rate, tenure and transaction-cost rates you enter. They do not
+        reflect any lender&apos;s eligibility rules, credit assessment or property valuation. Actual
+        loan terms are decided only by the lender after reviewing your documents.
       </p>
     </div>
   );
 }
 
-/* ── EMI Calculator ──────────────────────────────────────────────────── */
-
-function EmiCalculator() {
-  const [principal, setPrincipal] = useState("4000000");
-  const [rate, setRate] = useState("8.5");
-  const [years, setYears] = useState("20");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<EmiResult | null>(null);
-
-  const principalNum = toNumber(principal, 0);
-  const rateNum = toNumber(rate, 0);
-  const yearsNum = toNumber(years, 0);
-
-  const validationError = useMemo(() => {
-    if (principal === "" || principalNum <= 0) return "Enter a loan amount greater than zero.";
-    if (rate === "" || rateNum <= 0 || rateNum > 50) return "Enter an interest rate between 0 and 50%.";
-    if (years === "" || yearsNum <= 0 || yearsNum > 40) return "Enter a tenure between 0 and 40 years.";
-    return null;
-  }, [principal, principalNum, rate, rateNum, years, yearsNum]);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    if (validationError) {
-      setResult(null);
-      setError(validationError);
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await financeApi.emi({
-        principal: principalNum,
-        annual_interest_rate: rateNum,
-        tenure_years: yearsNum,
-      });
-      setResult(res);
-    } catch (caught) {
-      setResult(null);
-      setError(
-        caught instanceof ApiError
-          ? caught.message === "Request failed"
-            ? "Could not calculate EMI. Check the values and try again."
-            : caught.message
-          : "Could not calculate EMI. Check your connection and try again."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="space-y-5">
-      <InputCard
-        title="Loan details"
-        description="Enter the amount you plan to borrow and the terms your lender quoted."
-        icon={Calculator}
-      >
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="Loan amount" hint="Total principal borrowed">
-            <div className="relative">
-              <IndianRupee className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
-              <Input
-                inputMode="numeric"
-                placeholder="e.g. 4000000"
-                className="pl-9 tabular-nums"
-                value={principal}
-                onChange={(e) => setPrincipal(digits(e.target.value))}
-              />
-            </div>
-          </Field>
-          <Field label="Interest rate (% p.a.)">
-            <div className="relative">
-              <Percent className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
-              <Input
-                inputMode="decimal"
-                placeholder="e.g. 8.5"
-                className="pl-9 tabular-nums"
-                value={rate}
-                onChange={(e) => setRate(decimal(e.target.value))}
-              />
-            </div>
-          </Field>
-          <Field label="Tenure (years)">
-            <div className="relative">
-              <CalendarClock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
-              <Input
-                inputMode="numeric"
-                placeholder="e.g. 20"
-                className="pl-9 tabular-nums"
-                value={years}
-                onChange={(e) => setYears(digits(e.target.value))}
-              />
-            </div>
-          </Field>
-        </div>
-        {validationError && !error && (
-          <p className="text-xs text-muted-foreground">{validationError}</p>
-        )}
-        {error && <ErrorNote>{error}</ErrorNote>}
-        <Button type="submit" onClick={submit} disabled={loading} className="w-full gap-2 rounded-xl sm:w-auto">
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />}
-          Calculate EMI
-        </Button>
-      </InputCard>
-
-      {result && (
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5 sm:p-6">
-            <p className="text-xs font-medium uppercase tracking-wide text-primary/80">
-              Estimated monthly EMI
-            </p>
-            <p className="mt-2 text-3xl font-bold text-primary tabular-nums sm:text-4xl">
-              {inr(result.monthly_emi)}
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              per month for {result.tenure_years} year{result.tenure_years === 1 ? "" : "s"} at{" "}
-              {result.annual_interest_rate}% p.a.
-            </p>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-3">
-            <ResultCard
-              label="Principal"
-              value={inr(result.principal)}
-              compactValue={inrCompact(result.principal)}
-              icon={Banknote}
-            />
-            <ResultCard
-              label="Total interest"
-              value={inr(result.total_interest)}
-              compactValue={inrCompact(result.total_interest)}
-              tone="warning"
-              icon={Percent}
-            />
-            <ResultCard
-              label="Total repayment"
-              value={inr(result.total_repayment)}
-              compactValue={inrCompact(result.total_repayment)}
-              icon={Wallet}
-            />
-          </div>
-
-          <Card className="border-border/60">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Breakdown</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-3 pt-0 sm:grid-cols-2">
-              <div className="rounded-lg border border-border/60 bg-background px-3 py-2.5">
-                <p className="text-xs text-muted-foreground">Principal share of total</p>
-                <p className="text-sm font-semibold tabular-nums text-foreground">
-                  {result.total_repayment > 0
-                    ? pct((result.principal / result.total_repayment) * 100)
-                    : "—"}
-                </p>
-              </div>
-              <div className="rounded-lg border border-border/60 bg-background px-3 py-2.5">
-                <p className="text-xs text-muted-foreground">Interest share of total</p>
-                <p className="text-sm font-semibold tabular-nums text-foreground">
-                  {result.total_repayment > 0
-                    ? pct((result.total_interest / result.total_repayment) * 100)
-                    : "—"}
-                </p>
-              </div>
-              <div className="rounded-lg border border-border/60 bg-background px-3 py-2.5">
-                <p className="text-xs text-muted-foreground">Number of instalments</p>
-                <p className="text-sm font-semibold tabular-nums text-foreground">
-                  {Math.round(result.tenure_years * 12)}
-                </p>
-              </div>
-              <div className="rounded-lg border border-border/60 bg-background px-3 py-2.5">
-                <p className="text-xs text-muted-foreground">Formula</p>
-                <p className="text-sm font-semibold text-foreground">
-                  EMI = P·r·(1+r)ⁿ / ((1+r)ⁿ − 1)
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <EstimateNote />
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── Affordability Calculator ────────────────────────────────────────── */
+/* â”€â”€ Affordability calculator â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function AffordabilityCalculator() {
-  const [income, setIncome] = useState("150000");
+  const searchParams = useSearchParams();
+
+  const [income, setIncome] = useState("70000");
   const [existingEmi, setExistingEmi] = useState("0");
+  const [savings, setSavings] = useState("1200000");
   const [downPayment, setDownPayment] = useState("1000000");
   const [propertyPrice, setPropertyPrice] = useState("");
   const [rate, setRate] = useState("8.5");
   const [years, setYears] = useState("20");
+  const [maintenance, setMaintenance] = useState("3000");
+  const [propertyTax, setPropertyTax] = useState("12000");
+  const [insurance, setInsurance] = useState("0");
+  const [other, setOther] = useState("0");
+  const [stampDuty, setStampDuty] = useState("5");
+  const [registration, setRegistration] = useState("1");
+  const [brokerage, setBrokerage] = useState("1");
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<AffordabilityResult | null>(null);
+  const [result, setResult] = useState<FullAffordabilityResult | null>(null);
+  const prefilled = useRef(false);
+
+  // Deep links from a property detail page carry ?price=â€¦&tenure=â€¦&down=â€¦
+  // Apply them once so the property is checked with the user's own finances.
+  useEffect(() => {
+    if (prefilled.current) return;
+    const price = searchParams.get("price");
+    const tenure = searchParams.get("tenure");
+    const down = searchParams.get("down");
+    const id = window.setTimeout(() => {
+      if (price) setPropertyPrice(digits(price));
+      if (tenure) setYears(digits(tenure));
+      if (down) setDownPayment(digits(down));
+      prefilter: void down;
+      prefilled.current = true;
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [searchParams]);
 
   const incomeNum = toNumber(income, 0);
   const existingEmiNum = toNumber(existingEmi, 0);
+  const savingsNum = toNumber(savings, 0);
   const downPaymentNum = toNumber(downPayment, 0);
   const propertyPriceNum = toNumber(propertyPrice, 0);
   const rateNum = toNumber(rate, 0);
   const yearsNum = toNumber(years, 0);
+  const maintenanceNum = toNumber(maintenance, 0);
+  const propertyTaxNum = toNumber(propertyTax, 0);
+  const insuranceNum = toNumber(insurance, 0);
+  const otherNum = toNumber(other, 0);
+  const stampDutyNum = toNumber(stampDuty, 0);
+  const registrationNum = toNumber(registration, 0);
+  const brokerageNum = toNumber(brokerage, 0);
 
   const validationError = useMemo(() => {
-    if (income === "" || incomeNum <= 0) return "Enter your monthly income (greater than zero).";
-    if (existingEmi !== "" && existingEmiNum < 0) return "Existing EMI cannot be negative.";
-    if (incomeNum > 0 && existingEmiNum >= incomeNum) {
-      return "Existing EMI must be lower than your monthly income.";
-    }
-    if (downPayment !== "" && downPaymentNum < 0) return "Down payment cannot be negative.";
-    if (propertyPrice !== "" && propertyPriceNum < 0) return "Property price cannot be negative.";
+    if (income === "" || incomeNum <= 0) return "Enter a monthly income greater than zero.";
     if (rate === "" || rateNum <= 0 || rateNum > 50) return "Enter an interest rate between 0 and 50%.";
     if (years === "" || yearsNum <= 0 || yearsNum > 40) return "Enter a tenure between 0 and 40 years.";
+    if (existingEmiNum < 0) return "Existing EMI cannot be negative.";
+    if (downPaymentNum < 0) return "Down payment cannot be negative.";
+    if (savingsNum < 0) return "Savings cannot be negative.";
+    if (propertyPrice !== "" && propertyPriceNum <= 0) {
+      return "Enter a property price greater than zero, or leave it blank.";
+    }
+    if (stampDutyNum < 0 || registrationNum < 0 || brokerageNum < 0) {
+      return "Transaction-cost percentages cannot be negative.";
+    }
     return null;
   }, [
-    income, incomeNum, existingEmi, existingEmiNum,
-    downPayment, downPaymentNum, propertyPrice, propertyPriceNum,
-    rate, rateNum, years, yearsNum,
+    income, incomeNum, rate, rateNum, years, yearsNum, existingEmiNum, downPaymentNum,
+    savingsNum, propertyPrice, propertyPriceNum, stampDutyNum, registrationNum, brokerageNum,
   ]);
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    if (validationError) {
-      setResult(null);
-      setError(validationError);
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await financeApi.affordability({
-        monthly_income: incomeNum,
-        existing_obligations: existingEmiNum,
-        down_payment: downPaymentNum,
-        property_price: propertyPriceNum > 0 ? propertyPriceNum : undefined,
-        annual_interest_rate: rateNum,
-        tenure_years: yearsNum,
-      });
-      setResult(res);
-    } catch (caught) {
-      setResult(null);
-      setError(
-        caught instanceof ApiError
-          ? caught.message === "Request failed"
-            ? "Could not calculate affordability. Check the values and try again."
-            : caught.message
-          : "Could not calculate affordability. Check your connection and try again."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+  const submit = useCallback(
+    async (e?: FormEvent) => {
+      e?.preventDefault();
+      setError(null);
+      if (validationError) {
+        setResult(null);
+        setError(validationError);
+        return;
+      }
+      setLoading(true);
+      try {
+        const res = await financeApi.fullAffordability({
+          monthly_income: incomeNum,
+          existing_obligations: existingEmiNum,
+          savings: savingsNum,
+          down_payment: downPaymentNum,
+          property_price: propertyPriceNum > 0 ? propertyPriceNum : undefined,
+          annual_interest_rate: rateNum,
+          tenure_years: yearsNum,
+          maintenance_monthly: maintenanceNum,
+          property_tax_annual: propertyTaxNum,
+          insurance_annual: insuranceNum,
+          other_monthly: otherNum,
+          stamp_duty_pct: stampDutyNum,
+          registration_pct: registrationNum,
+          brokerage_pct: brokerageNum,
+        });
+        setResult(res);
+      } catch (caught) {
+        setResult(null);
+        setError(
+          caught instanceof ApiError
+            ? caught.message === "Request failed"
+              ? "Could not calculate affordability. Check the values and try again."
+              : caught.message
+            : "Could not calculate affordability. Check your connection and try again."
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      validationError, incomeNum, existingEmiNum, savingsNum, downPaymentNum, propertyPriceNum,
+      rateNum, yearsNum, maintenanceNum, propertyTaxNum, insuranceNum, otherNum,
+      stampDutyNum, registrationNum, brokerageNum,
+    ]
+  );
 
+  type Tone = "success" | "warning" | "danger";
   const status = useMemo(() => {
     if (!result) return null;
-    const ratio = result.emi_to_income_ratio;
-    if (!result.affordable) {
-      return {
-        label: "Not affordable",
-        icon: XCircle,
-        tone: "danger" as const,
-        note: "The required EMI is above what this income supports.",
-      };
-    }
-    if (ratio <= 30) {
-      return {
-        label: "Comfortable",
-        icon: CheckCircle2,
-        tone: "success" as const,
-        note: "EMI stays within 30% of your gross monthly income.",
-      };
-    }
-    if (ratio <= 40) {
-      return {
-        label: "Manageable",
-        icon: ShieldCheck,
-        tone: "primary" as const,
-        note: "EMI is between 30% and 40% of income — workable but with less buffer.",
-      };
-    }
-    return {
-      label: "Stretched",
-      icon: AlertTriangle,
-      tone: "warning" as const,
-      note: "EMI exceeds 40% of gross income. Most lenders will cap below this.",
-    };
+    // Trust the server's verdict, which accounts for both EMI capacity and
+    // the cash needed upfront â€” not the price on its own.
+    const tone: Tone =
+      result.verdict === "not_affordable" ? "danger"
+      : result.verdict === "strained" ? "warning"
+      : "success";
+    const label =
+      result.verdict === "not_affordable" ? "Not affordable"
+      : result.verdict === "strained" ? "Manageable but tight"
+      : "Comfortable";
+    const note =
+      result.verdict === "not_affordable"
+        ? "The required monthly outflow is above what this income supports."
+        : result.verdict === "strained"
+          ? "Workable, but the recurring costs leave a thin buffer."
+          : "The monthly outflow stays within your capacity on these inputs.";
+    const icon =
+      result.verdict === "not_affordable" ? XCircle
+      : result.verdict === "strained" ? AlertTriangle
+      : CheckCircle2;
+    return { label, icon, tone, note };
   }, [result]);
 
-  const requiredDownPayment =
-    propertyPriceNum > 0 ? Math.max(0, propertyPriceNum - result!.max_loan_amount) : null;
-  const downPaymentGap =
-    requiredDownPayment != null ? downPaymentNum - requiredDownPayment : null;
+  const toneClasses: Record<Tone, string> = {
+    success: "border-emerald-200/60 bg-emerald-50/40",
+    warning: "border-amber-200/60 bg-amber-50/40",
+    danger: "border-destructive/30 bg-destructive/5",
+  };
+  const badgeClasses: Record<Tone, string> = {
+    success: "bg-emerald-100 text-emerald-700",
+    warning: "bg-amber-100 text-amber-700",
+    danger: "bg-destructive/10 text-destructive",
+  };
+  const iconClasses: Record<Tone, string> = {
+    success: "bg-emerald-100 text-emerald-700",
+    warning: "bg-amber-100 text-amber-700",
+    danger: "bg-destructive/10 text-destructive",
+  };
+
+  const assessment = result?.property_assessment ?? null;
 
   return (
     <div className="space-y-5">
@@ -513,85 +380,109 @@ function AffordabilityCalculator() {
         description="These are your inputs. Everything below the button is calculated from them."
         icon={Home}
       >
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Monthly income" hint="Gross take-home monthly income">
             <div className="relative">
               <IndianRupee className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
-              <Input
-                inputMode="numeric"
-                placeholder="e.g. 150000"
-                className="pl-9 tabular-nums"
-                value={income}
-                onChange={(e) => setIncome(digits(e.target.value))}
-              />
+              <Input inputMode="numeric" placeholder="e.g. 70000" className="pl-9 tabular-nums" value={income} onChange={(e) => setIncome(digits(e.target.value))} />
             </div>
           </Field>
           <Field label="Existing monthly EMI" hint="All current loan instalments combined">
             <div className="relative">
               <IndianRupee className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
-              <Input
-                inputMode="numeric"
-                placeholder="e.g. 15000"
-                className="pl-9 tabular-nums"
-                value={existingEmi}
-                onChange={(e) => setExistingEmi(digits(e.target.value))}
-              />
+              <Input inputMode="numeric" placeholder="e.g. 12000" className="pl-9 tabular-nums" value={existingEmi} onChange={(e) => setExistingEmi(digits(e.target.value))} />
             </div>
           </Field>
-          <Field label="Available down payment" hint="Cash you can put down now">
+          <Field label="Available savings" hint="Total cash you can access">
             <div className="relative">
-              <IndianRupee className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
-              <Input
-                inputMode="numeric"
-                placeholder="e.g. 1000000"
-                className="pl-9 tabular-nums"
-                value={downPayment}
-                onChange={(e) => setDownPayment(digits(e.target.value))}
-              />
+              <PiggyBank className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
+              <Input inputMode="numeric" placeholder="e.g. 1200000" className="pl-9 tabular-nums" value={savings} onChange={(e) => setSavings(digits(e.target.value))} />
             </div>
           </Field>
-          <Field label="Target property price" hint="Optional — checks a specific property">
+          <Field label="Down payment" hint="Cash you will put down">
+            <div className="relative">
+              <Wallet className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
+              <Input inputMode="numeric" placeholder="e.g. 1000000" className="pl-9 tabular-nums" value={downPayment} onChange={(e) => setDownPayment(digits(e.target.value))} />
+            </div>
+          </Field>
+          <Field label="Target property price" hint="Optional â€” checks a specific property">
             <div className="relative">
               <IndianRupee className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
-              <Input
-                inputMode="numeric"
-                placeholder="e.g. 8000000"
-                className="pl-9 tabular-nums"
-                value={propertyPrice}
-                onChange={(e) => setPropertyPrice(digits(e.target.value))}
-              />
+              <Input inputMode="numeric" placeholder="e.g. 5000000" className="pl-9 tabular-nums" value={propertyPrice} onChange={(e) => setPropertyPrice(digits(e.target.value))} />
             </div>
           </Field>
           <Field label="Interest rate (% p.a.)">
             <div className="relative">
               <Percent className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
-              <Input
-                inputMode="decimal"
-                placeholder="e.g. 8.5"
-                className="pl-9 tabular-nums"
-                value={rate}
-                onChange={(e) => setRate(decimal(e.target.value))}
-              />
+              <Input inputMode="decimal" placeholder="e.g. 8.5" className="pl-9 tabular-nums" value={rate} onChange={(e) => setRate(decimal(e.target.value))} />
             </div>
           </Field>
           <Field label="Loan tenure (years)">
             <div className="relative">
               <CalendarClock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
-              <Input
-                inputMode="numeric"
-                placeholder="e.g. 20"
-                className="pl-9 tabular-nums"
-                value={years}
-                onChange={(e) => setYears(digits(e.target.value))}
-              />
+              <Input inputMode="numeric" placeholder="e.g. 20" className="pl-9 tabular-nums" value={years} onChange={(e) => setYears(digits(e.target.value))} />
             </div>
           </Field>
         </div>
-        {validationError && !error && (
-          <p className="text-xs text-muted-foreground">{validationError}</p>
-        )}
+      </InputCard>
+
+      <InputCard
+        title="Recurring costs and transaction charges"
+        description="Estimates you can adjust. They are assumptions, not quotes."
+        icon={Receipt}
+      >
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Field label="Maintenance (â‚¹/month)">
+            <div className="relative">
+              <IndianRupee className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
+              <Input inputMode="numeric" placeholder="e.g. 3000" className="pl-9 tabular-nums" value={maintenance} onChange={(e) => setMaintenance(digits(e.target.value))} />
+            </div>
+          </Field>
+          <Field label="Property tax (â‚¹/year)">
+            <div className="relative">
+              <IndianRupee className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
+              <Input inputMode="numeric" placeholder="e.g. 12000" className="pl-9 tabular-nums" value={propertyTax} onChange={(e) => setPropertyTax(digits(e.target.value))} />
+            </div>
+          </Field>
+          <Field label="Insurance (â‚¹/year)">
+            <div className="relative">
+              <IndianRupee className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
+              <Input inputMode="numeric" placeholder="e.g. 0" className="pl-9 tabular-nums" value={insurance} onChange={(e) => setInsurance(digits(e.target.value))} />
+            </div>
+          </Field>
+          <Field label="Other (â‚¹/month)">
+            <div className="relative">
+              <IndianRupee className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
+              <Input inputMode="numeric" placeholder="e.g. 0" className="pl-9 tabular-nums" value={other} onChange={(e) => setOther(digits(e.target.value))} />
+            </div>
+          </Field>
+          <Field label="Stamp duty (%)" hint="State-dependent; 5% is a common default">
+            <div className="relative">
+              <Percent className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
+              <Input inputMode="decimal" placeholder="e.g. 5" className="pl-9 tabular-nums" value={stampDuty} onChange={(e) => setStampDuty(decimal(e.target.value))} />
+            </div>
+          </Field>
+          <Field label="Registration (%)">
+            <div className="relative">
+              <Percent className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
+              <Input inputMode="decimal" placeholder="e.g. 1" className="pl-9 tabular-nums" value={registration} onChange={(e) => setRegistration(decimal(e.target.value))} />
+            </div>
+          </Field>
+          <Field label="Brokerage (%)">
+            <div className="relative">
+              <Percent className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
+              <Input inputMode="decimal" placeholder="e.g. 1" className="pl-9 tabular-nums" value={brokerage} onChange={(e) => setBrokerage(decimal(e.target.value))} />
+            </div>
+          </Field>
+        </div>
+        {validationError && !error && <p className="text-xs text-muted-foreground">{validationError}</p>}
         {error && <ErrorNote>{error}</ErrorNote>}
-        <Button type="submit" onClick={submit} disabled={loading} className="w-full gap-2 rounded-xl sm:w-auto">
+        <Button
+          type="submit"
+          onClick={submit}
+          disabled={loading}
+          className="w-full gap-2 rounded-xl sm:w-auto"
+        >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />}
           Calculate affordability
         </Button>
@@ -599,14 +490,10 @@ function AffordabilityCalculator() {
 
       {result && status && (
         <div className="space-y-4">
-          {/* Status */}
           <Card
             className={cn(
               "border-border/60",
-              status.tone === "success" && "border-emerald-200/60 bg-emerald-50/40",
-              status.tone === "primary" && "border-primary/30 bg-primary/5",
-              status.tone === "warning" && "border-amber-200/60 bg-amber-50/40",
-              status.tone === "danger" && "border-destructive/30 bg-destructive/5"
+              toneClasses[status.tone]
             )}
           >
             <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -614,10 +501,7 @@ function AffordabilityCalculator() {
                 <span
                   className={cn(
                     "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
-                    status.tone === "success" && "bg-emerald-100 text-emerald-700",
-                    status.tone === "primary" && "bg-primary/10 text-primary",
-                    status.tone === "warning" && "bg-amber-100 text-amber-700",
-                    status.tone === "danger" && "bg-destructive/10 text-destructive"
+                    iconClasses[status.tone]
                   )}
                 >
                   <status.icon className="h-5 w-5" />
@@ -626,187 +510,172 @@ function AffordabilityCalculator() {
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Affordability status
                   </p>
-                  <Badge
-                    className={cn(
-                      "mt-1",
-                      status.tone === "success" && "bg-emerald-100 text-emerald-700",
-                      status.tone === "primary" && "bg-primary/10 text-primary",
-                      status.tone === "warning" && "bg-amber-100 text-amber-700",
-                      status.tone === "danger" && "bg-destructive/10 text-destructive"
-                    )}
-                  >
+                  <Badge className={cn("mt-1", badgeClasses[status.tone])}>
                     {status.label}
                   </Badge>
                   <p className="mt-1 text-sm text-muted-foreground">{status.note}</p>
                 </div>
               </div>
               <div className="shrink-0 text-left sm:text-right">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  EMI-to-income
-                </p>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">EMI-to-income</p>
                 <p className="text-2xl font-bold tabular-nums text-foreground">
                   {pct(result.emi_to_income_ratio)}
                 </p>
-                <p className="text-xs text-muted-foreground">ideal ≤ 30% · max 40%</p>
+                <p className="text-xs text-muted-foreground">ideal â‰¤ 30% Â· max 40%</p>
               </div>
             </CardContent>
           </Card>
 
-          {/* Core results */}
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <ResultCard
               label="Maximum affordable EMI"
               value={inr(result.max_monthly_emi)}
               compactValue={inrCompact(result.max_monthly_emi)}
-              hint="Your income after existing EMIs, capped at 50%"
+              hint="Net income capped at 50%"
               icon={Calculator}
               tone="primary"
               large
             />
             <ResultCard
-              label="Estimated eligible loan amount"
+              label="Estimated eligible loan"
               value={inr(result.max_loan_amount)}
               compactValue={inrCompact(result.max_loan_amount)}
-              hint={`At ${pct(rateNum, 1)} p.a. over ${yearsNum} years`}
+              hint="At your rate and tenure"
               icon={Banknote}
-              tone="primary"
-              large
             />
             <ResultCard
-              label="Maximum affordable property price"
+              label="Maximum property price"
               value={inr(result.max_property_price)}
               compactValue={inrCompact(result.max_property_price)}
-              hint="Eligible loan + available down payment"
+              hint="Loan plus your down payment"
               icon={Home}
-              tone="success"
-              large
             />
             <ResultCard
               label="Net monthly income"
-              value={inr(Math.max(0, incomeNum - existingEmiNum))}
-              compactValue={inrCompact(Math.max(0, incomeNum - existingEmiNum))}
-              hint="Gross income minus existing obligations"
+              value={inr(result.net_monthly_income)}
+              compactValue={inrCompact(result.net_monthly_income)}
+              hint="After existing loan obligations"
               icon={Wallet}
             />
           </div>
 
-          {/* Property-specific check */}
-          {propertyPriceNum > 0 && requiredDownPayment != null && downPaymentGap != null && (
-            <Card className="border-border/60">
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Home className="h-4 w-4 text-primary" />
-                  Property-specific check
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 pt-0">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 pb-2 text-sm">
-                  <span className="text-muted-foreground">Target property price</span>
-                  <span className="font-semibold tabular-nums text-foreground">
-                    {inr(propertyPriceNum)}
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 pb-2 text-sm">
-                  <span className="text-muted-foreground">Required down payment</span>
-                  <span className="font-semibold tabular-nums text-foreground">
-                    {inr(requiredDownPayment)}
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 pb-2 text-sm">
-                  <span className="text-muted-foreground">Your available down payment</span>
-                  <span className="font-semibold tabular-nums text-foreground">
-                    {inr(downPaymentNum)}
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-2 text-base">
-                  <span className="font-semibold text-foreground">
-                    {downPaymentGap >= 0 ? "Surplus" : "Shortfall"}
-                  </span>
-                  <span
-                    className={cn(
-                      "font-bold tabular-nums",
-                      downPaymentGap >= 0 ? "text-emerald-600" : "text-destructive"
-                    )}
-                  >
-                    {inr(Math.abs(downPaymentGap))}
-                  </span>
-                </div>
-                {downPaymentGap < 0 && (
-                  <p className="text-xs text-amber-700">
-                    You would need {inr(Math.abs(downPaymentGap))} more cash, or a larger loan than
-                    this income supports.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+          {/* Property-specific assessment: EMI, cash, and what is left over. */}
+          {assessment && (
+            <>
+              <h3 className="pt-2 text-base font-semibold">Purchase assessment</h3>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <ResultCard
+                  label="Monthly EMI"
+                  value={inr(assessment.monthly_emi)}
+                  compactValue={inrCompact(assessment.monthly_emi)}
+                  hint={`${pct(assessment.emi_to_income_ratio_pct)} of gross income`}
+                  icon={Calculator}
+                  tone={assessment.emi_within_capacity ? "success" : "danger"}
+                  large
+                />
+                <ResultCard
+                  label="Loan required"
+                  value={inr(assessment.loan_required)}
+                  compactValue={inrCompact(assessment.loan_required)}
+                  hint="After your down payment"
+                  icon={Banknote}
+                />
+                <ResultCard
+                  label="Upfront costs"
+                  value={inr(assessment.total_cash_required)}
+                  compactValue={inrCompact(assessment.total_cash_required)}
+                  hint="Down payment, stamp duty, registration, brokerage and fees"
+                  icon={Receipt}
+                />
+                <ResultCard
+                  label="Cash after purchase"
+                  value={inr(assessment.cash_available_after_purchase)}
+                  compactValue={inrCompact(assessment.cash_available_after_purchase)}
+                  hint={
+                    assessment.cash_is_sufficient
+                      ? "Savings cover the upfront cost"
+                      : `Shortfall of ${inrCompact(assessment.cash_shortfall)}`
+                  }
+                  icon={PiggyBank}
+                  tone={assessment.cash_is_sufficient ? "success" : "danger"}
+                />
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <ResultCard
+                  label="Total monthly outflow"
+                  value={inr(assessment.total_monthly_outflow)}
+                  compactValue={inrCompact(assessment.total_monthly_outflow)}
+                  hint="EMI plus recurring ownership costs"
+                  icon={TrendingDown}
+                />
+                <ResultCard
+                  label="Income left each month"
+                  value={inr(assessment.remaining_income_monthly)}
+                  compactValue={inrCompact(assessment.remaining_income_monthly)}
+                  hint="After EMI and ownership costs"
+                  icon={Wallet}
+                  tone={assessment.remaining_income_monthly >= 0 ? "default" : "danger"}
+                />
+                <ResultCard
+                  label="Total interest payable"
+                  value={inr(assessment.total_interest)}
+                  compactValue={inrCompact(assessment.total_interest)}
+                  hint="Over the full tenure"
+                  icon={Banknote}
+                />
+              </div>
+
+              {!assessment.is_affordable && (
+                <ErrorNote>
+                  On these inputs this property is not affordable: the EMI, the upfront cash, or both,
+                  exceed your capacity. This is not a lender decision â€” see the note below.
+                </ErrorNote>
+              )}
+            </>
           )}
 
-          {/* Assumptions */}
-          <Card className="border-border/60">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ShieldCheck className="h-4 w-4 text-primary" />
-                Assumptions used
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                {result.assumptions.map((assumption, index) => (
-                  <li key={index} className="flex items-start gap-2">
-                    <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
-                    <span>{assumption}</span>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
+          <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Assumptions behind these numbers
+            </p>
+            <ul className="space-y-1 text-xs text-muted-foreground">
+              {result.assumptions.map((line, i) => (
+                <li key={i}>â€¢ {line}</li>
+              ))}
+              <li>â€¢ Transaction costs use the stamp duty, registration and brokerage rates you entered.</li>
+            </ul>
+            <p className="mt-3 text-xs text-muted-foreground">{result.affordability_note}</p>
+          </div>
 
           <EstimateNote />
         </div>
       )}
+
+      <p className="text-sm text-muted-foreground">
+        Looking at a specific listing? {" "}
+        <Link href="/saved" className="text-primary hover:underline">
+          Open your saved properties
+        </Link>{" "}
+        and use &ldquo;Check affordability&rdquo; to prefill its asking price.
+      </p>
     </div>
   );
 }
 
-/* ── Page ────────────────────────────────────────────────────────────── */
-
 export default function AffordabilityPage() {
-  const [tab, setTab] = useState("affordability");
-
   return (
-    <div className="page-shell py-6 sm:py-10">
-      <div className="mb-8">
-        <Badge variant="outline" className="mb-3 gap-1.5 border-primary/30 bg-primary/5 text-primary">
-          <Calculator className="h-3 w-3" />
-          Financial Intelligence
-        </Badge>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-          Plan your home loan with confidence
-        </h1>
-        <p className="mt-2 max-w-2xl text-muted-foreground">
-          Work out what you can afford, or the EMI on a loan you are considering. Indian financial
-          terms, rupee formatting, and deterministic maths — never an AI guess.
+    <div className="container-page py-8">
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">Affordability</h1>
+        <p className="mt-2 max-w-2xl text-slate-600">
+          Work out what you can actually borrow and buy â€” the EMI, the cash you need up front, and
+          what is left of your income and savings afterwards.
         </p>
       </div>
-
-      <Tabs value={tab} onValueChange={setTab} className="w-full">
-        <TabsList className="mb-6 grid w-full max-w-md grid-cols-2">
-          <TabsTrigger value="affordability" className="gap-1.5">
-            <Home className="h-4 w-4" />
-            Affordability
-          </TabsTrigger>
-          <TabsTrigger value="emi" className="gap-1.5">
-            <Calculator className="h-4 w-4" />
-            EMI Calculator
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value="affordability">
-          <AffordabilityCalculator />
-        </TabsContent>
-        <TabsContent value="emi">
-          <EmiCalculator />
-        </TabsContent>
-      </Tabs>
+      <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-slate-100" />}>
+        <AffordabilityCalculator />
+      </Suspense>
     </div>
   );
 }

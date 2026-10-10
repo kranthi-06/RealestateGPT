@@ -1,319 +1,379 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
 import Link from "next/link";
-import { propertiesApi, comparisonsApi } from "@/lib/api";
-import type { Property } from "@/lib/types";
-import { formatPrice, formatArea, getPropertyTypeLabel, getBedroomLabel } from "@/lib/format";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  AlertCircle,
+  ArrowRight,
+  CheckCircle2,
+  GitCompare,
+  Loader2,
+  MapPin,
+  Minus,
+  Save,
+  Search,
+  ThumbsDown,
+  ThumbsUp,
+  TrendingDown,
+  TrendingUp,
+  X,
+} from "lucide-react";
+import { propertiesApi, comparisonsApi, marketApi } from "@/lib/api";
+import type { MarketCompareResponse, Property } from "@/lib/types";
+import { formatArea, formatPrice, getBedroomLabel, getPropertyTypeLabel } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
-import { AiScoreBadge } from "@/components/ai-score-badge";
-import { Search, X, MapPin, TrendingUp, TrendingDown, Minus, Save, AlertCircle } from "lucide-react";
+import { ErrorState } from "@/components/error-state";
+import { PropertyActions } from "@/components/property-actions";
+import { MAX_COMPARE, useCompare } from "@/lib/compare-context";
+import { useAuth } from "@/lib/auth-context";
+import { notify } from "@/lib/notify";
+import { rankRow, summarize } from "@/lib/compare-analysis";
+import { cn } from "@/lib/utils";
 
-interface PropertyWithScores extends Property {
-  aiScore?: number;
-  valueScore?: number;
+const NA = "Not available";
+
+function formatCell(row: { key: string; unit?: string }, value: number | null): string {
+  if (value == null) return NA;
+  switch (row.unit) {
+    case "price":
+      return formatPrice(value);
+    case "sqft":
+      return `₹${Math.round(value).toLocaleString("en-IN")}/sq ft`;
+    case "area":
+      return formatArea(value);
+    default:
+      return String(value);
+  }
+}
+
+export default function ComparePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-[1400px] px-4 py-10 sm:px-6 lg:px-8">
+          <Skeleton className="mb-3 h-9 w-64" />
+          <Skeleton className="mb-8 h-5 w-80" />
+          <Skeleton className="h-96 rounded-xl" />
+        </div>
+      }
+    >
+      <ComparePageContent />
+    </Suspense>
+  );
 }
 
 function ComparePageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { isAuthenticated } = useAuth();
+  const compare = useCompare();
   const idsParam = searchParams.get("ids");
-
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingComparison, setSavingComparison] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [marketCities, setMarketCities] = useState<MarketCompareResponse | null>(null);
 
-  useEffect(() => {
-    const fetchProperties = async () => {
-      if (!idsParam) {
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-
-      try {
-        const ids = idsParam.split(",").map((id) => parseInt(id.trim())).filter((id) => !isNaN(id));
-
-        if (ids.length === 0) {
-          setLoading(false);
-          return;
-        }
-
-        const fetchedProperties = await propertiesApi.bulk(ids);
-        setProperties(fetchedProperties);
-      } catch {
-        setError("Failed to fetch properties for comparison.");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchProperties();
+  const ids = useMemo(() => {
+    if (!idsParam) return [];
+    const parsed = idsParam
+      .split(",")
+      .map((id) => Number.parseInt(id.trim(), 10))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    // Preserve order but drop duplicates, and respect the hard limit.
+    return [...new Set(parsed)].slice(0, MAX_COMPARE);
   }, [idsParam]);
 
-  const removeProperty = (idToRemove: number) => {
-    const newIds = properties.map((p) => p.id).filter((id) => id !== idToRemove);
-    if (newIds.length > 0) {
-      router.push(`/compare?ids=${newIds.join(",")}`);
-    } else {
-      router.push("/compare");
+  // Keep the shared selection in step with the URL so the compare bar agrees
+  // with the page, including after a refresh.
+  useEffect(() => {
+    if (ids.length === 0) return;
+    const signature = ids.join(",");
+    if (compare.ids.join(",") !== signature) {
+      ids.forEach((id) => {
+        if (!compare.has(id)) compare.add(id);
+      });
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ids.join(",")]);
 
-  const handleSaveComparison = async () => {
+  // One effect drives both loads: the properties for the comparison, and the
+  // city-level asking-price context for them.
+  useEffect(() => {
+    const controller = new AbortController();
+
+    if (ids.length === 0) {
+      const id = window.setTimeout(() => {
+        setProperties([]);
+        setMarketCities(null);
+        setLoading(false);
+      }, 0);
+      return () => {
+        window.clearTimeout(id);
+        controller.abort();
+      };
+    }
+
+    const id = window.setTimeout(() => {
+      setLoading(true);
+      setError(null);
+      void (async () => {
+        let fetched: Property[] = [];
+        try {
+          fetched = await propertiesApi.bulk(ids);
+          if (controller.signal.aborted) return;
+          setProperties(fetched);
+        } catch {
+          if (controller.signal.aborted) return;
+          setError("The properties for this comparison could not be loaded. Please try again.");
+          setProperties([]);
+        } finally {
+          if (!controller.signal.aborted) setLoading(false);
+        }
+
+        const cities = [...new Set(fetched.map((p) => p.city).filter(Boolean))] as string[];
+        if (cities.length < 2) {
+          if (!controller.signal.aborted) setMarketCities(null);
+          return;
+        }
+        try {
+          const data = await marketApi.compare(cities);
+          if (!controller.signal.aborted) setMarketCities(data);
+        } catch {
+          if (!controller.signal.aborted) setMarketCities(null);
+        }
+      })();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(id);
+      controller.abort();
+    };
+  }, [ids]);
+
+  const removeProperty = useCallback(
+    (idToRemove: number) => {
+      compare.remove(idToRemove);
+      const next = ids.filter((id) => id !== idToRemove);
+      if (next.length > 0) router.replace(`/compare?ids=${next.join(",")}`);
+      else router.replace("/compare");
+    },
+    [compare, ids, router]
+  );
+
+  const handleSaveComparison = useCallback(async () => {
     if (properties.length < 2) {
       setSaveError("Select at least 2 properties to save a comparison.");
       return;
     }
-
     setSavingComparison(true);
     setSaveError(null);
-    setSaveSuccess(false);
-
     try {
-      const propertyIds = properties.map((p) => p.id);
-      await comparisonsApi.create(propertyIds);
-      setSaveSuccess(true);
+      await comparisonsApi.create(properties.map((p) => p.id));
+      notify("Comparison saved", {
+        description: "You can reopen it from the Compare page.",
+        type: "success",
+      });
     } catch {
-      setSaveError("Failed to save comparison. Please try again.");
+      setSaveError("The comparison could not be saved. Please try again.");
     } finally {
       setSavingComparison(false);
     }
-  };
+  }, [properties]);
+
+  const summary = useMemo(() => summarize(properties), [properties]);
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-10">
-        <Skeleton className="h-10 w-64 mb-8" />
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[800px] border-collapse">
-            <thead>
-              <tr>
-                <th className="w-48 px-4 py-3 text-left text-sm font-medium text-muted-foreground border-b border-border">Attribute</th>
-                {[1, 2, 3].map((i) => (
-                  <th key={i} className="w-[200px] px-4 py-3 text-left text-sm font-medium text-muted-foreground border-b border-border">
-                    <Skeleton className="h-4 w-24" />
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {[
-                "Price",
-                "Area",
-                "BHK",
-                "Property Type",
-                "School Distance",
-                "Hospital Distance",
-                "Restaurant Distance",
-                "Transport Distance",
-                "AI Score",
-                "Value Score",
-              ].map((row) => (
-                <tr key={row}>
-                  <td className="w-48 px-4 py-3 text-sm font-medium text-muted-foreground border-b border-border/50">
-                    <Skeleton className="h-4 w-20" />
-                  </td>
-                  {[1, 2, 3].map((i) => (
-                    <td key={i} className="px-4 py-3 border-b border-border/50">
-                      <Skeleton className="h-4 w-24" />
-                    </td>
-                  ))}
-                </tr>
+      <div className="mx-auto max-w-[1400px] px-4 py-10 sm:px-6 lg:px-8">
+        <Skeleton className="mb-3 h-9 w-64" />
+        <Skeleton className="mb-8 h-5 w-80" />
+        <div className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm">
+          <div className="flex">
+            <Skeleton className="h-16 w-48 shrink-0" />
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="h-16 flex-1" />
+            ))}
+          </div>
+          {[...Array(9)].map((_, r) => (
+            <div key={r} className="flex border-t border-border/50">
+              <Skeleton className="h-12 w-48 shrink-0 rounded-none" />
+              {[0, 1, 2].map((_, c) => (
+                <Skeleton key={c} className="h-12 flex-1 rounded-none" />
               ))}
-            </tbody>
-          </table>
+            </div>
+          ))}
         </div>
       </div>
     );
   }
 
-  if (!idsParam || properties.length === 0) {
+  if (ids.length === 0 || properties.length === 0) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-20 text-center">
-        <div className="w-16 h-16 mx-auto text-muted-foreground/30 mb-4 flex items-center justify-center">
-          <TrendingUp className="w-8 h-8" />
+      <div className="mx-auto max-w-3xl px-4 py-20 text-center">
+        <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-2xl bg-muted text-muted-foreground/40">
+          <GitCompare className="size-8" />
         </div>
         <h2 className="text-2xl font-bold">Compare Properties</h2>
-        <p className="text-muted-foreground mt-2 max-w-md mx-auto">
-          Select properties from the search page to compare their features, prices, and locations side-by-side.
+        <p className="mx-auto mt-2 max-w-md text-muted-foreground">
+          Select two to four properties from search, your saved list, or an AI
+          recommendation, then line them up side by side here.
         </p>
-        <Link href="/search">
-          <Button className="mt-6 gradient-primary text-white border-0 gap-2">
-            <Search className="w-4 h-4" />
-            Find Properties to Compare
-          </Button>
-        </Link>
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          <Link href="/search">
+            <Button className="gap-2">
+              <Search className="size-4" />
+              Find properties to compare
+            </Button>
+          </Link>
+          {isAuthenticated && (
+            <Link href="/saved">
+              <Button variant="outline" className="gap-2">
+                <Save className="size-4" />
+                Open saved properties
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
     );
   }
 
-  const propertyData = properties.map((p) => {
-    // Note: AI scores are computed on property detail page using nearby facilities + price intelligence
-    // They are not available from the bulk properties API. Show N/A here with link to full analysis.
-    return { ...p, aiScore: undefined, valueScore: undefined } as PropertyWithScores;
-  });
-
-  const rows = [
-    {
-      label: "Price",
-      render: (p: Property) => (
-        <span className="font-bold text-base">{formatPrice(p.price)}</span>
-      ),
-      better: "lower" as const,
-    },
-    {
-      label: "Area (sq ft)",
-      render: (p: Property) => (
-        <span>{p.area_sqft ? formatArea(p.area_sqft) : "N/A"}</span>
-      ),
-      better: "higher" as const,
-    },
-    {
-      label: "BHK",
-      render: (p: Property) => (
-        <span>{getBedroomLabel(p.bedrooms)}</span>
-      ),
-      better: "higher" as const,
-    },
-    {
-      label: "Property Type",
-      render: (p: Property) => (
-        <Badge variant="secondary" className="font-normal">{getPropertyTypeLabel(p.property_type)}</Badge>
-      ),
-      better: "none" as const,
-    },
-    {
-      label: "School Distance",
-      render: () => (
-        <span className="text-muted-foreground">Data unavailable</span>
-      ),
-      better: "lower" as const,
-    },
-    {
-      label: "Hospital Distance",
-      render: () => (
-        <span className="text-muted-foreground">Data unavailable</span>
-      ),
-      better: "lower" as const,
-    },
-    {
-      label: "Restaurant Distance",
-      render: () => (
-        <span className="text-muted-foreground">Data unavailable</span>
-      ),
-      better: "lower" as const,
-    },
-    {
-      label: "Transport Distance",
-      render: () => (
-        <span className="text-muted-foreground">Data unavailable</span>
-      ),
-      better: "lower" as const,
-    },
-    {
-      label: "AI Score",
-      render: (p: PropertyWithScores) => (
-        p.aiScore != null ? (
-          <AiScoreBadge score={p.aiScore} />
-        ) : (
-          <span className="text-muted-foreground text-xs">See property details</span>
-        )
-      ),
-      better: "higher" as const,
-    },
-    {
-      label: "Value Score",
-      render: (p: PropertyWithScores) => (
-        p.valueScore != null ? (
-          <AiScoreBadge score={p.valueScore} />
-        ) : (
-          <span className="text-muted-foreground text-xs">See property details</span>
-        )
-      ),
-      better: "higher" as const,
-    },
-  ];
+  const summaryRows = summary.rows;
 
   return (
-    <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-10">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+    <div className="mx-auto max-w-[1400px] px-4 py-10 sm:px-6 lg:px-8">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Property Comparison</h1>
-          <p className="text-muted-foreground mt-1">
-            Comparing {properties.length} properties side-by-side
+          <p className="mt-1 text-muted-foreground">
+            Comparing {properties.length} propert{properties.length === 1 ? "y" : "ies"} side by side
+            {properties.length < 2 && " — add at least one more for a useful comparison"}
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
-          {properties.length < 4 && (
+        <div className="flex flex-wrap gap-2">
+          {properties.length < MAX_COMPARE && (
             <Link href="/search">
               <Button variant="outline" className="gap-2">
-                <Search className="w-4 h-4" />
-                Add Another
+                <Search className="size-4" />
+                Add another
               </Button>
             </Link>
           )}
           {properties.length >= 2 && (
-            <Button
-              onClick={handleSaveComparison}
-              disabled={savingComparison}
-              className="gap-2"
-              variant="default"
-            >
-              <Save className="w-4 h-4" />
-              {savingComparison ? "Saving..." : "Save Comparison"}
+            <Button onClick={handleSaveComparison} disabled={savingComparison} className="gap-2">
+              {savingComparison ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Save className="size-4" />
+              )}
+              {savingComparison ? "Saving…" : "Save comparison"}
             </Button>
           )}
         </div>
       </div>
 
       {error && (
-        <div className="bg-destructive/10 text-destructive p-4 rounded-lg mb-6 flex items-center gap-2">
-          <MapPin className="w-5 h-5" />
-          {error}
+        <div className="mb-6">
+          <ErrorState
+            message={error}
+            onRetry={() => {
+              // Re-run the same load by resetting the ids effect's input.
+              setLoading(true);
+              setError(null);
+              void propertiesApi
+                .bulk(ids)
+                .then((fetched) => {
+                  setProperties(fetched);
+                  setLoading(false);
+                })
+                .catch(() => {
+                  setError("The properties for this comparison could not be loaded. Please try again.");
+                  setLoading(false);
+                });
+            }}
+          />
         </div>
       )}
 
-      {(saveError || saveSuccess) && (
+      {saveError && (
         <div
-          className={`p-4 rounded-lg mb-6 flex items-center gap-2 ${
-            saveError ? "bg-destructive/10 text-destructive" : "bg-emerald-50 text-emerald-800 border border-emerald-100"
-          }`}
+          role="alert"
+          className="mb-6 flex items-center gap-2 rounded-lg bg-destructive/10 p-4 text-destructive"
         >
-          {saveError ? <AlertCircle className="w-5 h-5" /> : <TrendingUp className="w-5 h-5" />}
-          {saveError || "Comparison saved successfully!"}
+          <AlertCircle className="size-5 shrink-0" />
+          {saveError}
         </div>
       )}
 
+      {summary.incomplete.length > 0 && (
+        <div className="mb-6 flex items-start gap-2 rounded-lg border border-amber-200/70 bg-amber-50/60 p-4 text-sm text-amber-900">
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />
+          <p>
+            {summary.incomplete.length === properties.length
+              ? "None of these records include an asking price, so price comparison is unavailable."
+              : "Some records do not include an asking price, so price comparison is incomplete."}
+          </p>
+        </div>
+      )}
+
+      {/* ── Comparison table ─────────────────────────────────────────── */}
       <ScrollArea className="w-full rounded-xl border border-border/60 bg-card shadow-sm">
         <table className="w-full min-w-[900px] border-collapse">
           <thead>
             <tr className="bg-muted/50">
-              <th className="w-48 px-4 py-3 text-left text-sm font-semibold text-foreground border-b border-border sticky left-0 z-10 bg-card">
+              <th className="sticky left-0 z-10 w-48 border-b border-border bg-card px-4 py-3 text-left text-sm font-semibold">
                 Attribute
               </th>
-              {propertyData.map((p) => (
-                <th key={p.id} className="w-[200px] px-4 py-3 text-left text-sm font-semibold text-foreground border-b border-border">
-                  <div className="flex items-center gap-2">
-                    <Link href={`/properties/${p.id}`} className="font-medium truncate block" style={{ maxWidth: "140px" }}>
-                      {p.title || `${p.property_type} in ${p.locality || p.city}`}
-                    </Link>
+              {properties.map((property) => (
+                <th
+                  key={property.id}
+                  className="w-[220px] border-b border-border px-4 py-3 text-left align-top"
+                >
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <Link
+                        href={`/properties/${property.id}`}
+                        className="line-clamp-2 block text-sm font-semibold hover:text-primary"
+                      >
+                        {property.title}
+                      </Link>
+                      <p className="mt-1 flex items-center gap-1 text-xs font-normal text-muted-foreground">
+                        <MapPin className="size-3 shrink-0" />
+                        <span className="truncate">
+                          {[property.locality, property.city].filter(Boolean).join(", ")}
+                        </span>
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <Badge variant="secondary" className="font-normal">
+                          {getPropertyTypeLabel(property.property_type)}
+                        </Badge>
+                        {property.bedrooms != null && (
+                          <Badge variant="outline" className="font-normal">
+                            {getBedroomLabel(property.bedrooms)}
+                          </Badge>
+                        )}
+                        {property.verification_status === "verified" && (
+                          <Badge className="badge-success gap-1 font-normal">
+                            <CheckCircle2 className="size-2.5" />
+                            Verified
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
                     <button
-                      onClick={() => removeProperty(p.id)}
-                      className="w-6 h-6 rounded-full bg-background border border-border shadow-sm flex items-center justify-center hover:bg-destructive hover:text-white hover:border-transparent transition-colors flex-shrink-0"
+                      type="button"
+                      onClick={() => removeProperty(property.id)}
+                      className="flex size-6 shrink-0 items-center justify-center rounded-full border border-border bg-background shadow-sm transition-colors hover:border-transparent hover:bg-destructive hover:text-white"
                       title="Remove from comparison"
-                      aria-label={`Remove ${p.title || "property"} from comparison`}
+                      aria-label={`Remove ${property.title} from comparison`}
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <X className="size-3.5" />
                     </button>
                   </div>
                 </th>
@@ -321,123 +381,293 @@ function ComparePageContent() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, rowIdx) => {
-              const values = propertyData.map((p) => row.render(p));
-              const numericValues = propertyData.map((p) => {
-                const record = p as unknown as Record<string, unknown>;
-                const val = record[row.label.toLowerCase().replace(/\s+/g, "_")] ??
-                  (row.label === "Price" ? p.price :
-                  row.label === "Area (sq ft)" ? p.area_sqft :
-                  row.label === "BHK" ? p.bedrooms :
-                  row.label === "AI Score" ? p.aiScore :
-                  row.label === "Value Score" ? p.valueScore :
-                  0);
-                return typeof val === "number" ? val : 0;
-              });
-              const bestIdx = row.better === "higher" ? numericValues.indexOf(Math.max(...numericValues))
-                : row.better === "lower" ? numericValues.indexOf(Math.min(...numericValues.filter(v => v > 0)))
-                : -1;
-              const worstIdx = row.better === "higher" ? numericValues.indexOf(Math.min(...numericValues.filter(v => v > 0)))
-                : row.better === "lower" ? numericValues.indexOf(Math.max(...numericValues))
-                : -1;
-
+            {summaryRows.map((row) => {
+              const { best, worst } = rankRow(row, properties.map((p) => p.id));
               return (
-                <tr key={row.label} className={rowIdx % 2 === 0 ? "bg-background" : "bg-muted/30"}>
-                  <td className="w-48 px-4 py-3 text-sm font-medium text-muted-foreground border-b border-border/50 sticky left-0 z-10 bg-inherit">
+                <tr key={row.key} className="odd:bg-background even:bg-muted/30">
+                  <th
+                    scope="row"
+                    className="sticky left-0 z-10 w-48 border-b border-border/50 bg-inherit px-4 py-3 text-left align-top text-sm font-medium text-muted-foreground"
+                  >
                     {row.label}
-                  </td>
-                  {values.map((value, colIdx) => (
-                    <td key={colIdx} className="px-4 py-3 border-b border-border/50">
-                      <div className="flex items-center gap-1.5">
-                        {row.better !== "none" && colIdx === bestIdx && (
-                          <span title="Best in class">
-                            <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+                    {row.hint && (
+                      <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground/70">
+                        {row.hint}
+                      </span>
+                    )}
+                  </th>
+                  {properties.map((property, index) => {
+                    const raw = row.values[property.id];
+                    const comparable = raw != null;
+                    const missing = row.key !== "price" && !comparable;
+                    return (
+                      <td key={property.id} className="border-b border-border/50 px-4 py-3">
+                        <div className="flex items-center gap-1.5">
+                          {comparable && index === best && (
+                            <span title="Best of the compared set">
+                              <TrendingUp className="size-3.5 shrink-0 text-emerald-500" />
+                            </span>
+                          )}
+                          {comparable && index === worst && (
+                            <span title="Weakest of the compared set">
+                              <TrendingDown className="size-3.5 shrink-0 text-destructive" />
+                            </span>
+                          )}
+                          {comparable && index !== best && index !== worst && (
+                            <Minus className="size-3.5 shrink-0 text-muted-foreground/40" />
+                          )}
+                          <span
+                            className={cn(
+                              "text-sm tabular-nums",
+                              missing && "text-muted-foreground italic"
+                            )}
+                          >
+                            {formatCell(row, raw)}
                           </span>
-                        )}
-                        {row.better !== "none" && colIdx === worstIdx && (
-                          <span title="Lowest in class">
-                            <TrendingDown className="w-3.5 h-3.5 text-destructive" />
-                          </span>
-                        )}
-                        {row.better !== "none" && colIdx !== bestIdx && colIdx !== worstIdx && numericValues[colIdx] > 0 && (
-                          <Minus className="w-3.5 h-3.5 text-muted-foreground/40" />
-                        )}
-                        <span className="text-sm">{value}</span>
-                      </div>
-                    </td>
-                  ))}
+                        </div>
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}
+
+            {/* Textual rows that cannot be ranked. */}
+            <tr className="odd:bg-background even:bg-muted/30">
+              <th
+                scope="row"
+                className="sticky left-0 z-10 w-48 border-b border-border/50 bg-inherit px-4 py-3 text-left text-sm font-medium text-muted-foreground"
+              >
+                Location
+              </th>
+              {properties.map((property) => (
+                <td key={property.id} className="border-b border-border/50 px-4 py-3 text-sm">
+                  {[property.locality, property.city, property.state].filter(Boolean).join(", ") || NA}
+                </td>
+              ))}
+            </tr>
+            <tr className="odd:bg-background even:bg-muted/30">
+              <th
+                scope="row"
+                className="sticky left-0 z-10 w-48 border-b border-border/50 bg-inherit px-4 py-3 text-left text-sm font-medium text-muted-foreground"
+              >
+                Amenities
+              </th>
+              {properties.map((property) => {
+                const amenities = (property.amenities ?? []).map((a) => a.name);
+                return (
+                  <td key={property.id} className="border-b border-border/50 px-4 py-3">
+                    {amenities.length === 0 ? (
+                      <span className="text-sm italic text-muted-foreground">None listed</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {amenities.slice(0, 8).map((name) => (
+                          <span
+                            key={name}
+                            className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                          >
+                            {name}
+                          </span>
+                        ))}
+                        {amenities.length > 8 && (
+                          <span className="text-[11px] text-muted-foreground">
+                            +{amenities.length - 8} more
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+            <tr className="odd:bg-background even:bg-muted/30">
+              <th
+                scope="row"
+                className="sticky left-0 z-10 w-48 border-b border-border/50 bg-inherit px-4 py-3 text-left text-sm font-medium text-muted-foreground"
+              >
+                Builder / project
+              </th>
+              {properties.map((property) => (
+                <td key={property.id} className="border-b border-border/50 px-4 py-3 text-sm">
+                  {[property.builder_name, property.project_name].filter(Boolean).join(" · ") || NA}
+                </td>
+              ))}
+            </tr>
+            <tr className="odd:bg-background even:bg-muted/30">
+              <th
+                scope="row"
+                className="sticky left-0 z-10 w-48 border-b border-border/50 bg-inherit px-4 py-3 text-left text-sm font-medium text-muted-foreground"
+              >
+                Furnishing
+              </th>
+              {properties.map((property) => (
+                <td key={property.id} className="border-b border-border/50 px-4 py-3 text-sm">
+                  {property.furnishing || NA}
+                </td>
+              ))}
+            </tr>
+            <tr className="odd:bg-background even:bg-muted/30">
+              <th
+                scope="row"
+                className="sticky left-0 z-10 w-48 border-b border-border/50 bg-inherit px-4 py-3 text-left text-sm font-medium text-muted-foreground"
+              >
+                Listing source
+              </th>
+              {properties.map((property) => (
+                <td key={property.id} className="border-b border-border/50 px-4 py-3 text-sm">
+                  {property.source || NA}
+                  {property.is_synthetic && (
+                    <span className="ml-1 text-xs text-muted-foreground">(demo record)</span>
+                  )}
+                </td>
+              ))}
+            </tr>
+            <tr>
+              <th
+                scope="row"
+                className="sticky left-0 z-10 w-48 bg-inherit px-4 py-3 text-left text-sm font-medium text-muted-foreground"
+              >
+                Actions
+              </th>
+              {properties.map((property) => (
+                <td key={property.id} className="px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {isAuthenticated ? (
+                      <PropertyActions
+                        propertyId={property.id}
+                        title={property.title}
+                        variant="buttons"
+                      />
+                    ) : (
+                      <Link href={`/properties/${property.id}`}>
+                        <Button variant="outline" size="sm" className="gap-1.5">
+                          View details
+                          <ArrowRight className="size-3.5" />
+                        </Button>
+                      </Link>
+                    )}
+                  </div>
+                </td>
+              ))}
+            </tr>
           </tbody>
         </table>
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
 
-      {/* AI Recommendation Block */}
-      <div className="mt-8 rounded-xl border border-border/60 bg-card shadow-sm p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg bg-emerald-100 flex items-center justify-center">
-            <TrendingUp className="w-5 h-5 text-emerald-600" />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold">AI Recommendation</h3>
-            <p className="text-sm text-muted-foreground">Automated analysis based on price, location, amenities, and market data</p>
-          </div>
-        </div>
-
-        {(() => {
-          const lowestPrice = propertyData.reduce((best, current) => 
-            (current.price > 0 && current.price < best.price ? current : best), propertyData[0]);
-
-          // AI scores are computed on the property detail page using nearby facilities + price intelligence
-          // They require per-property API calls which aren't done in bulk comparison
-
-          return (
-            <div className="space-y-3">
-              <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
-                <p className="font-medium text-blue-800">
-                  <strong>AI Scores:</strong> Available on individual property detail pages
-                </p>
-                <p className="text-sm text-blue-700 mt-1">
-                  Click &quot;View Details&quot; on any property to see full AI analysis with 6 scored dimensions (Location, Value, Connectivity, Amenities, Growth, Overall) plus pros/cons.
-                </p>
-              </div>
-
-              {propertyData.length > 1 && (
-                <div className="p-4 bg-amber-50 rounded-lg border border-amber-100">
-                  <p className="font-medium text-amber-800">
-                    <strong>Most Affordable:</strong> {lowestPrice.title || `${lowestPrice.property_type} in ${lowestPrice.locality || lowestPrice.city}`}
-                    ({formatPrice(lowestPrice.price)})
-                  </p>
-                  <p className="text-sm text-amber-700 mt-1">
-                    Lowest absolute price among compared properties. Verify condition and location fit.
-                  </p>
+      {/* ── Advantages and disadvantages ─────────────────────────────── */}
+      {summary.insights.length > 0 && (
+        <section className="mt-8" aria-labelledby="analysis-heading">
+          <h2 id="analysis-heading" className="text-lg font-semibold">
+            What the data says
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Derived only from the fields above. Missing fields are never filled in with
+            estimates.
+          </p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {summary.insights.map((insight) => (
+              <div
+                key={insight.propertyId}
+                className="rounded-xl border border-border/60 bg-card p-4 shadow-sm"
+              >
+                <h3 className="line-clamp-2 text-sm font-semibold">{insight.title}</h3>
+                <div className="mt-3 space-y-3">
+                  <div>
+                    <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                      <ThumbsUp className="size-3.5" />
+                      Advantages
+                    </p>
+                    {insight.advantages.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No measurable advantage on the compared fields.
+                      </p>
+                    ) : (
+                      <ul className="space-y-1 text-sm">
+                        {insight.advantages.map((item, i) => (
+                          <li key={i} className="flex gap-2">
+                            <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-emerald-500" />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div>
+                    <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-destructive">
+                      <ThumbsDown className="size-3.5" />
+                      Trade-offs
+                    </p>
+                    {insight.disadvantages.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No trade-off recorded on the compared fields.
+                      </p>
+                    ) : (
+                      <ul className="space-y-1 text-sm">
+                        {insight.disadvantages.map((item, i) => (
+                          <li key={i} className="flex gap-2">
+                            <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 </div>
-              )}
-
-              <div className="p-4 bg-muted/30 rounded-lg border border-border/50">
-                <p className="font-medium text-foreground">
-                  <strong>Next Steps:</strong>
-                </p>
-                <ul className="text-sm text-muted-foreground mt-2 space-y-1 list-disc list-inside">
-                  <li>Click property title to view full AI analysis, nearby facilities, and price intelligence.</li>
-                  <li>Use the Affordability Calculator to check loan eligibility for your shortlisted property.</li>
-                  <li>Save this comparison for later review from your Saved page.</li>
-                </ul>
               </div>
-            </div>
-          );
-        })()}
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── Asking-price context from the same catalogue ─────────────── */}
+      {marketCities && marketCities.cities.length > 1 && (
+        <section className="mt-8 rounded-xl border border-border/60 bg-card p-5 shadow-sm">
+          <h2 className="text-lg font-semibold">City asking-price context</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{marketCities.note}</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {marketCities.cities.map((city) => (
+              <div key={city.city} className="rounded-lg border border-border/50 p-3">
+                <p className="font-medium">{city.city}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {city.sample_size} listing{city.sample_size === 1 ? "" : "s"} in scope
+                  {city.median_price != null && ` · median ${formatPrice(city.median_price)}`}
+                </p>
+                {!city.is_measured && (
+                  <Badge variant="outline" className="mt-2 border-amber-300/60 bg-amber-50/60 text-[10px] text-amber-800">
+                    Low sample
+                  </Badge>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Source: {marketCities.source}. Generated {new Date(marketCities.generated_at).toLocaleString()}.
+          </p>
+        </section>
+      )}
+
+      {/* ── Next steps ───────────────────────────────────────────────── */}
+      <div className="mt-8 rounded-xl border border-border/60 bg-muted/30 p-5">
+        <h3 className="font-semibold">Next steps</h3>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+          <li>Open any property for full AI analysis, nearby facilities, and price intelligence.</li>
+          <li>
+            Use the{" "}
+            <Link href="/affordability" className="text-primary hover:underline">
+              Affordability calculator
+            </Link>{" "}
+            with your own income and savings.
+          </li>
+          <li>
+            Run an{" "}
+            <Link href="/finance" className="text-primary hover:underline">
+              Investment analysis
+            </Link>{" "}
+            for EMI, yield, and cash flow on these listings.
+          </li>
+        </ul>
       </div>
     </div>
-  );
-}
-
-export default function ComparePage() {
-  return (
-    <Suspense fallback={<div className="flex items-center justify-center py-20"><Skeleton className="w-full h-96 max-w-4xl mx-auto rounded-xl" /></div>}>
-      <ComparePageContent />
-    </Suspense>
   );
 }

@@ -278,6 +278,7 @@ class PropertyCardResponse(BaseModel):
     title: str
     slug: str
     price: float
+    currency: str = "INR"
     price_per_sqft: Optional[float] = None
     property_type: str
     listing_type: str
@@ -292,9 +293,17 @@ class PropertyCardResponse(BaseModel):
     is_featured: bool
     is_synthetic: bool
     image_urls: Optional[str] = None
+    images: List[PropertyImageResponse] = Field(default_factory=list)
     amenities: List[AmenityResponse] = []
     created_at: datetime
     is_saved: Optional[bool] = None
+    last_verified_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
+    status: Optional[str] = None
+    source_url: Optional[str] = None
+    source: Optional[str] = None
+    source_type: Optional[str] = None
+    rank_score: Optional[float] = None
 
     model_config = {"from_attributes": True}
 
@@ -340,9 +349,20 @@ class PropertySearchParams(BaseModel):
 
 # ─── Saved Schemas ───────────────────────────────────────
 
+# A single account cannot bookmark the entire catalogue: the cap keeps the
+# endpoint cheap to serve and stops scripts from spamming rows into a user's own
+# collection. The UI surfaces the limit rather than failing silently.
+MAX_SAVED_PROPERTIES_PER_USER = 500
+MAX_COMPARISONS_PER_USER = 50
+
+
 class SavePropertyRequest(BaseModel):
-    property_id: int
-    notes: Optional[str] = None
+    property_id: int = Field(..., gt=0, description="Catalogue property id to save")
+    notes: Optional[str] = Field(None, max_length=1000)
+
+
+class SavedPropertyUpdate(BaseModel):
+    notes: Optional[str] = Field(None, max_length=1000)
 
 
 class SavedPropertyResponse(BaseModel):
@@ -351,6 +371,7 @@ class SavedPropertyResponse(BaseModel):
     notes: Optional[str] = None
     created_at: datetime
     property: PropertyCardResponse
+    is_saved: bool = True
 
     model_config = {"from_attributes": True}
 
@@ -392,8 +413,21 @@ class SavedSearchResponse(BaseModel):
 # ─── Comparison Schemas ──────────────────────────────────
 
 class ComparisonCreateRequest(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, max_length=200)
     property_ids: List[int] = Field(..., min_length=2, max_length=4)
+
+    @field_validator("property_ids")
+    @classmethod
+    def ids_are_positive_and_unique(cls, values: List[int]) -> List[int]:
+        if any(pid <= 0 for pid in values):
+            raise ValueError("Property ids must be positive integers")
+        unique: List[int] = []
+        for pid in values:
+            if pid not in unique:
+                unique.append(pid)
+        if len(unique) < 2:
+            raise ValueError("Provide at least two distinct properties to compare")
+        return unique
 
 
 class ComparisonResponse(BaseModel):
@@ -507,6 +541,10 @@ from app.schemas.finance import (  # noqa: E402
     EmiResponse,
     AffordabilityRequest,
     AffordabilityResponse,
+    FullAffordabilityRequest,
+    FullAffordabilityResponse,
+    InvestmentRequest,
+    InvestmentResponse,
     RentalYieldRequest,
     RentalYieldResponse,
     RoiRequest,

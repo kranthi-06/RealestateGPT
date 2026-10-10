@@ -16,6 +16,8 @@ from app.models.user import User
 from app.schemas.finance import (
     AffordabilityRequest, AffordabilityResponse,
     EmiRequest, EmiResponse,
+    FullAffordabilityRequest, FullAffordabilityResponse,
+    InvestmentRequest, InvestmentResponse,
     PriceEstimateResponse, PriceFairnessResponse,
     RentalYieldRequest, RentalYieldResponse,
     RoiRequest, RoiResponse,
@@ -43,6 +45,40 @@ async def affordability(data: AffordabilityRequest):
         data.max_income_ratio,
         data.property_price,
     )
+
+
+@router.post("/affordability/full", response_model=FullAffordabilityResponse)
+async def full_affordability(data: FullAffordabilityRequest, db=Depends(get_db)):
+    """Affordability including savings, upfront transaction costs and ownership
+    expenses, with the remaining income and savings after purchase.
+
+    Prices are never trusted from the request body: ``property_id`` (when given)
+    is resolved against the catalogue so the calculation uses the real asking
+    price.
+    """
+    inputs = data.model_dump()
+    if inputs.get("property_id") and not inputs.get("property_price"):
+        from app.repositories.property_repo import PropertyRepository
+
+        prop = PropertyRepository(db).get_by_id(inputs["property_id"])
+        if prop is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Property not found")
+        inputs["property_price"] = prop.price
+        inputs["property_id"] = None
+    result = FinanceService.full_affordability(**{k: v for k, v in inputs.items() if k != "property_id"})
+    return FullAffordabilityResponse(**result)
+
+
+@router.post("/investment", response_model=InvestmentResponse)
+async def investment_analysis(data: InvestmentRequest, db=Depends(get_db)):
+    """Investment analysis for up to four verified properties.
+
+    Every figure is either a verified catalogue value or an explicit
+    assumption; the response keeps the two separate.
+    """
+    assumptions = data.model_dump()
+    assumptions.pop("property_ids", None)
+    return FinanceService(db).investment_analysis(data.property_ids, **assumptions)
 
 
 @router.post("/rental-yield", response_model=RentalYieldResponse)

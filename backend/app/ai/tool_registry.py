@@ -35,10 +35,13 @@ class ToolRegistry:
             "get_market_stats": RegisteredTool("get_market_stats", "Market Intelligence for any city and/or locality: apartment, house and plot prices, price per sq.ft and per sq.yard, typical rent ranges, observed price changes, locality comparison and data coverage. Works for any location; report exactly what is returned and flag small samples.", application_tools.MarketStatsInput, "get_market_stats"),
             "route": RegisteredTool("route", "Get an actual configured-provider route between coordinates.", application_tools.RouteInput, "calculate_route"),
             "compare_properties": RegisteredTool("compare_properties", "Compare 2-4 properties using verified catalogue records and deterministic price estimates.", application_tools.PropertyIdsInput, "compare"),
-            "calculate_affordability": RegisteredTool("calculate_affordability", "Compute affordable loan amount and EMI from monthly income (deterministic).", application_tools.AffordInput, "calculate_affordability"),
+            "calculate_affordability": RegisteredTool("calculate_affordability", "Compute affordable loan amount, EMI, upfront costs, remaining income and remaining savings. Pass property_id so the real catalogue asking price is used.", application_tools.AffordInput, "calculate_affordability"),
             "calculate_emi": RegisteredTool("calculate_emi", "Compute monthly EMI for a loan (deterministic).", application_tools.EmiInput, "calculate_emi"),
             "calculate_rental_yield": RegisteredTool("calculate_rental_yield", "Compute gross/net rental yield for a property (deterministic).", application_tools.YieldInput, "calculate_rental_yield"),
-            "calculate_roi": RegisteredTool("calculate_roi", "Project investment return over N years (deterministic).", application_tools.RoiInput, "calculate_roi"),
+            "calculate_roi": RegisteredTool("calculate_roi", "Project investment return over N years (deterministic; appreciation is an assumption, never a fact).", application_tools.RoiInput, "calculate_roi"),
+            "save_property": RegisteredTool("save_property", "Save a verified catalogue property to the signed-in user's saved list. Idempotent.", application_tools.SavePropertyInput, "save_property"),
+            "unsave_property": RegisteredTool("unsave_property", "Remove a property from the signed-in user's saved list.", application_tools.UnsavePropertyInput, "unsave_property"),
+            "list_saved_properties": RegisteredTool("list_saved_properties", "List the signed-in user's own saved properties with real prices. Never returns another user's data.", application_tools.SavedListInput, "list_saved_properties"),
         }
 
     def definitions(self) -> list[dict]:

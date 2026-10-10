@@ -33,6 +33,42 @@ def is_loopback_url(url: str) -> bool:
     return _hostname_of(url) in _LOOPBACK_HOSTS
 
 
+_SENSITIVE_SETTING_NAMES = {
+    "GROQ_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "AI_API_KEY",
+    "TAVILY_API_KEY", "BRAVE_SEARCH_API_KEY", "GEOAPIFY_API_KEY",
+    "GOOGLE_MAPS_SERVER_KEY", "S3_ACCESS_KEY", "S3_SECRET_KEY",
+    "SECRET_KEY", "CRON_SECRET", "WORKER_RUN_SECRET", "SEARXNG_AUTH_TOKEN",
+}
+
+
+def _mask_value(value) -> str:
+    """Render a value safe for logs: never reveal a credential."""
+    text = str(value)
+    if len(text) <= 8:
+        return "***"
+    return f"***({len(text)} chars)"
+
+
+def _safe_settings_validation_error(exc: Exception) -> ValueError:
+    """Re-raise a settings error with every credential masked.
+
+    Pydantic echoes the offending input value in its error messages, so a typo
+    in ``.env`` would otherwise print an API key into the logs and the console.
+    """
+    try:
+        errors = exc.errors()  # type: ignore[attr-defined]
+    except Exception:  # pragma: no cover - defensive
+        return ValueError("Invalid configuration; check backend/.env")
+    masked = []
+    for error in errors:
+        location = error.get("loc") or ()
+        name = str(location[0]) if location else "?"
+        if name in _SENSITIVE_SETTING_NAMES:
+            error["input"] = _mask_value(error.get("input"))
+        masked.append(f"{'.'.join(str(part) for part in location)}: {error.get('msg')}")
+    return ValueError("Invalid configuration: " + "; ".join(masked))
+
+
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
@@ -77,6 +113,33 @@ class Settings(BaseSettings):
     GROQ_API_KEY: Optional[str] = None
     GROQ_MODEL: str = "qwen/qwen3.8-27b"  # verified in docs/AI_MODEL_SELECTION.md
     GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+
+    # ── Multi-provider fallback ─────────────────────────────────────────
+    # Credentials are server-side only (never NEXT_PUBLIC_). Each provider is
+    # independently optional: a missing key disables that fallback without
+    # affecting the others or any unrelated feature.
+    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+
+    # Ordered list of providers to try: "groq,gemini,openai". A provider with no
+    # usable credential is skipped rather than failing the request.
+    AI_PROVIDER_PRIORITY: str = "groq,gemini,openai"
+    # Automatic fallback to a provider that may incur cost requires explicit
+    # opt-in; free capacity is always preferred.
+    AI_ALLOW_PAID_FALLBACK: bool = False
+    # Retries / backoff / circuit breaking for one provider attempt.
+    AI_MAX_ATTEMPTS: int = 2
+    AI_RETRY_BASE_SECONDS: float = 0.5
+    AI_RETRY_MAX_SECONDS: float = 8.0
+    AI_CIRCUIT_FAILURE_THRESHOLD: int = 3
+    AI_CIRCUIT_COOLDOWN_SECONDS: float = 60.0
+    # Per-request cost guard (0 disables the budget check).
+    AI_DAILY_REQUEST_BUDGET: int = 0
+
     AI_TIMEOUT_SECONDS: int = 60
     AI_MAX_TOKENS: int = 1200
     MAX_AGENT_STEPS: int = 3
@@ -333,8 +396,27 @@ class Settings(BaseSettings):
 
     @property
     def ai_configured(self) -> bool:
-        """True when a real LLM API is available for generative responses."""
-        return self.AI_PROVIDER == "groq" and bool(self.GROQ_API_KEY)
+        """True when at least one real LLM provider credential is present."""
+        return bool(
+            (self.GROQ_API_KEY or "").strip()
+            or (self.GEMINI_API_KEY or "").strip()
+            or (self.OPENAI_API_KEY or "").strip()
+        )
+
+    @property
+    def ai_provider_priority(self) -> List[str]:
+        """The configured provider order, de-duplicated."""
+        seen: List[str] = []
+        for name in (self.AI_PROVIDER_PRIORITY or "").split(","):
+            cleaned = name.strip().lower()
+            if cleaned and cleaned not in seen:
+                seen.append(cleaned)
+        return seen
+
+    @property
+    def ai_paid_fallback_allowed(self) -> bool:
+        """Automatic fallback to a cost-incurring provider requires opt-in."""
+        return bool(self.AI_ALLOW_PAID_FALLBACK)
 
     def validate_runtime(self) -> list[str]:
         """Fail-fast configuration checks. Returns a list of problems.
@@ -353,7 +435,10 @@ class Settings(BaseSettings):
             }:
                 problems.append("SECRET_KEY must be a long random value outside development.")
             if not self.ai_configured:
-                problems.append("AI_PROVIDER=groq and GROQ_API_KEY are required outside development.")
+                problems.append(
+                    "At least one AI provider credential is required outside development "
+                    "(GROQ_API_KEY, GEMINI_API_KEY or OPENAI_API_KEY)."
+                )
             if not self.CRON_SECRET or len(self.CRON_SECRET) < 16:
                 problems.append("CRON_SECRET must be a long random value outside development.")
             provider = self.LOCATION_PROVIDER.strip().lower()
@@ -382,6 +467,13 @@ class Settings(BaseSettings):
             return bool(settings_obj.GOOGLE_MAPS_SERVER_KEY)
         return False
 
+    def __init__(self, **values):
+        try:
+            super().__init__(**values)
+        except Exception as exc:  # ValidationError and friends
+            # Never let a credential reach a traceback, a log line or a response.
+            raise _safe_settings_validation_error(exc) from None
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
@@ -389,4 +481,13 @@ class Settings(BaseSettings):
     }
 
 
-settings = Settings()
+def _load_settings() -> "Settings":
+    try:
+        return Settings()
+    except ValueError:
+        raise
+    except Exception as exc:  # pragma: no cover - defensive
+        raise _safe_settings_validation_error(exc) from None
+
+
+settings = _load_settings()

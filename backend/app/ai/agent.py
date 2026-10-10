@@ -1,4 +1,9 @@
-"""Bounded Groq tool-calling agent for grounded property assistance."""
+"""Bounded tool-calling agent for grounded property assistance.
+
+Provider-agnostic: the agent asks the gateway for a completion and the gateway
+resolves the primary provider or a fallback. Every fact in the final answer
+still comes from MongoDB through the tool registry.
+"""
 from __future__ import annotations
 
 import json
@@ -7,7 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
-from app.ai.gateway import AIValidationError, GroqProvider
+from app.ai.gateway import AIValidationError, AIGateway, get_gateway
 from app.ai.tool_registry import ToolRegistry
 from app.core.config import settings
 from app.schemas.ai import Citation, ScoredProperty, ToolCallRecord
@@ -41,24 +46,50 @@ class AgentResult(BaseModel):
     trace: dict = Field(default_factory=dict)
 
 
+#: A tool result is capped before it goes back to the model. Providers reject an
+#: oversized request (Groq returns HTTP 413), the model only needs the verified
+#: fields, and an agent turn can accumulate several tool results plus the full
+#: tool registry, so the per-result budget has to be conservative.
+MAX_TOOL_PAYLOAD_CHARS = 6000
+
+
+def _bounded_tool_payload(result: object) -> str:
+    """Serialize a tool result, truncating rather than failing the request."""
+    try:
+        text = json.dumps(result, default=str, separators=(",", ":"))
+    except (TypeError, ValueError):
+        text = json.dumps({"status": "unserializable"}, separators=(",", ":"))
+    if len(text) <= MAX_TOOL_PAYLOAD_CHARS:
+        return text
+    logger.info("tool_payload_truncated chars=%s limit=%s", len(text), MAX_TOOL_PAYLOAD_CHARS)
+    return text[:MAX_TOOL_PAYLOAD_CHARS] + '…[truncated]'
+
+
 class GroqToolCallingAgent:
-    def __init__(self, db, user, provider: GroqProvider | None = None, registry: ToolRegistry | None = None) -> None:
+    def __init__(self, db, user, provider: Any | None = None, registry: ToolRegistry | None = None) -> None:
         self.db, self.user = db, user
-        self.provider = provider or GroqProvider()
         self.registry = registry or ToolRegistry()
+        # ``provider`` is accepted for backwards compatibility and for tests;
+        # production resolves the primary/fallback provider through the gateway.
+        self._provider_override = provider
 
     def run(self, message: str, conversation_context: list[dict]) -> AgentResult:
+        gateway = self._provider_override or get_gateway()
         messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
         for item in conversation_context[-6:]:
             if item.get("role") in {"user", "assistant"}:
                 messages.append({"role": item["role"], "content": item.get("content", "")[:4000]})
         messages.append({"role": "user", "content": message})
         records: list[ToolCallRecord] = []
+        # Results the UI may render: only from tools that returned verified
+        # catalogue records. Financial/market tools never inject a property.
         search_payload: dict | None = None
         total_provider_ms = 0.0
+        provider_used = "unknown"
         for _ in range(settings.MAX_AGENT_STEPS):
-            completion = self.provider.generate_with_tools(messages, self.registry.definitions())
+            completion = gateway.generate_with_tools(messages, self.registry.definitions())
             total_provider_ms += completion["latency_ms"]
+            provider_used = completion.get("provider", provider_used)
             model_message = completion["message"]
             calls = model_message.get("tool_calls") or []
             messages.append({"role": "assistant", "content": model_message.get("content") or "", "tool_calls": calls})
@@ -77,11 +108,15 @@ class GroqToolCallingAgent:
                     # ultimately to the audit log instead of swallowing it.
                     logger.warning("tool_call tool=%s status=error message=%s", name, str(exc))
                     raise
-                if name == "search_properties":
+                # Only verified-catalogue tools feed the renderable result set.
+                if name in {"search_properties", "get_property"} and isinstance(result, dict):
                     search_payload = result
+                elif name == "compare_properties" and isinstance(result, dict):
+                    search_payload = search_payload or {"results": [], "total": 0, "parsed": None}
+                    search_payload["comparison"] = result.get("comparison", [])
                 records.append(ToolCallRecord(tool=name, input=self._safe_input(arguments), output_summary=self._summary(name, result)))
                 messages.append({"role": "tool", "tool_call_id": call.get("id"), "name": name,
-                                 "content": json.dumps(result, default=str, separators=(",", ":"))})
+                                 "content": _bounded_tool_payload(result)})
         else:
             raise AIValidationError("The AI agent reached its maximum steps")
         # The final answer must be a raw JSON object. The model sometimes leaks
@@ -106,7 +141,10 @@ class GroqToolCallingAgent:
             ),
         })
         total_provider_ms_preexisting = total_provider_ms
-        final = self._final_answer(final_messages)
+        final = gateway.generate_structured(
+            final_messages, "grounded_assistant_response", FinalAnswer.model_json_schema()
+        )
+        final["_retried"] = False
         total_provider_ms += final["latency_ms"]
         try:
             final_answer = FinalAnswer.model_validate_json(final["message"].get("content") or "{}")
@@ -129,21 +167,20 @@ class GroqToolCallingAgent:
                     if item.get("role") == "tool":
                         kept["tool_call_id"] = item.get("tool_call_id", "")
                     retry_final_messages.append(kept)
-                retried = self._final_answer(retry_final_messages, retried=True)
+                retried = gateway.generate_structured(
+                    retry_final_messages, "grounded_assistant_response",
+                    FinalAnswer.model_json_schema(),
+                )
+                retried["_retried"] = True
                 total_provider_ms = total_provider_ms_preexisting + retried["latency_ms"]
                 try:
                     final_answer = FinalAnswer.model_validate_json(retried["message"].get("content") or "{}")
                 except (ValidationError, ValueError) as retry_exc:
-                    raise AIValidationError("Groq returned an invalid structured assistant response") from retry_exc
+                    raise AIValidationError("The AI provider returned an invalid structured assistant response") from retry_exc
             else:
-                raise AIValidationError("Groq returned an invalid structured assistant response") from exc
-        return self._ground(final_answer, search_payload, records, total_provider_ms)
-
-    def _final_answer(self, messages: list[dict], retried: bool = False) -> dict:
-        """Single structured-completion request; returns raw provider output."""
-        final = self.provider.generate_structured(messages, "grounded_assistant_response", FinalAnswer.model_json_schema())
-        final["_retried"] = retried
-        return final
+                raise AIValidationError("The AI provider returned an invalid structured assistant response") from exc
+        return self._ground(final_answer, search_payload, records, total_provider_ms,
+                            provider_used)
 
     @staticmethod
     def _safe_input(raw: str | dict) -> dict:
@@ -161,7 +198,8 @@ class GroqToolCallingAgent:
         return "configured-provider route returned"
 
     @staticmethod
-    def _ground(final: FinalAnswer, search: dict | None, records: list[ToolCallRecord], provider_ms: float) -> AgentResult:
+    def _ground(final: FinalAnswer, search: dict | None, records: list[ToolCallRecord],
+                provider_ms: float, provider_used: str = "unknown") -> AgentResult:
         results = (search or {}).get("results", [])
         typed_results = [item if isinstance(item, ScoredProperty) else ScoredProperty.model_validate(item) for item in results]
         allowed_ids = {item.property_id for item in typed_results}
@@ -170,5 +208,6 @@ class GroqToolCallingAgent:
         citations = [Citation(source_type="property", source_id=item.property_id, label=item.title) for item in visible[:5]]
         return AgentResult(answer=final.answer, results=visible, citations=citations, tool_calls=records,
                            parsed_query=(search or {}).get("parsed"), warning=(search or {}).get("warning"),
-                           trace={"model": settings.GROQ_MODEL, "tool_call_count": len(records), "provider_latency_ms": provider_ms,
+                           trace={"model": f"{provider_used}", "provider": provider_used,
+                                  "tool_call_count": len(records), "provider_latency_ms": provider_ms,
                                   "candidate_count": (search or {}).get("total", 0)})

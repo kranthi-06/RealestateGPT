@@ -6,7 +6,6 @@ import {
   BedDouble,
   Maximize2,
   Building2,
-  Heart,
   ArrowRight,
   Navigation,
   Check,
@@ -21,10 +20,8 @@ import {
   getBedroomLabel,
   getPropertyTypeLabel,
 } from "@/lib/format";
-import { savedApi } from "@/lib/api";
-import { useAuth } from "@/lib/auth-context";
-import { useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
+import { PropertyActions } from "@/components/property-actions";
 
 interface PropertyListRowProps {
   property: Property;
@@ -60,42 +57,15 @@ export function PropertyListRow({
   showSave = true,
   className,
 }: PropertyListRowProps) {
-  const { isAuthenticated } = useAuth();
-  const [isSaved, setIsSaved] = useState(property.is_saved || false);
-  const [savingInProgress, setSavingInProgress] = useState(false);
-
-  const handleSave = useCallback(
-    async (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!isAuthenticated || savingInProgress) return;
-      setSavingInProgress(true);
-      try {
-        if (isSaved) {
-          await savedApi.unsaveProperty(property.id);
-          setIsSaved(false);
-        } else {
-          await savedApi.saveProperty(property.id);
-          setIsSaved(true);
-        }
-      } catch {
-        /* no-op */
-      } finally {
-        setSavingInProgress(false);
-      }
-    },
-    [isAuthenticated, isSaved, property.id, savingInProgress]
-  );
+  const locality = property.locality || property.city;
+  const typeLabel = getPropertyTypeLabel(property.property_type);
+  const bhk = property.bedrooms ? getBedroomLabel(property.bedrooms) : null;
 
   const firstImage =
     property.images?.[0]?.url ??
     (typeof property.image_urls === "string" && property.image_urls
       ? property.image_urls.split(",")[0]
       : undefined);
-
-  const locality = property.locality || property.city;
-  const typeLabel = getPropertyTypeLabel(property.property_type);
-  const bhk = property.bedrooms ? getBedroomLabel(property.bedrooms) : null;
 
   return (
     <article
@@ -105,10 +75,10 @@ export function PropertyListRow({
         className
       )}
     >
-      {showCompare && (
+      {showCompare && onCompareToggle && (
         <button
           type="button"
-          onClick={() => onCompareToggle?.(property.id)}
+          onClick={() => onCompareToggle(property.id)}
           aria-label={`Toggle compare for ${property.title}`}
           aria-pressed={isCompareSelected}
           className={cn(
@@ -218,22 +188,12 @@ export function PropertyListRow({
           </div>
 
           <div className="flex items-center gap-1.5">
-            {showSave && isAuthenticated && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleSave}
-                disabled={savingInProgress}
-                aria-label={isSaved ? "Unsave property" : "Save property"}
-                className="h-8 w-8"
-              >
-                <Heart
-                  className={cn(
-                    "h-4 w-4 transition-colors",
-                    isSaved ? "fill-red-500 text-red-500" : "text-muted-foreground"
-                  )}
-                />
-              </Button>
+            {showSave && (
+              <PropertyActions
+                propertyId={property.id}
+                title={property.title}
+                variant="compact"
+              />
             )}
             <Button asChild size="sm" className="gap-1">
               <Link href={`/properties/${property.id}`}>

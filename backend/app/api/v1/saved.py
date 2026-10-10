@@ -1,18 +1,26 @@
-"""RealEstateGPT - Saved items API routes"""
+"""RealEstateGPT - Saved items API routes.
+
+Ownership is enforced in every query (``user_id`` comes from the authenticated
+session, never from the request body), so one user can neither read nor modify
+another user's saved properties or comparisons.
+"""
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from typing import List
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from typing import List, Optional
+
 from app.core.database import get_db
+from app.core.rate_limit import general_limiter
 from app.core.security import get_current_user
 from app.repositories.saved_repo import SavedRepository
 from app.repositories.property_repo import PropertyRepository
 from app.schemas import (
-    SavePropertyRequest, SavedPropertyResponse,
+    SavePropertyRequest, SavedPropertyResponse, SavedPropertyUpdate,
     SaveSearchRequest, SavedSearchResponse,
     ComparisonCreateRequest, ComparisonResponse,
     PropertyResponse, PropertyCardResponse,
+    MAX_SAVED_PROPERTIES_PER_USER, MAX_COMPARISONS_PER_USER,
 )
 from app.models.user import User
 
@@ -20,35 +28,77 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/saved", tags=["Saved"])
 
+SAVED_PROPERTIES_RATE = (60, 60)      # 60 writes per minute per user
+COMPARISON_RATE = (20, 60)            # 20 comparisons per minute per user
+
+
+def _rate_key(user_id: int, request: Request) -> str:
+    """Rate limit per authenticated account, never per spoofable header."""
+    return f"saved:{user_id}"
+
 
 # ─── Saved Properties ────────────────────────────────────
 
 @router.post("/properties", status_code=status.HTTP_201_CREATED)
 async def save_property(
     data: SavePropertyRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db = Depends(get_db),
 ):
-    """Save a property to the user's collection."""
-    # Verify property exists
+    """Save a property to the user's collection (idempotent)."""
+    general_limiter.check(_rate_key(current_user.id, request), *SAVED_PROPERTIES_RATE,
+                          enabled=True)
+    # Verify the property exists and is a live catalogue record before saving.
     prop_repo = PropertyRepository(db)
     prop = prop_repo.get_by_id(data.property_id)
     if not prop:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Property not found")
 
     repo = SavedRepository(db)
+    existing = repo.is_saved(current_user.id, data.property_id)
+    if not existing and repo.count_saved_for_user(current_user.id) >= MAX_SAVED_PROPERTIES_PER_USER:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"You have reached the limit of {MAX_SAVED_PROPERTIES_PER_USER} saved "
+                "properties. Remove a listing to save another."
+            ),
+        )
+
     saved = repo.save_property(current_user.id, data.property_id, data.notes)
-    return {"id": saved.id, "message": "Property saved"}
+    return {
+        "id": saved.id,
+        "property_id": data.property_id,
+        "already_saved": existing,
+        "message": "Property already saved" if existing else "Property saved",
+    }
 
 
 @router.get("/properties", response_model=List[SavedPropertyResponse])
 async def get_saved_properties(
+    q: Optional[str] = Query(None, max_length=200),
+    city: Optional[str] = Query(None, max_length=100),
+    locality: Optional[str] = Query(None, max_length=100),
+    property_type: Optional[str] = Query(None, max_length=50),
+    listing_type: Optional[str] = Query(None, pattern="^(sale|rent)$"),
+    bedrooms: Optional[int] = Query(None, ge=0, le=20),
+    min_price: Optional[float] = Query(None, ge=0),
+    max_price: Optional[float] = Query(None, ge=0),
+    sort_by: str = Query("created_at", pattern="^(created_at|price|property_id)$"),
+    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     current_user: User = Depends(get_current_user),
     db = Depends(get_db),
 ):
-    """Get all saved properties."""
+    """Get the signed-in user's saved properties, with search/filter/sort.
+
+    Filtering runs over the joined catalogue records so a saved listing that the
+    admin has since removed is skipped instead of crashing the page.
+    """
     repo = SavedRepository(db)
-    saved_items = repo.get_saved_properties(current_user.id)
+    saved_items = repo.get_saved_properties(
+        current_user.id, sort_by=sort_by, sort_order=sort_order
+    )
     results = []
     for item in saved_items:
         # A saved property whose catalogue record was removed must not crash
@@ -59,14 +109,56 @@ async def get_saved_properties(
                 item.id, item.property_id,
             )
             continue
+        prop = item.property
+        if q and q.strip().lower() not in (prop.title or "").lower():
+            continue
+        if city and city.strip().lower() not in (prop.city or "").lower():
+            continue
+        if locality and locality.strip().lower() not in (prop.locality or "").lower():
+            continue
+        if property_type and prop.property_type != property_type:
+            continue
+        if listing_type and prop.listing_type != listing_type:
+            continue
+        if bedrooms is not None and prop.bedrooms != bedrooms:
+            continue
+        if min_price is not None and prop.price < min_price:
+            continue
+        if max_price is not None and prop.price > max_price:
+            continue
         results.append(SavedPropertyResponse(
             id=item.id,
             property_id=item.property_id,
             notes=item.notes,
             created_at=item.created_at,
-            property=PropertyCardResponse.model_validate(item.property),
+            is_saved=True,
+            property=PropertyCardResponse.model_validate(prop),
         ))
     return results
+
+
+@router.get("/properties/ids")
+async def get_saved_property_ids(
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    """Cheap id list used by the UI to keep save buttons in sync everywhere."""
+    return {"property_ids": SavedRepository(db).get_saved_property_ids(current_user.id)}
+
+
+@router.patch("/properties/{property_id}")
+async def update_saved_property(
+    property_id: int,
+    data: SavedPropertyUpdate,
+    current_user: User = Depends(get_current_user),
+    db = Depends(get_db),
+):
+    """Update the note attached to a saved property."""
+    repo = SavedRepository(db)
+    if not repo.is_saved(current_user.id, property_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Saved property not found")
+    repo.save_property(current_user.id, property_id, data.notes)
+    return {"message": "Saved property updated"}
 
 
 @router.delete("/properties/{property_id}", status_code=status.HTTP_200_OK)
@@ -80,7 +172,7 @@ async def unsave_property(
     removed = repo.unsave_property(current_user.id, property_id)
     if not removed:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Saved property not found")
-    return {"message": "Property removed from saved"}
+    return {"message": "Property removed from saved", "property_id": property_id}
 
 
 @router.get("/discoveries")
@@ -172,19 +264,32 @@ async def delete_saved_search(
 @router.post("/comparisons", response_model=ComparisonResponse, status_code=status.HTTP_201_CREATED)
 async def create_comparison(
     data: ComparisonCreateRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db = Depends(get_db),
 ):
     """Create a property comparison set (2-4 properties)."""
+    general_limiter.check(_rate_key(current_user.id, request), *COMPARISON_RATE, enabled=True)
     prop_repo = PropertyRepository(db)
     properties = prop_repo.get_by_ids(data.property_ids)
-    if len(properties) < 2:
+    found = {p.id for p in properties}
+    missing = [pid for pid in data.property_ids if pid not in found]
+    if missing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="At least 2 valid properties required for comparison",
+            detail=f"These properties are not available for comparison: {missing}",
         )
 
     repo = SavedRepository(db)
+    if repo.count_comparisons_for_user(current_user.id) >= MAX_COMPARISONS_PER_USER:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"You have reached the limit of {MAX_COMPARISONS_PER_USER} saved "
+                "comparisons. Delete one to save another."
+            ),
+        )
+
     comparison = repo.create_comparison(current_user.id, data.property_ids, data.name)
 
     return ComparisonResponse(

@@ -1,15 +1,85 @@
-"""Unit contracts for the real Groq gateway and bounded tool agent."""
+"""Unit contracts for the real AI gateway and the bounded tool agent."""
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import httpx
 import pytest
 
 from app.ai.agent import GroqToolCallingAgent
-from app.ai.gateway import AIConfigurationError, AIValidationError, GroqProvider
+from app.ai.gateway import AIConfigurationError, AIValidationError
+from app.ai.providers.base import ChatResult, ProviderCapabilities
+from app.ai.registry import ProviderEntry, ProviderRegistry
+from app.ai.resilience import CircuitBreaker, ConcurrencyLimiter, ProviderMetrics
 from app.ai.tool_registry import ToolRegistry
 from app.core.config import settings
+
+
+# ── Stubs ────────────────────────────────────────────────────────────────
+
+class StubTransportProvider:
+    """A provider whose HTTP status is scripted, for failure-path tests."""
+
+    def __init__(self, name: str, status: int, payload: dict | None = None) -> None:
+        self.name = name
+        self.provider = name
+        self.model = f"{name}-stub-model"
+        self.status = status
+        self.payload = payload or {}
+        self.attempts = 0
+
+    def chat(self, messages, tools, *, max_tokens: int, structured: bool = False,
+             model: str | None = None) -> ChatResult:
+        self.attempts += 1
+        if self.status >= 400:
+            request = httpx.Request("POST", "https://stub.invalid/v1/chat/completions")
+            response = httpx.Response(self.status, json={"error": {"message": "stub failure"}})
+            raise httpx.HTTPStatusError("stub", request=request, response=response)
+        return ChatResult(
+            message=__import__("app.ai.providers.base", fromlist=["ChatMessage"]).ChatMessage(
+                content=self.payload.get("text", "ok"), tool_calls=[]),
+            model=self.model,
+            provider=self.name,
+            latency_ms=1.0,
+            total_tokens=1,
+        )
+
+    def capabilities(self) -> ProviderCapabilities:
+        return ProviderCapabilities(provider=self.name, model=self.model, chat=True,
+                                    tool_calling=True, structured_output=True, cost_tier="free")
+
+
+def _stub_entry(name: str, status: int, payload: dict | None = None) -> ProviderEntry:
+    return ProviderEntry(name=name, provider=StubTransportProvider(name, status, payload),
+                         configured=True, priority=0)
+
+
+def _registry_with_entries(entries: list[ProviderEntry]) -> ProviderRegistry:
+    """Build a registry without touching the real settings."""
+    import threading
+
+    registry = object.__new__(ProviderRegistry)
+    registry.settings = settings
+    registry.metrics = ProviderMetrics()
+    registry.circuit = CircuitBreaker(failure_threshold=2, cooldown_seconds=999.0)
+    registry.limiter = ConcurrencyLimiter(limit=2)
+    registry._lock = threading.Lock()
+    registry._entries = {entry.name: entry for entry in entries}
+    return registry
+
+
+def _registry_without_credentials() -> ProviderRegistry:
+    import threading
+
+    registry = object.__new__(ProviderRegistry)
+    registry.settings = settings
+    registry.metrics = ProviderMetrics()
+    registry.circuit = CircuitBreaker()
+    registry.limiter = ConcurrencyLimiter(limit=2)
+    registry._lock = threading.Lock()
+    registry._entries = {}
+    return registry
 
 
 class FakeProvider:
@@ -60,13 +130,74 @@ def test_agent_returns_only_grounded_property_ids():
     assert result.tool_calls[0].tool == "search_properties"
 
 
-def test_groq_gateway_maps_auth_and_configuration_errors(monkeypatch):
-    monkeypatch.setattr(settings, "AI_PROVIDER", "offline")
+def test_gateway_raises_configuration_error_without_any_provider(monkeypatch):
+    """No credential at all must be a clean configuration error, not a crash."""
+    from app.ai.gateway import AIGateway
+
+    monkeypatch.setattr(settings, "AI_PROVIDER_PRIORITY", "groq,gemini,openai")
+    registry = _registry_without_credentials()
+    gateway = AIGateway(registry)
     with pytest.raises(AIConfigurationError):
-        GroqProvider()
-    monkeypatch.setattr(settings, "AI_PROVIDER", "groq")
-    monkeypatch.setattr(settings, "GROQ_API_KEY", "test-key")
-    transport = httpx.MockTransport(lambda request: httpx.Response(401, json={"error": {"message": "bad key"}}))
-    from app.ai.gateway import AIAuthenticationError
+        gateway.generate_with_tools([{"role": "user", "content": "hello"}], [])
+
+
+def test_gateway_maps_a_permanent_auth_error_without_retrying(monkeypatch):
+    """A 401 is permanent: it must not be retried and must not fall back."""
+    from app.ai.gateway import AIAuthenticationError, AIGateway
+
+    entry = _stub_entry("groq", status=401)
+    registry = _registry_with_entries([entry])
+    gateway = AIGateway(registry)
     with pytest.raises(AIAuthenticationError):
-        GroqProvider(transport=transport).generate_with_tools([{"role": "user", "content": "hello"}], [])
+        gateway.generate_with_tools([{"role": "user", "content": "hello"}], [])
+    assert entry.provider.attempts == 1, "a permanent error must not be retried"
+
+
+def test_gateway_falls_back_after_a_rate_limit(monkeypatch):
+    """A 429 on the primary must move to the fallback without fabricating."""
+    from app.ai.gateway import AIGateway
+
+    primary = _stub_entry("groq", status=429)
+    fallback = _stub_entry(
+        "gemini", status=200,
+        payload={"candidates": [{"content": {"parts": [{"text": "ok"}]}}],
+                 "usageMetadata": {"totalTokenCount": 3}},
+    )
+    registry = _registry_with_entries([primary, fallback])
+    gateway = AIGateway(registry)
+
+    result = gateway.generate_with_tools([{"role": "user", "content": "hello"}], [])
+    assert result["provider"] == "gemini"
+    assert result["message"]["content"] == "ok"
+    assert primary.provider.attempts >= 1
+    # The primary failure is recorded so the circuit breaker can open.
+    assert registry.metrics.health("groq").rate_limited >= 1
+
+
+def test_gateway_returns_an_honest_error_when_all_providers_fail():
+    """Every provider failing must surface AIUnavailableError, never a guess."""
+    from app.ai.gateway import AIUnavailableError, AIGateway
+
+    primary = _stub_entry("groq", status=503)
+    fallback = _stub_entry("gemini", status=500)
+    gateway = AIGateway(_registry_with_entries([primary, fallback]))
+    with pytest.raises(AIUnavailableError) as excinfo:
+        gateway.generate_with_tools([{"role": "user", "content": "hello"}], [])
+    assert "groq" in str(excinfo.value) and "gemini" in str(excinfo.value)
+
+
+def test_gateway_opens_the_circuit_after_repeated_failures():
+    from app.ai.gateway import AIUnavailableError, AIGateway
+
+    entry = _stub_entry("groq", status=503)
+    registry = _registry_with_entries([entry])
+    gateway = AIGateway(registry)
+    for _ in range(3):
+        with pytest.raises(AIUnavailableError):
+            gateway.generate_with_tools([{"role": "user", "content": "hi"}], [])
+    assert registry.circuit.is_open("groq")
+    # Once open, the provider is not attempted again until the cooldown ends.
+    attempts_before = entry.provider.attempts
+    with pytest.raises(AIUnavailableError):
+        gateway.generate_with_tools([{"role": "user", "content": "hi"}], [])
+    assert entry.provider.attempts == attempts_before

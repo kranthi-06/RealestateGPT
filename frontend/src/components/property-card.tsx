@@ -4,7 +4,6 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  Heart,
   MapPin,
   BedDouble,
   Bath,
@@ -16,15 +15,13 @@ import {
   ArrowRight,
   ExternalLink,
   Brain,
-  GitCompare,
 } from "lucide-react";
 import type { Property } from "@/lib/types";
 import { formatPrice, formatArea, getBedroomLabel, formatPricePerSqft } from "@/lib/format";
-import { savedApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { useState, useCallback } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { PropertyListRow } from "@/components/property-list-row";
+import { PropertyActions } from "@/components/property-actions";
 
 interface PropertyCardProps {
   property: Property;
@@ -60,31 +57,6 @@ export default function PropertyCard({
   showAiScore = false,
 }: PropertyCardProps) {
   const { isAuthenticated } = useAuth();
-  const [isSaved, setIsSaved] = useState(property.is_saved || false);
-  const [savingInProgress, setSavingInProgress] = useState(false);
-
-  const handleSave = useCallback(
-    async (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!isAuthenticated || savingInProgress) return;
-      setSavingInProgress(true);
-      try {
-        if (isSaved) {
-          await savedApi.unsaveProperty(property.id);
-          setIsSaved(false);
-        } else {
-          await savedApi.saveProperty(property.id);
-          setIsSaved(true);
-        }
-      } catch {
-        // Keep previous state on failure
-      } finally {
-        setSavingInProgress(false);
-      }
-    },
-    [isAuthenticated, isSaved, property.id, savingInProgress]
-  );
 
   if (variant === "list-row") {
     return (
@@ -156,19 +128,11 @@ export default function PropertyCard({
                 </Badge>
               )}
             </div>
-            {/* Save button */}
+            {/* Save + Compare actions */}
             {isAuthenticated && (
-              <button
-                onClick={handleSave}
-                className="absolute top-2 right-2 w-7 h-7 rounded-full bg-white/90 dark:bg-black/50 flex items-center justify-center shadow-sm hover:scale-110 transition-transform backdrop-blur-sm"
-                aria-label={isSaved ? `Unsave ${property.title}` : `Save ${property.title}`}
-              >
-                <Heart
-                  className={`w-3.5 h-3.5 transition-colors ${
-                    isSaved ? "fill-red-500 text-red-500" : "text-muted-foreground"
-                  }`}
-                />
-              </button>
+              <div className="absolute right-2 top-2">
+                <PropertyActions propertyId={property.id} title={property.title} variant="icon" />
+              </div>
             )}
           </div>
 
@@ -277,30 +241,6 @@ export default function PropertyCard({
 
               {/* Actions */}
               <div className="flex items-center gap-2">
-                {onCompareToggle && (
-                  <Button
-                    variant={isCompareSelected ? "primary" : "outline"}
-                    size="sm"
-                    className="gap-1.5 h-8"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      onCompareToggle(property.id);
-                    }}
-                  >
-                    {isCompareSelected ? (
-                      <>
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        Compared
-                      </>
-                    ) : (
-                      <>
-                        <GitCompare className="w-3.5 h-3.5" />
-                        Compare
-                      </>
-                    )}
-                  </Button>
-                )}
                 <Button
                   variant="ghost"
                   size="sm"
@@ -360,22 +300,11 @@ export default function PropertyCard({
               </div>
             </div>
             <div className="flex items-center gap-1">
+              {isAuthenticated && (
+                <PropertyActions propertyId={property.id} title={property.title} variant="compact" />
+              )}
               {onCompareToggle && (
-                <>
-                  <Button
-                    variant={isCompareSelected ? "primary" : "outline"}
-                    size="sm"
-                    className="gap-1 h-7 px-2"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      onCompareToggle(property.id);
-                    }}
-                  >
-                    {isCompareSelected ? <CheckCircle2 className="w-3.5 h-3.5" /> : <GitCompare className="w-3.5 h-3.5" />}
-                  </Button>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                </>
+                <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
               )}
             </div>
           </div>
@@ -410,12 +339,9 @@ export default function PropertyCard({
             {property.verification_status === "verified" && <Badge className="badge-success"><CheckCircle2 className="w-2.5 h-2.5 mr-1" />Verified</Badge>}
           </div>
           {isAuthenticated && (
-            <button
-              onClick={handleSave}
-              className="absolute top-2 right-2 w-8 h-8 rounded-full bg-white/90 dark:bg-black/50 flex items-center justify-center shadow-sm hover:scale-110 transition-transform backdrop-blur-sm"
-            >
-              <Heart className={`w-4 h-4 ${isSaved ? "fill-red-500 text-red-500" : "text-muted-foreground"}`} />
-            </button>
+            <div className="absolute top-2 right-2">
+              <PropertyActions propertyId={property.id} title={property.title} variant="icon" />
+            </div>
           )}
         </div>
         <div className="p-4 flex flex-col flex-1">

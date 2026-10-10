@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
+import { SavedProvider } from "@/lib/saved-context";
+import { CompareProvider } from "@/lib/compare-context";
+import { Toaster } from "@/components/ui/toast";
 import Navbar from "@/components/navbar";
+import CompareBar from "@/components/compare-bar";
 
 export const metadata: Metadata = {
   title: {
@@ -47,8 +51,16 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className="antialiased">
         <AuthProvider>
-          <Navbar />
-          <main className="min-h-[calc(100vh-4rem)]">{children}</main>
+          <SavedProvider>
+            <CompareProvider>
+              <Navbar />
+              <main className="min-h-[calc(100vh-4rem)]">{children}</main>
+              <div className="fixed inset-x-0 bottom-0 z-30 pointer-events-none [&>*]:pointer-events-auto">
+                <CompareBar />
+              </div>
+              <Toaster />
+            </CompareProvider>
+          </SavedProvider>
         </AuthProvider>
       </body>
     </html>

@@ -112,6 +112,63 @@ async def market_summary(
     )
 
 
+@router.get("/compare")
+async def market_compare(
+    cities: str = Query(..., description="Comma-separated city names (max 6)"),
+    listing_type: Optional[str] = Query(None, pattern=SALE_RENT),
+    property_type: Optional[str] = Query(None, max_length=50),
+    bedrooms: Optional[int] = Query(None, ge=0, le=20),
+    db=Depends(get_db),
+):
+    """Side-by-side city statistics for the comparison view.
+
+    Every figure is measured from stored listings; cities with too small a
+    sample are returned with ``is_measured: false`` so the UI can say so.
+    """
+    names = [c.strip() for c in cities.split(",") if c.strip()][:6]
+    if not names:
+        raise HTTPException(status_code=422, detail="Provide at least one city to compare.")
+
+    service = MarketService(db)
+    rows = []
+    for name in names:
+        snapshot = service.snapshot(MarketFilter(
+            city=name,
+            listing_type=_normalize_listing_type(listing_type),
+            property_type=property_type,
+            bedrooms=bedrooms,
+        ), include_history=False)
+        base = snapshot.apartment_prices if snapshot.apartment_prices.sample_size else snapshot.house_prices
+        psf = snapshot.apartment_psf if snapshot.apartment_psf.sample_size else snapshot.house_psf
+        rows.append({
+            "city": name,
+            "listings": snapshot.total_listings,
+            "sale_listings": snapshot.sale_listings,
+            "rent_listings": snapshot.rent_listings,
+            "median_price": base.median,
+            "mean_price": base.mean,
+            "min_price": base.min,
+            "max_price": base.max,
+            "median_price_per_sqft": psf.median,
+            "median_rent_monthly": snapshot.rents_monthly.median,
+            "gross_rental_yield_pct": snapshot.gross_yield_pct,
+            "price_to_rent_ratio": snapshot.price_to_rent_ratio,
+            "sample_size": base.sample_size,
+            "is_measured": base.is_measured,
+            "localities": snapshot.localities[:12],
+        })
+    return {
+        "generated_at": snapshot_now(),
+        "source": "Verified stored listings (RealEstateGPT catalogue)",
+        "minimum_sample": MIN_SAMPLE,
+        "cities": rows,
+        "note": (
+            "Asking prices from stored listings only. These are not completed "
+            "transaction prices. Small samples are flagged as not measured."
+        ),
+    }
+
+
 def snapshot_now() -> str:
     from datetime import datetime, timezone
 

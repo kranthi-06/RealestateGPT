@@ -195,6 +195,7 @@ class MarketSnapshot:
     bedroom_breakdown: dict[str, int] = field(default_factory=dict)
     locality_comparison: list[dict] = field(default_factory=list)
     price_history_points: list[dict] = field(default_factory=list)
+    price_distribution: list[dict] = field(default_factory=list)
     trend: dict[str, Any] = field(default_factory=dict)
     coverage: dict[str, Any] = field(default_factory=dict)
     generated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -252,6 +253,7 @@ class MarketSnapshot:
             },
             "locality_comparison": self.locality_comparison,
             "price_history": self.price_history_points,
+            "price_distribution": self.price_distribution,
             "trend": self.trend,
             "indicators": {
                 "gross_rental_yield_pct": self.gross_yield_pct,
@@ -281,6 +283,18 @@ def _bucket(property_type: str) -> str:
     if key in COMMERCIAL_TYPES:
         return "commercial"
     return "other"
+
+
+def _price_band_label(low: float, high: float) -> str:
+    """Human-readable crore/lakh band label for a price histogram bucket."""
+    def compact(value: float) -> str:
+        if value >= 1_00_00_000:
+            return f"{value / 1_00_00_000:.2f} Cr"
+        if value >= 1_00_000:
+            return f"{value / 1_00_000:.1f} L"
+        return f"{value:,.0f}"
+
+    return f"{compact(low)}–{compact(high)}"
 
 
 class MarketService:
@@ -349,6 +363,7 @@ class MarketService:
         snap.land_psf = _price_stat(psf_by_bucket["land"])
         snap.land_price_per_sq_yard = _price_stat(sq_yard_by_bucket["land"])
         snap.bedroom_breakdown = dict(sorted(bedroom_counts.items(), key=lambda kv: kv[0]))
+        snap.price_distribution = self._distribution(buckets["apartment"] or buckets["house"])
 
         # Rent-side statistics (monthly normalised) from BOTH rent listings and
         # rent-priced sale listings that carry a rent_amount.
@@ -392,6 +407,37 @@ class MarketService:
             key = str(doc.get("listing_type"))
             out[key] = out.get(key, 0) + 1
         return out
+
+    def _distribution(self, values: list[float], buckets: int = 6) -> list[dict]:
+        """Histogram of observed values, so the UI can draw a real chart.
+
+        Buckets are derived from the actual data range; a single value produces
+        a single bucket rather than a fake spread.
+        """
+        clean = sorted(v for v in values if isinstance(v, (int, float)) and v > 0)
+        if not clean:
+            return []
+        low, high = clean[0], clean[-1]
+        if high <= low:
+            single = {"label": _price_band_label(low, low), "from": _round(low), "from_value": _round(low),
+                      "to": _round(low), "to_value": _round(low), "count": len(clean)}
+            return [single]
+        width = (high - low) / buckets
+        edges = [low + width * i for i in range(buckets)] + [high]
+        rows = []
+        for i in range(buckets):
+            lo, hi = edges[i], edges[i + 1]
+            count = sum(1 for v in clean if (lo <= v < hi) or (i == buckets - 1 and v == hi))
+            label = _price_band_label(lo, hi)
+            rows.append({
+                "label": label,
+                "from": _round(lo),
+                "from_value": _round(lo),
+                "to": _round(hi),
+                "to_value": _round(hi),
+                "count": count,
+            })
+        return rows
 
     def _localities(self, flt: MarketFilter) -> list[str]:
         if flt.locality:
@@ -507,16 +553,30 @@ class MarketService:
         has_price = snap.sale_listings >= MIN_SAMPLE
         has_psf = snap.apartment_psf.sample_size >= 1 or snap.house_psf.sample_size >= 1
         has_rent = snap.rents_monthly.sample_size >= MIN_SAMPLE
+        most_recent = None
+        try:
+            rows = self.properties.find({"is_active": True}, {"updated_at": 1}).sort("updated_at", -1).limit(1)
+            row = next(iter(rows), None)
+            if row and row.get("updated_at"):
+                most_recent = row["updated_at"].isoformat()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.info("coverage_last_updated_failed %s", exc)
+        history_months = sorted({p.get("month") for p in snap.price_history_points if p.get("month")})
         return {
             "listings_in_scope": snap.total_listings,
             "price_statistics_measured": has_price,
             "price_per_sqft_measured": has_psf,
             "rent_statistics_measured": has_rent,
             "minimum_sample": MIN_SAMPLE,
+            "locality_minimum_sample": MIN_LOCALITY_SAMPLE,
+            "last_listing_updated_at": most_recent,
+            "observed_price_months": history_months,
+            "is_listing_data": True,
             "note": (
                 "Statistics are measured from verified stored listings only. "
                 "Small samples are reported but flagged as not statistically measured; "
-                "no external market feed or generated price is used."
+                "no external market feed or generated price is used. Asking prices "
+                "are what sellers asked, not completed transaction prices."
             ),
         }
 

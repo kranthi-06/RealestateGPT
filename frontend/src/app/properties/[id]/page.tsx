@@ -51,9 +51,19 @@ import { AiScoreBadge } from "@/components/ai-score-badge";
 import { ScoreCard } from "@/components/score-card";
 import { RealEstateMap } from "@/components/real-estate-map";
 import type { MapMarker } from "@/components/real-estate-map";
-import { propertiesApi, savedApi, financeApi } from "@/lib/api";
+import { propertiesApi, financeApi } from "@/lib/api";
 import type { PriceFairness } from "@/lib/types";
 import { useAuth } from "@/lib/auth-context";
+import { MAX_COMPARE, useCompare } from "@/lib/compare-context";
+import { useSaved } from "@/lib/saved-context";
+import {
+  notifyCompareAdded,
+  notifyCompareFull,
+  notifyCompareRemoved,
+  notifySaveFailed,
+  notifySaved,
+  notifyUnsaved,
+} from "@/lib/notify";
 import type { Property, PriceIntelligence } from "@/lib/types";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -71,12 +81,13 @@ export default function PropertyDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { isAuthenticated } = useAuth();
+  const { isSaved, toggleSaved } = useSaved();
+  const compare = useCompare();
   const [property, setProperty] = useState<Property | null>(null);
   const [priceIntel, setPriceIntel] = useState<PriceIntelligence | null>(null);
   const [priceFairness, setPriceFairness] = useState<PriceFairness | null>(null);
   const [similar, setSimilar] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isSaved, setIsSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [emiPeriod, setEmiPeriod] = useState<string>("240");
   const [downPct, setDownPct] = useState<number>(20);
@@ -100,7 +111,6 @@ export default function PropertyDetailPage() {
     ])
       .then(([prop, sim, intel, fairness]) => {
         setProperty(prop);
-        setIsSaved(prop.is_saved || false);
         setSimilar(sim);
         setPriceIntel(intel);
         setPriceFairness(fairness);
@@ -129,15 +139,10 @@ export default function PropertyDetailPage() {
     if (!isAuthenticated || saving) return;
     setSaving(true);
     try {
-      if (isSaved) {
-        await savedApi.unsaveProperty(propertyId);
-        setIsSaved(false);
-      } else {
-        await savedApi.saveProperty(propertyId);
-        setIsSaved(true);
-      }
-    } catch {
-      /* ignore */
+      const outcome = await toggleSaved(propertyId);
+      if (outcome === "failed") notifySaveFailed();
+      else if (outcome === "saved") notifySaved(property?.title);
+      else notifyUnsaved(property?.title);
     } finally {
       setSaving(false);
     }
@@ -482,16 +487,16 @@ export default function PropertyDetailPage() {
                 <Button
                   onClick={handleSave}
                   disabled={saving}
-                  variant={isSaved ? "outline" : "default"}
+                  variant={isSaved(propertyId) ? "outline" : "default"}
                   className="w-full justify-center rounded-xl"
                 >
                   <Heart
                     className={cn(
                       "mr-2 h-4 w-4",
-                      isSaved && "fill-red-500 text-red-500"
+                      isSaved(propertyId) && "fill-red-500 text-red-500"
                     )}
                   />
-                  {isSaved ? "Saved" : "Save Property"}
+                  {isSaved(propertyId) ? "Saved" : "Save Property"}
                 </Button>
               ) : (
                 <Button asChild variant="outline" className="w-full rounded-xl">
@@ -501,13 +506,22 @@ export default function PropertyDetailPage() {
                 </Button>
               )}
               <Button
-                asChild
-                variant="secondary"
+                onClick={() => {
+                  if (compare.has(property.id)) {
+                    compare.remove(property.id);
+                    notifyCompareRemoved();
+                  } else if (compare.isFull) {
+                    notifyCompareFull(MAX_COMPARE);
+                  } else {
+                    compare.add(property.id);
+                    notifyCompareAdded(property.title);
+                  }
+                }}
+                variant={compare.has(property.id) ? "default" : "secondary"}
                 className="w-full justify-center rounded-xl"
               >
-                <Link href={`/compare?ids=${property.id}`}>
-                  <GitCompare className="mr-2 h-4 w-4" /> Compare
-                </Link>
+                <GitCompare className="mr-2 h-4 w-4" />
+                {compare.has(property.id) ? "In comparison" : "Compare"}
               </Button>
               <Button
                 asChild

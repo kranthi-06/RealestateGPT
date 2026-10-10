@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { marketApi, locationsApi, propertiesApi, ApiError } from "@/lib/api";
 import type { LivePlace, MarketSnapshotResponse, PriceStat } from "@/lib/types";
+import { BarChart, ComparisonBars, LineChart } from "@/components/charts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,29 +54,29 @@ const NEARBY_CATEGORIES = [
   { key: "park", label: "Parks" },
 ] as const;
 
-/* ── Indian currency formatting ─────────────────────────────────────── */
+/* â”€â”€ Indian currency formatting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function inr(value: number | null | undefined, digits = 0): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return `₹${value.toLocaleString("en-IN", { maximumFractionDigits: digits, minimumFractionDigits: 0 })}`;
+  if (value == null || !Number.isFinite(value)) return "â€”";
+  return `â‚¹${value.toLocaleString("en-IN", { maximumFractionDigits: digits, minimumFractionDigits: 0 })}`;
 }
 
 /** Compact Indian notation: 95.5 L, 1.2 Cr, 45.5 K. */
 function inrCompact(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "—";
+  if (value == null || !Number.isFinite(value)) return "â€”";
   const abs = Math.abs(value);
-  if (abs >= 1_00_00_000) return `₹${(value / 1_00_00_000).toFixed(2)} Cr`;
-  if (abs >= 1_00_000) return `₹${(value / 1_00_000).toFixed(abs >= 10_000_00 ? 0 : 1)} L`;
-  if (abs >= 1_000) return `₹${(value / 1_000).toFixed(1)} K`;
-  return `₹${value.toFixed(0)}`;
+  if (abs >= 1_00_00_000) return `â‚¹${(value / 1_00_00_000).toFixed(2)} Cr`;
+  if (abs >= 1_00_000) return `â‚¹${(value / 1_00_000).toFixed(abs >= 10_000_00 ? 0 : 1)} L`;
+  if (abs >= 1_000) return `â‚¹${(value / 1_000).toFixed(1)} K`;
+  return `â‚¹${value.toFixed(0)}`;
 }
 
 function num(value: number | null | undefined, digits = 0): string {
-  if (value == null || !Number.isFinite(value)) return "—";
+  if (value == null || !Number.isFinite(value)) return "â€”";
   return value.toLocaleString("en-IN", { maximumFractionDigits: digits });
 }
 
-/* ── Small presentational pieces ─────────────────────────────────────── */
+/* â”€â”€ Small presentational pieces â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function StatCard({
   label,
@@ -136,9 +137,9 @@ function RangeBlock({
   const empty = stat.sample_size === 0;
   const fmt =
     unit === "psq_yard"
-      ? (v: number | null) => (v == null ? "—" : `₹${num(v)}`)
+      ? (v: number | null) => (v == null ? "â€”" : `â‚¹${num(v)}`)
       : unit === "psf"
-        ? (v: number | null) => (v == null ? "—" : `₹${num(v)}/sq.ft`)
+        ? (v: number | null) => (v == null ? "â€”" : `â‚¹${num(v)}/sq.ft`)
         : (v: number | null) => inrCompact(v);
 
   return (
@@ -165,9 +166,9 @@ function RangeBlock({
                 <p className="text-lg font-bold tabular-nums text-foreground">{fmt(stat.median)}</p>
               </div>
               <div className="text-right">
-                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Range (P25–P75)</p>
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Range (P25â€“P75)</p>
                 <p className="text-sm font-medium tabular-nums text-muted-foreground">
-                  {fmt(stat.p25)} – {fmt(stat.p75)}
+                  {fmt(stat.p25)} â€“ {fmt(stat.p75)}
                 </p>
               </div>
             </div>
@@ -188,7 +189,7 @@ function RangeBlock({
             <p className="text-[11px] text-muted-foreground">{rangeLabel}</p>
             {!stat.is_measured && (
               <p className="text-[11px] text-amber-700">
-                Small sample — treat as indicative, not a market rate.
+                Small sample â€” treat as indicative, not a market rate.
               </p>
             )}
           </div>
@@ -198,7 +199,7 @@ function RangeBlock({
   );
 }
 
-/* ── Main page ───────────────────────────────────────────────────────── */
+/* â”€â”€ Main page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function MarketIntelligenceContent() {
   const router = useRouter();
@@ -235,8 +236,8 @@ function MarketIntelligenceContent() {
     if (parts.length === 0) return {};
     if (parts.length === 1) return { city: parts[0] };
     const [first, second] = parts;
-    // "Banjara Hills, Hyderabad" → locality=first, city=second
-    // "Nandyal, Andhra Pradesh" → city=first, state=second (best effort)
+    // "Banjara Hills, Hyderabad" â†’ locality=first, city=second
+    // "Nandyal, Andhra Pradesh" â†’ city=first, state=second (best effort)
     if (/state|pradesh|nadu|bengal|karnataka|telangana|maharashtra|gujarat|rajasthan/i.test(second)) {
       return { city: first };
     }
@@ -561,8 +562,8 @@ function MarketIntelligenceContent() {
             <MapPin className="h-14 w-14 text-muted-foreground/30" />
             <h2 className="mt-4 text-base font-semibold text-foreground">Search a city or locality</h2>
             <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-              Enter any city or neighbourhood — for example “Nandyal, Andhra Pradesh” or
-              “Banjara Hills, Hyderabad”. Data is not limited to a fixed list of cities.
+              Enter any city or neighbourhood â€” for example â€œNandyal, Andhra Pradeshâ€ or
+              â€œBanjara Hills, Hyderabadâ€. Data is not limited to a fixed list of cities.
             </p>
           </CardContent>
         </Card>
@@ -586,11 +587,11 @@ function MarketIntelligenceContent() {
           <div>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-lg font-semibold text-foreground">
-                Overview · <span className="text-primary">{areaLabel}</span>
+                Overview Â· <span className="text-primary">{areaLabel}</span>
               </h2>
               <span className="text-xs text-muted-foreground">
                 {snapshot.totals.listings} verified listing
-                {snapshot.totals.listings === 1 ? "" : "s"} ·{" "}
+                {snapshot.totals.listings === 1 ? "" : "s"} Â·{" "}
                 {snapshot.totals.sale} sale / {snapshot.totals.rent} rent
               </span>
             </div>
@@ -603,13 +604,13 @@ function MarketIntelligenceContent() {
                 measured={snapshot.apartments.prices.is_measured}
               />
               <StatCard
-                label="Avg ₹/sq.ft (sale)"
+                label="Avg â‚¹/sq.ft (sale)"
                 value={
                   snapshot.apartments.price_per_sqft.median != null
                     ? inr(snapshot.apartments.price_per_sqft.median)
                     : snapshot.houses.price_per_sqft.median != null
                       ? inr(snapshot.houses.price_per_sqft.median)
-                      : "—"
+                      : "â€”"
                 }
                 hint="apartments, else houses"
                 icon={IndianRupee}
@@ -630,7 +631,7 @@ function MarketIntelligenceContent() {
                 value={
                   snapshot.indicators.gross_rental_yield_pct != null
                     ? `${num(snapshot.indicators.gross_rental_yield_pct, 2)}%`
-                    : "—"
+                    : "â€”"
                 }
                 hint="median rent / median price"
                 icon={TrendingUp}
@@ -677,14 +678,14 @@ function MarketIntelligenceContent() {
           {/* Price per sqft + rents */}
           <div className="grid gap-4 lg:grid-cols-2">
             <RangeBlock
-              title="Apartment ₹/sq.ft"
+              title="Apartment â‚¹/sq.ft"
               icon={IndianRupee}
               stat={snapshot.apartments.price_per_sqft}
               unit="psf"
               rangeLabel="Per-square-foot asking price from verified apartment listings."
             />
             <RangeBlock
-              title="House / villa ₹/sq.ft"
+              title="House / villa â‚¹/sq.ft"
               icon={IndianRupee}
               stat={snapshot.houses.price_per_sqft}
               unit="psf"
@@ -703,7 +704,7 @@ function MarketIntelligenceContent() {
                 rangeLabel="Monthly asking rent normalised from verified rent listings."
               />
               <RangeBlock
-                title="Rent ₹/sq.ft per month"
+                title="Rent â‚¹/sq.ft per month"
                 icon={KeyRound}
                 stat={snapshot.rents.price_per_sqft_monthly}
                 unit="psf"
@@ -711,6 +712,38 @@ function MarketIntelligenceContent() {
               />
             </div>
           </div>
+
+          {/* Asking-price distribution */}
+          {snapshot.price_distribution.length > 0 && (
+            <Card className="border-border/60">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                  <BarChart3 className="h-4 w-4 text-primary" />
+                  Asking-price distribution
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  How the {snapshot.apartments.prices.sample_size || snapshot.houses.prices.sample_size}{" "}
+                  sale listing
+                  {snapshot.apartments.prices.sample_size === 1 ? "" : "s"} in scope are spread across
+                  price bands. Buckets are derived from the observed values.
+                </p>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <BarChart
+                  data={snapshot.price_distribution.map((bucket) => ({
+                    label: bucket.label
+                      ? bucket.label.length > 14
+                        ? `${bucket.label.slice(0, 13)}â€¦`
+                        : bucket.label
+                      : "â€”",
+                    value: bucket.count,
+                    hint: `${bucket.label}: ${bucket.count} listing${bucket.count === 1 ? "" : "s"}`,
+                  }))}
+                  ariaLabel="Number of listings per asking-price band"
+                />
+              </CardContent>
+            </Card>
+          )}
 
           {/* Trend */}
           <Card className="border-border/60">
@@ -737,10 +770,10 @@ function MarketIntelligenceContent() {
                     <span className="text-2xl font-bold tabular-nums text-foreground">
                       {trend.change_pct != null
                         ? `${(trend.change_pct as number) > 0 ? "+" : ""}${num(trend.change_pct as number, 1)}%`
-                        : "—"}
+                        : "â€”"}
                     </span>
                     <span className="text-sm text-muted-foreground">
-                      {trend.from_month as string} → {trend.to_month as string}
+                      {trend.from_month as string} â†’ {trend.to_month as string}
                     </span>
                     <Badge variant="outline" className="text-[10px] tabular-nums">
                       {trend.observations as number} observed change
@@ -748,20 +781,24 @@ function MarketIntelligenceContent() {
                     </Badge>
                   </div>
                   {snapshot.price_history.length > 0 && (
-                    <div className="space-y-1.5">
-                      {snapshot.price_history.slice(-6).map((p) => (
-                        <div key={p.month} className="flex items-center justify-between text-xs">
-                          <span className="tabular-nums text-muted-foreground">{p.month}</span>
-                          <span className="tabular-nums font-medium text-foreground">
-                            {p.avg_price != null ? inrCompact(p.avg_price) : "—"}
-                          </span>
-                        </div>
-                      ))}
+                    <div className="pt-1">
+                      <LineChart
+                        data={snapshot.price_history.map((p) => ({
+                          label: p.month,
+                          value: p.avg_price,
+                          hint:
+                            p.avg_price != null
+                              ? `${p.month}: ${inrCompact(p.avg_price)} from ${p.observations} observed change${p.observations === 1 ? "" : "s"}`
+                              : undefined,
+                        }))}
+                        valueFormat={inrCompact}
+                        ariaLabel="Observed monthly asking price, from recorded price changes"
+                      />
                     </div>
                   )}
                   {trend.is_measured === false && (
                     <p className="text-[11px] text-amber-700">
-                      Fewer than {coverage.minimum_sample as number} observations — indicative only.
+                      Fewer than {coverage.minimum_sample as number} observations â€” indicative only.
                     </p>
                   )}
                 </div>
@@ -778,31 +815,55 @@ function MarketIntelligenceContent() {
                   Locality comparison
                 </CardTitle>
               </CardHeader>
-              <CardContent className="overflow-x-auto pt-0">
+              <CardContent className="pt-0">
+                {snapshot.locality_comparison.some((row) => row.median_price != null) && (
+                  <div className="mb-5">
+                    <ComparisonBars
+                      data={snapshot.locality_comparison.map((row) => ({
+                        label: row.locality,
+                        value: row.median_price,
+                        hint:
+                          row.median_price != null
+                            ? `${row.locality}: median ${inrCompact(row.median_price)} from ${row.listings} listing${row.listings === 1 ? "" : "s"}${row.measured ? "" : " (low sample)"}`
+                            : undefined,
+                      }))}
+                      valueFormat={inrCompact}
+                      bestIsHighest={false}
+                      ariaLabel="Median asking price by locality"
+                    />
+                  </div>
+                )}
+                <div className="overflow-x-auto">
                 <table className="w-full min-w-[480px] text-sm">
                   <thead>
                     <tr className="border-b border-border/60 text-left text-xs text-muted-foreground">
                       <th className="pb-2 pr-3 font-medium">Locality</th>
                       <th className="pb-2 pr-3 font-medium">Listings</th>
                       <th className="pb-2 pr-3 font-medium">Median price</th>
-                      <th className="pb-2 font-medium">Avg ₹/sq.ft</th>
+                      <th className="pb-2 font-medium">Avg â‚¹/sq.ft</th>
                     </tr>
                   </thead>
                   <tbody>
                     {snapshot.locality_comparison.map((row) => (
                       <tr key={row.locality} className="border-b border-border/30 last:border-0">
-                        <td className="py-2.5 pr-3 font-medium text-foreground">{row.locality}</td>
+                        <td className="py-2.5 pr-3 font-medium text-foreground">
+                          {row.locality}
+                          {!row.measured && (
+                            <span className="ml-1.5 text-[10px] text-amber-700">low sample</span>
+                          )}
+                        </td>
                         <td className="py-2.5 pr-3 tabular-nums text-muted-foreground">{row.listings}</td>
                         <td className="py-2.5 pr-3 tabular-nums text-foreground">
-                          {row.median_price != null ? inrCompact(row.median_price) : "—"}
+                          {row.median_price != null ? inrCompact(row.median_price) : "â€”"}
                         </td>
                         <td className="py-2.5 tabular-nums text-foreground">
-                          {row.avg_price_per_sqft != null ? inr(row.avg_price_per_sqft) : "—"}
+                          {row.avg_price_per_sqft != null ? inr(row.avg_price_per_sqft) : "â€”"}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                </div>
                 <p className="mt-3 text-[11px] text-muted-foreground">
                   Localities with fewer than {coverage.minimum_sample as number} listings are shown but
                   marked as indicative in the source data.
@@ -822,7 +883,7 @@ function MarketIntelligenceContent() {
                   onClick={() => areaLabel && void loadNearby(snapshot.query.city || areaLabel, snapshot.query.locality || "")}
                   className="ml-auto text-[11px] font-normal text-primary hover:underline"
                 >
-                  {nearbyLoading ? "Loading…" : "Refresh"}
+                  {nearbyLoading ? "Loadingâ€¦" : "Refresh"}
                 </button>
               </CardTitle>
             </CardHeader>
@@ -857,7 +918,7 @@ function MarketIntelligenceContent() {
                             {list.slice(0, 4).map((place) => (
                               <li key={place.place_id ?? place.name} className="text-[11px] text-muted-foreground">
                                 <span className="font-medium text-foreground">{place.name}</span>
-                                {place.address ? ` · ${place.address}` : ""}
+                                {place.address ? ` Â· ${place.address}` : ""}
                               </li>
                             ))}
                           </ul>
@@ -908,7 +969,7 @@ function MarketIntelligenceContent() {
                       }}
                       className="font-medium text-primary hover:underline"
                     >
-                      View the individual listings used for these statistics →
+                      View the individual listings used for these statistics â†’
                     </button>
                   </p>
                 </div>

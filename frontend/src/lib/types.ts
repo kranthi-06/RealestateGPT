@@ -129,7 +129,15 @@ export interface SavedPropertyItem {
   property_id: number;
   notes?: string | null;
   created_at: string;
+  is_saved: boolean;
   property: Property;
+}
+
+export interface SavePropertyResult {
+  id: number;
+  property_id: number;
+  already_saved: boolean;
+  message: string;
 }
 
 export interface SavedSearch {
@@ -272,7 +280,7 @@ export interface AdminStats {
   properties_by_type: Record<string, number>;
 }
 
-export interface AiSearchResult {
+export interface ScoredProperty {
   property_id: number;
   title: string;
   slug: string;
@@ -281,10 +289,19 @@ export interface AiSearchResult {
   city: string;
   property_type: string;
   bedrooms?: number | null;
+  bathrooms?: number | null;
+  area_sqft?: number | null;
+  price_per_sqft?: number | null;
+  is_featured: boolean;
+  is_synthetic: boolean;
+  verification_status: string;
+  image_urls?: string | null;
   overall_score: number;
   explanation?: string | null;
   positive_factors: string[];
   negative_factors: string[];
+  semantic_similarity?: number | null;
+  est_price?: number | null;
 }
 
 export interface SearchIntent {
@@ -308,7 +325,7 @@ export interface DiscoverySearchResponse {
   query: string;
   parsed: SearchIntent;
   total: number;
-  results: AiSearchResult[];
+  results: ScoredProperty[];
   warning?: string | null;
   metrics: Record<string, number>;
 }
@@ -400,7 +417,7 @@ export interface UnifiedSearchResponse {
 export interface AssistantResponse {
     conversation_id: number;
     answer: string;
-    results: AiSearchResult[];
+    results: ScoredProperty[];
     provider: string;
     warnings: string[];
     citations: { source_type: string; source_id?: number | null; label: string; url?: string | null }[];
@@ -506,6 +523,134 @@ export interface PriceFairness {
   comparables_price_per_sqft?: number | null;
 }
 
+// ─── Investment intelligence ─────────────────────────────
+
+export interface InvestmentScenario {
+  assumed_appreciation_pct: number;
+  final_property_value: number;
+  total_return_pct: number;
+  annualized_return_pct: number;
+  is_measured: boolean;
+}
+
+export interface InvestmentLoan {
+  down_payment: number;
+  loan_amount: number;
+  ltv_pct: number;
+  annual_interest_rate: number;
+  tenure_years: number;
+  monthly_emi: number;
+  total_interest: number;
+  total_repayment: number;
+}
+
+export interface InvestmentUpfrontCosts {
+  stamp_duty: number;
+  registration: number;
+  gst: number;
+  brokerage: number;
+  legal_and_misc: number;
+  loan_processing: number;
+  total_upfront: number;
+  total_cash_required: number;
+  assumed_rates: Record<string, number>;
+}
+
+export interface InvestmentOwnershipExpenses {
+  maintenance_monthly: number;
+  sinking_fund_monthly: number;
+  other_monthly: number;
+  property_tax_annual: number;
+  insurance_annual: number;
+  monthly_total: number;
+  annual_total: number;
+}
+
+export interface InvestmentCashFlow {
+  gross_rent_monthly: number;
+  emi_monthly: number;
+  ownership_expenses_monthly: number;
+  net_cash_flow_monthly: number;
+  net_cash_flow_annual: number;
+  is_positive: boolean;
+}
+
+export interface InvestmentSummary {
+  property_id: number;
+  title: string;
+  city?: string | null;
+  locality?: string | null;
+  area_sqft?: number | null;
+  asking_price: number;
+  price_per_sqft?: number | null;
+  loan: InvestmentLoan;
+  upfront_costs: InvestmentUpfrontCosts;
+  ownership_expenses: InvestmentOwnershipExpenses;
+  rental: Record<string, unknown>;
+  yields: Record<string, number | null>;
+  cash_flow: InvestmentCashFlow;
+  total_cash_required: number;
+  scenarios: Record<string, InvestmentScenario>;
+  verified_inputs: string[];
+  assumption_inputs: string[];
+  source?: string | null;
+  verification_status?: string | null;
+}
+
+export interface InvestmentResponse {
+  generated_at: string;
+  source: string;
+  assumptions_note: string;
+  items: InvestmentSummary[];
+  best_net_yield?: number | null;
+  best_monthly_cash_flow?: number | null;
+  disclaimer: string;
+}
+
+// ─── Full affordability ──────────────────────────────────
+
+export interface AffordabilityPropertyAssessment {
+  property_price: number;
+  loan_required: number;
+  monthly_emi: number;
+  total_interest: number;
+  emi_to_income_ratio_pct: number;
+  upfront_costs: InvestmentUpfrontCosts;
+  total_cash_required: number;
+  cash_shortfall: number;
+  cash_available_after_purchase: number;
+  cash_is_sufficient: boolean;
+  total_monthly_outflow: number;
+  remaining_income_monthly: number;
+  emi_within_capacity: boolean;
+  monthly_capacity_after_purchase: number;
+  remaining_income_after_purchase: number;
+  is_affordable: boolean;
+}
+
+export interface FullAffordabilityResult {
+  monthly_income: number;
+  existing_obligations: number;
+  savings: number;
+  net_monthly_income: number;
+  down_payment: number;
+  ownership_expenses_monthly: number;
+  ownership_expenses_annual: number;
+  surplus_monthly_at_max_emi: number;
+  max_monthly_emi: number;
+  max_loan_amount: number;
+  max_property_price: number;
+  recommended_emi: number;
+  emi_to_income_ratio: number;
+  max_emi_share_of_income_pct: number;
+  affordable: boolean;
+  verdict: string;
+  verdict_label: string;
+  affordability_note: string;
+  assumptions: string[];
+  property_assessment?: AffordabilityPropertyAssessment | null;
+}
+
 // ─── Admin ──────────────────────────────────────────────
 
 export interface AdminUser {
@@ -586,6 +731,7 @@ export interface MarketSnapshotResponse {
   rents: { monthly: PriceStat; price_per_sqft_monthly: PriceStat };
   locality_comparison: LocalityComparison[];
   price_history: PriceHistoryPoint[];
+  price_distribution: MarketDistributionBucket[];
   trend: Record<string, unknown>;
   indicators: { gross_rental_yield_pct: number | null; price_to_rent_ratio: number | null };
   coverage: Record<string, unknown>;
@@ -604,4 +750,39 @@ export interface MarketSummaryResponse {
   }[];
   minimum_sample: number;
   note: string;
+}
+
+export interface MarketCompareRow {
+  city: string;
+  listings: number;
+  sale_listings: number;
+  rent_listings: number;
+  median_price: number | null;
+  mean_price: number | null;
+  min_price: number | null;
+  max_price: number | null;
+  median_price_per_sqft: number | null;
+  median_rent_monthly: number | null;
+  gross_rental_yield_pct: number | null;
+  price_to_rent_ratio: number | null;
+  sample_size: number;
+  is_measured: boolean;
+  localities: string[];
+}
+
+export interface MarketCompareResponse {
+  generated_at: string;
+  source: string;
+  minimum_sample: number;
+  cities: MarketCompareRow[];
+  note: string;
+}
+
+export interface MarketDistributionBucket {
+  label: string;
+  from?: number | null;
+  from_value?: number | null;
+  to?: number | null;
+  to_value?: number | null;
+  count: number;
 }

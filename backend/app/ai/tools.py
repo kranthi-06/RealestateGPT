@@ -11,10 +11,11 @@ import logging
 from dataclasses import dataclass
 from typing import Callable, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.finance.calculators import (
-    calculate_affordability, calculate_emi, calculate_rental_yield, calculate_roi,
+    calculate_affordability, calculate_emi, calculate_full_affordability,
+    calculate_rental_yield, calculate_roi,
 )
 from app.location.service import LocationService, haversine_km
 from app.providers.web_search import get_web_search_provider
@@ -72,9 +73,24 @@ class AffordInput(BaseModel):
     monthly_income: float = Field(gt=0)
     existing_obligations: float = Field(0, ge=0)
     down_payment: float = Field(0, ge=0)
-    property_price: Optional[float] = Field(None, gt=0)
+    property_price: Optional[float] = Field(None, gt=0, description="Explicit target price in INR")
+    property_id: Optional[int] = Field(
+        None, gt=0, description="Resolve the asking price from this catalogue property id"
+    )
+    savings: Optional[float] = Field(None, ge=0)
+    monthly_rent: float = Field(0, ge=0)
+    maintenance_monthly: float = Field(0, ge=0)
+    property_tax_annual: float = Field(0, ge=0)
+    insurance_annual: float = Field(0, ge=0)
+    other_monthly: float = Field(0, ge=0)
     annual_interest_rate: float = Field(7.5, gt=0, le=50)
     tenure_years: float = Field(20, gt=0, le=40)
+
+    @model_validator(mode="after")
+    def exactly_one_price_source(self) -> "AffordInput":
+        if self.property_price is not None and self.property_id is not None:
+            raise ValueError("Provide either property_price or property_id, not both")
+        return self
 
 
 class YieldInput(BaseModel):
@@ -97,8 +113,17 @@ class DocumentIdInput(BaseModel):
 
 
 class SavePropertyInput(BaseModel):
-    property_id: int
+    property_id: int = Field(..., gt=0)
     notes: Optional[str] = Field(None, max_length=1000)
+
+
+class UnsavePropertyInput(BaseModel):
+    property_id: int = Field(..., gt=0)
+
+
+class SavedListInput(BaseModel):
+    limit: int = Field(8, ge=1, le=20)
+
 
 class SearchWebInput(BaseModel):
     query: str = Field(..., min_length=1, max_length=1000)
@@ -477,8 +502,56 @@ def _tool_save_property(db, user, parsed: SavePropertyInput) -> dict:
     from app.repositories.saved_repo import SavedRepository
 
     repo = SavedRepository(db)
+    existing = repo.is_saved(user.id, parsed.property_id)
     saved = repo.save_property(user.id, parsed.property_id, parsed.notes)
-    return {"id": saved.id, "property_id": parsed.property_id, "message": "Property saved"}
+    return {
+        "id": saved.id,
+        "property_id": parsed.property_id,
+        "already_saved": existing,
+        "message": "Property already saved" if existing else "Property saved",
+    }
+
+
+def _tool_unsave_property(db, user, parsed: UnsavePropertyInput) -> dict:
+    if not user:
+        raise PermissionError("Authentication required")
+    from app.repositories.saved_repo import SavedRepository
+
+    repo = SavedRepository(db)
+    removed = repo.unsave_property(user.id, parsed.property_id)
+    return {
+        "property_id": parsed.property_id,
+        "removed": removed,
+        "message": "Property removed from your saved list" if removed
+                   else "That property was not in your saved list",
+    }
+
+
+def _tool_list_saved(db, user, parsed: SavedListInput) -> dict:
+    """The signed-in user's own saved properties. Never another user's."""
+    if not user:
+        raise PermissionError("Authentication required")
+    from app.repositories.saved_repo import SavedRepository
+
+    repo = SavedRepository(db)
+    items = [item for item in repo.get_saved_properties(user.id) if item.property is not None]
+    return {
+        "total": len(items),
+        "results": [
+            {
+                "property_id": item.property.id,
+                "title": item.property.title,
+                "price": item.property.price,
+                "city": item.property.city,
+                "locality": item.property.locality,
+                "bedrooms": item.property.bedrooms,
+                "area_sqft": item.property.area_sqft,
+                "price_per_sqft": item.property.price_per_sqft,
+                "saved_at": item.created_at,
+            }
+            for item in items[: parsed.limit]
+        ],
+    }
 
 
 def _tool_save_search(db, user, parsed: SearchInput) -> dict:
@@ -495,6 +568,79 @@ def _tool_save_search(db, user, parsed: SearchInput) -> dict:
         query_text=parsed.query,
     )
     return {"id": saved.id, "message": "Search saved"}
+
+
+def _tool_estimate(db, user, parsed: EstimateInput) -> dict:
+    finance = FinanceService(db)
+    try:
+        return finance.estimate(parsed.property_id)
+    except ValueError:
+        raise ValueError("property_not_found")
+
+
+def _tool_emi(db, user, parsed: EmiInput) -> dict:
+    return calculate_emi(parsed.principal, parsed.annual_interest_rate, parsed.tenure_years)
+
+
+def _tool_affordability(db, user, parsed: AffordInput) -> dict:
+    """Full affordability assessment.
+
+    When ``property_id`` is supplied the asking price is read from the catalogue
+    so the calculation uses the real listing price rather than an LLM guess.
+    """
+    from app.repositories.property_repo import PropertyRepository
+
+    property_price = parsed.property_price
+    resolved_from = "user_input"
+    if parsed.property_id and property_price is None:
+        prop = PropertyRepository(db).get_by_id(parsed.property_id)
+        if prop is None:
+            return {
+                "status": "not_found",
+                "message": f"Property {parsed.property_id} is not in the catalogue.",
+            }
+        property_price = prop.price
+        resolved_from = f"catalogue_property_{prop.id}"
+    if property_price is None:
+        base = calculate_affordability(
+            parsed.monthly_income, parsed.existing_obligations, parsed.down_payment,
+            parsed.annual_interest_rate, parsed.tenure_years, 0.5,
+        )
+        return {
+            "status": "no_property",
+            "price_source": "not_provided",
+            **base,
+            "message": (
+                "No target property was provided, so only the maximum affordable "
+                "loan/price could be calculated."
+            ),
+        }
+
+    result = calculate_full_affordability(
+        monthly_income=parsed.monthly_income,
+        existing_obligations=parsed.existing_obligations,
+        savings=parsed.savings or 0.0,
+        down_payment=parsed.down_payment,
+        property_price=property_price,
+        monthly_rent=parsed.monthly_rent,
+        maintenance_monthly=parsed.maintenance_monthly,
+        property_tax_annual=parsed.property_tax_annual,
+        insurance_annual=parsed.insurance_annual,
+        other_monthly=parsed.other_monthly,
+        annual_interest_rate=parsed.annual_interest_rate,
+        tenure_years=parsed.tenure_years,
+    )
+    return {"status": "ok", "price_source": resolved_from, **result}
+
+
+def _tool_yield(db, user, parsed: YieldInput) -> dict:
+    return calculate_rental_yield(parsed.property_price, parsed.monthly_rent,
+                                  parsed.annual_expenses_pct)
+
+
+def _tool_roi(db, user, parsed: RoiInput) -> dict:
+    return calculate_roi(parsed.purchase_price, parsed.annual_rent,
+                         parsed.annual_expenses, parsed.appreciation_pct, parsed.years)
 
 
 TOOLS: List[Tool] = [
@@ -537,8 +683,10 @@ TOOLS: List[Tool] = [
          "ML estimate of a property's market price range.",
          EstimateInput, False, lambda db, user, parsed: _tool_estimate(db, user, parsed)),
     Tool("calculate_affordability",
-         "Compute affordable loan amount and EMI from monthly income.",
-         AffordInput, False, lambda db, user, parsed: _tool_affordability(db, user, parsed)),
+         "Compute the maximum affordable loan/price AND, when a target property is given, the EMI, "
+         "upfront costs, remaining income and remaining savings for that specific property. "
+         "Pass property_id (not price) so the real asking price is used.",
+         AffordInput, False, _tool_affordability),
     Tool("calculate_emi",
          "Compute monthly EMI for a loan.",
          EmiInput, False, lambda db, user, parsed: _tool_emi(db, user, parsed)),
@@ -555,8 +703,14 @@ TOOLS: List[Tool] = [
          "List documents the user uploaded for given properties.",
          PropertyIdsInput, True, _tool_document_search),
     Tool("save_property",
-         "Save a property to the user's saved list.",
+         "Save a verified catalogue property to the user's saved list. Idempotent.",
          SavePropertyInput, True, _tool_save_property),
+    Tool("unsave_property",
+         "Remove a property from the user's saved list.",
+         UnsavePropertyInput, True, _tool_unsave_property),
+    Tool("list_saved_properties",
+         "List the signed-in user's own saved properties with their real prices.",
+         SavedListInput, True, _tool_list_saved),
     Tool("save_search",
          "Save the current search for later.",
          SearchInput, True, _tool_save_search),
@@ -585,32 +739,3 @@ def list_tool_descriptions() -> List[dict]:
          "parameters": t.input_model.model_json_schema()}
         for t in TOOLS
     ]
-
-
-def _tool_estimate(db, user, parsed: EstimateInput) -> dict:
-    finance = FinanceService(db)
-    try:
-        return finance.estimate(parsed.property_id)
-    except ValueError:
-        raise ValueError("property_not_found")
-
-
-def _tool_emi(db, user, parsed: EmiInput) -> dict:
-    return calculate_emi(parsed.principal, parsed.annual_interest_rate, parsed.tenure_years)
-
-
-def _tool_affordability(db, user, parsed: AffordInput) -> dict:
-    return calculate_affordability(
-        parsed.monthly_income, parsed.existing_obligations, parsed.down_payment,
-        parsed.annual_interest_rate, parsed.tenure_years, 0.5,
-    )
-
-
-def _tool_yield(db, user, parsed: YieldInput) -> dict:
-    return calculate_rental_yield(parsed.property_price, parsed.monthly_rent,
-                                  parsed.annual_expenses_pct)
-
-
-def _tool_roi(db, user, parsed: RoiInput) -> dict:
-    return calculate_roi(parsed.purchase_price, parsed.annual_rent,
-                         parsed.annual_expenses, parsed.appreciation_pct, parsed.years)
