@@ -26,7 +26,8 @@ import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { formatPrice } from "@/lib/format";
 import { useSaved } from "@/lib/saved-context";
-import { notify, notifyUnsaved } from "@/lib/notify";
+import { MAX_COMPARE, useCompare } from "@/lib/compare-context";
+import { notify, notifyUnsaved, notifyCompareAdded, notifyCompareFull } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 
 type SortKey = "created_at" | "price_asc" | "price_desc";
@@ -41,6 +42,7 @@ export default function SavedPage() {
   const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
   const { hydrate, revision } = useSaved();
+  const compare = useCompare();
 
   const [savedProperties, setSavedProperties] = useState<SavedPropertyItem[]>([]);
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
@@ -143,6 +145,24 @@ export default function SavedPage() {
       router.push(`/search?${params.toString()}`);
     },
     [router]
+  );
+
+  // Saved listings can be compared from here too; the selection lives in the
+  // shared compare store so it survives navigation.
+  const toggleCompare = useCallback(
+    (id: number) => {
+      if (compare.has(id)) {
+        compare.remove(id);
+        return;
+      }
+      if (compare.isFull) {
+        notifyCompareFull(MAX_COMPARE);
+        return;
+      }
+      compare.add(id);
+      notifyCompareAdded();
+    },
+    [compare]
   );
 
   const buildSearchChips = (search: SavedSearch) => {
@@ -358,11 +378,23 @@ export default function SavedPage() {
           ) : (
             <div className="space-y-2">
               {filtered.map((item) => (
-                <PropertyListRow
-                  key={item.property.id}
-                  property={{ ...item.property, is_saved: true }}
-                  showDistance={false}
-                />
+                <div key={item.property.id} className="relative">
+                  <PropertyListRow
+                    property={{ ...item.property, is_saved: true }}
+                    showDistance={false}
+                    onCompareToggle={toggleCompare}
+                    isCompareSelected={compare.has(item.property.id)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleUnsave(item.property_id, item.property.title)}
+                    className="absolute right-3 top-3 z-10 flex size-7 items-center justify-center rounded-full border border-border/60 bg-card shadow-sm transition-colors hover:border-destructive/50 hover:text-destructive"
+                    aria-label={`Remove ${item.property.title} from saved`}
+                    title={`Remove ${item.property.title} from saved`}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
               ))}
             </div>
           )}

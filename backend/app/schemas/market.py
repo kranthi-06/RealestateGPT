@@ -89,6 +89,43 @@ class MarketSnapshotResponse(BaseModel):
     indicators: Dict[str, Any] = {}
     coverage: Dict[str, Any] = {}
     insufficient_data: Optional[Dict[str, str]] = None
+    # ── External market intelligence (a separate, clearly identified source) ──
+    external: Optional[Dict[str, Any]] = None
+
+
+class ExternalMarketRequest(BaseModel):
+    """External market research request. Never touches the catalogue."""
+
+    location: str = Field(..., min_length=1, max_length=200)
+    city: Optional[str] = Field(None, max_length=100)
+    locality: Optional[str] = Field(None, max_length=100)
+    country: Optional[str] = Field(None, max_length=100)
+    listing_type: Optional[str] = Field(None, pattern="^(sale|rent)$")
+    property_type: Optional[str] = Field(None, max_length=50)
+    bedrooms: Optional[int] = Field(None, ge=0, le=20)
+    currency: str = Field("INR", max_length=3)
+    language: str = Field("en", max_length=5)
+
+
+class ExternalMarketResponse(BaseModel):
+    status: str                       # ok | no_results | unavailable | not_configured
+    message: Optional[str] = None
+    location_input: str
+    resolved: Dict[str, Any] = {}
+    sources: List[Dict[str, Any]] = []
+    observations: List[Dict[str, Any]] = []
+    statistics: Dict[str, Any] = {}
+    ai_summary: Optional[Dict[str, Any]] = None
+    queries_used: List[str] = []
+    provider: Optional[str] = None
+    cache: Dict[str, Any] = {}
+    generated_at: str
+    data_class: str = "external_observation"
+    disclaimer: str = (
+        "External observations were retrieved from third-party web sources. They are "
+        "asking prices and published estimates, not verified listings, and are not "
+        "guaranteed or exact market rates. Nothing here is estimated by RealEstateGPT."
+    )
 
 
 class CityTotalResponse(BaseModel):

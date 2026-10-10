@@ -19,7 +19,7 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import { propertiesApi, comparisonsApi, marketApi } from "@/lib/api";
+import { propertiesApi, comparisonsApi, marketApi, financeApi } from "@/lib/api";
 import type { MarketCompareResponse, Property } from "@/lib/types";
 import { formatArea, formatPrice, getBedroomLabel, getPropertyTypeLabel } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -88,6 +88,16 @@ function ComparePageContent() {
     // Preserve order but drop duplicates, and respect the hard limit.
     return [...new Set(parsed)].slice(0, MAX_COMPARE);
   }, [idsParam]);
+
+  // The shared selection is the source of truth. When the URL carries no ids
+  // (a direct visit, a refresh, or navigation without ?ids=), adopt whatever
+  // the user selected anywhere else in the app and mirror it into the URL.
+  useEffect(() => {
+    if (idsParam) return;
+    if (compare.ids.length === 0) return;
+    router.replace(`/compare?ids=${compare.ids.join(",")}`, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsParam, compare.ids.join(",")]);
 
   // Keep the shared selection in step with the URL so the compare bar agrees
   // with the page, including after a refresh.
@@ -187,6 +197,67 @@ function ComparePageContent() {
   }, [properties]);
 
   const summary = useMemo(() => summarize(properties), [properties]);
+
+  // ── Financing comparison (deterministic backend calculations) ──────────
+  // Default, clearly-labelled assumptions; users can change every one of them
+  // on the Investment Intelligence page, which links here.
+  const [finance, setFinance] = useState<{
+    items: Record<number, {
+      monthly_emi: number;
+      total_cash_required: number;
+      gross_rental_yield_pct: number | null;
+      net_rental_yield_pct: number | null;
+      net_cash_flow_monthly: number | null;
+      monthly_rent: number;
+    }>;
+  } | null>(null);
+  const [financeLoading, setFinanceLoading] = useState(false);
+
+  useEffect(() => {
+    if (properties.length < 2) {
+      const id = window.setTimeout(() => setFinance(null), 0);
+      return () => window.clearTimeout(id);
+    }
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        setFinanceLoading(true);
+        const data = await financeApi.investment({
+          property_ids: properties.map((p) => p.id),
+          monthly_rent: 0,
+          down_payment_pct: 20,
+          annual_interest_rate: 8.5,
+          tenure_years: 20,
+        });
+        if (controller.signal.aborted) return;
+        const items: Record<number, {
+          monthly_emi: number;
+          total_cash_required: number;
+          gross_rental_yield_pct: number | null;
+          net_rental_yield_pct: number | null;
+          net_cash_flow_monthly: number | null;
+          monthly_rent: number;
+        }> = {};
+        for (const item of data.items) {
+          if (item.property_id == null) continue;
+          items[item.property_id] = {
+            monthly_emi: item.loan.monthly_emi,
+            total_cash_required: item.total_cash_required,
+            gross_rental_yield_pct: item.yields.gross_rental_yield_pct,
+            net_rental_yield_pct: item.yields.net_rental_yield_pct,
+            net_cash_flow_monthly: item.cash_flow.net_cash_flow_monthly,
+            monthly_rent: Number(item.rental?.asking_rent_monthly ?? 0),
+          };
+        }
+        setFinance({ items });
+      } catch {
+        if (!controller.signal.aborted) setFinance(null);
+      } finally {
+        if (!controller.signal.aborted) setFinanceLoading(false);
+      }
+    })();
+    return () => controller.abort();
+  }, [properties]);
 
   if (loading) {
     return (
@@ -432,6 +503,75 @@ function ComparePageContent() {
               );
             })}
 
+            <tr className="odd:bg-background even:bg-muted/30">
+              <th
+                scope="row"
+                className="sticky left-0 z-10 w-48 border-b border-border/50 bg-inherit px-4 py-3 text-left align-top text-sm font-medium text-muted-foreground"
+              >
+                Rental information
+                <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground/70">
+                  Asking rent as listed, when the listing states one
+                </span>
+              </th>
+              {properties.map((property) => (
+                <td key={property.id} className="border-b border-border/50 px-4 py-3 text-sm">
+                  {property.rent_amount != null && property.rent_amount > 0 ? (
+                    <>
+                      {formatPrice(property.rent_amount, property.currency)}
+                      <span className="text-muted-foreground">
+                        {" "}
+                        / {property.rent_period === "year" ? "year" : "month"}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="italic text-muted-foreground">{NA}</span>
+                  )}
+                </td>
+              ))}
+            </tr>
+            <tr className="odd:bg-background even:bg-muted/30">
+              <th
+                scope="row"
+                className="sticky left-0 z-10 w-48 border-b border-border/50 bg-inherit px-4 py-3 text-left align-top text-sm font-medium text-muted-foreground"
+              >
+                Listing freshness
+                <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground/70">
+                  When the listing was last seen/verified
+                </span>
+              </th>
+              {properties.map((property) => {
+                const reference = property.last_verified_at ?? property.last_seen_at ?? property.created_at;
+                return (
+                  <td key={property.id} className="border-b border-border/50 px-4 py-3 text-sm">
+                    {reference
+                      ? new Date(reference).toLocaleDateString()
+                      : <span className="italic text-muted-foreground">{NA}</span>}
+                  </td>
+                );
+              })}
+            </tr>
+            <tr className="odd:bg-background even:bg-muted/30">
+              <th
+                scope="row"
+                className="sticky left-0 z-10 w-48 border-b border-border/50 bg-inherit px-4 py-3 text-left align-top text-sm font-medium text-muted-foreground"
+              >
+                Verification status
+              </th>
+              {properties.map((property) => (
+                <td key={property.id} className="border-b border-border/50 px-4 py-3 text-sm">
+                  {property.verification_status === "verified" ? (
+                    <Badge className="badge-success gap-1 font-normal">
+                      <CheckCircle2 className="size-2.5" />
+                      Verified
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="font-normal">
+                      {property.verification_status || "Unverified"}
+                    </Badge>
+                  )}
+                </td>
+              ))}
+            </tr>
             {/* Textual rows that cannot be ranked. */}
             <tr className="odd:bg-background even:bg-muted/30">
               <th
@@ -554,6 +694,83 @@ function ComparePageContent() {
         </table>
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
+
+      {/* ── Financing comparison (deterministic backend calculations) ──── */}
+      {properties.length >= 2 && (
+        <section className="mt-8" aria-labelledby="financing-heading">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 id="financing-heading" className="text-lg font-semibold">Financing comparison</h2>
+            <Link href="/finance">
+              <Button variant="outline" size="sm" className="gap-1.5">
+                Change assumptions
+                <ArrowRight className="size-3.5" />
+              </Button>
+            </Link>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            EMI, upfront cash and ownership costs are computed by the backend from each asking
+            price using <span className="font-medium text-foreground">default assumptions</span>:
+            20% down payment, 8.5% interest, 20-year tenure. Rent, vacancy and appreciation are
+            assumptions — not market data — so yields and cash flow appear only when a rent
+            observation or rent assumption exists.
+          </p>
+
+          {financeLoading ? (
+            <div className="mt-4 space-y-2">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ) : finance ? (
+            <div className="mt-4 overflow-x-auto rounded-xl border border-border/60 bg-card">
+              <table className="w-full min-w-[640px] text-sm">
+                <thead>
+                  <tr className="border-b border-border/60 text-left text-xs text-muted-foreground">
+                    <th className="px-4 py-2 font-medium">Measure</th>
+                    {properties.map((p) => (
+                      <th key={p.id} className="px-4 py-2 font-medium">
+                        <span className="line-clamp-1">{p.title}</span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { label: "Monthly EMI", key: "monthly_emi" as const, format: (v: number) => formatPrice(v) },
+                    { label: "Total cash required", key: "total_cash_required" as const, format: (v: number) => formatPrice(v) },
+                    { label: "Gross rental yield", key: "gross_rental_yield_pct" as const, format: (v: number | null) => (v == null ? null : `${v.toFixed(2)}%`) },
+                    { label: "Net rental yield", key: "net_rental_yield_pct" as const, format: (v: number | null) => (v == null ? null : `${v.toFixed(2)}%`) },
+                    { label: "Net monthly cash flow", key: "net_cash_flow_monthly" as const, format: (v: number | null) => (v == null ? null : formatPrice(v)) },
+                  ].map((row) => (
+                    <tr key={row.key} className="border-b border-border/30 last:border-0">
+                      <td className="px-4 py-2.5 font-medium text-muted-foreground">{row.label}</td>
+                      {properties.map((p) => {
+                        const entry = finance.items[p.id];
+                        const value = entry ? (entry[row.key] as number | null) : null;
+                        const rendered = value == null ? null : row.format(value);
+                        return (
+                          <td key={p.id} className="px-4 py-2.5 tabular-nums">
+                            {rendered ?? <span className="italic text-muted-foreground">{NA}</span>}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="mt-4 rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">
+              Financing figures are unavailable right now. The property fields above are still
+              shown; nothing has been estimated.
+            </p>
+          )}
+          <p className="mt-3 text-xs text-muted-foreground">
+            EMI uses the standard amortisation formula on the asking price minus the down payment.
+            Rates are the defaults above, not a lender quote.
+          </p>
+        </section>
+      )}
 
       {/* ── Advantages and disadvantages ─────────────────────────────── */}
       {summary.insights.length > 0 && (

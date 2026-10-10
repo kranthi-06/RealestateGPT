@@ -32,10 +32,12 @@ no SQLite or in-memory fallback in the current runtime.
 | Data | PyMongo repositories for users, properties, saved data and platform records | Implemented |
 | Property data | Validated MongoDB document, provenance/quality metadata, admin lifecycle, filters and geospatial search | Phase 2 implemented; seed inventory remains demo data |
 | Auth | Password hashing, JWT bearer authentication and ownership-scoped saved-data operations | Implemented; browser token storage needs hardening |
-| Finance | Deterministic EMI, affordability, yield and ROI calculators | Implemented |
-| Search | MongoDB-first filters/2dsphere candidates, typed SearchIntent, bounded OSM enrichment and deterministic ranking | Phase 3 implemented; remains authoritative |
+| Finance | Deterministic EMI, affordability, yield and ROI calculators; investment analysis over catalogue, user-entered and external-estimate properties | Implemented |
+| Search | MongoDB-first filters/2dsphere candidates, typed SearchIntent, bounded OSM enrichment and deterministic ranking; shared search state (URL + sessionStorage) restores across navigation | Phase 3 implemented; remains authoritative |
 | Maps | Leaflet + OpenStreetMap tiles and server-side Nominatim/Overpass/OSRM adapter | OSM is the production default; Google remains optional |
-| AI | Groq gateway, bounded tool-calling agent, strict four-tool registry and provenance/audit persistence | Implemented locally; live Groq/deployment verification pending |
+| Market intelligence | Catalogue statistics (source of truth) + external market research (separate, clearly-labelled source) for ANY location | Implemented |
+| Cache | MongoDB-backed application cache: namespaced keys, TTL per data type, request coalescing, namespace invalidation | Implemented |
+| AI | Groq gateway, bounded tool-calling agent, strict four-tool registry and provenance/audit persistence; external-research summaries validated against evidence | Implemented locally; live Groq/deployment verification pending |
 | Documents/notifications | Models and some repositories | Not a complete vertical slice |
 
 ## Dependency direction
@@ -55,9 +57,28 @@ allowing model-generated database queries or arbitrary code execution.
 The application creates indexes for users, properties, saved properties,
 saved searches, comparisons, conversations, messages, documents, document
 chunks, nearby places, property sources and audit logs. `properties.location`
-and `nearby_places.location` use `2dsphere` indexes. Index definitions live in
-`backend/app/core/database.py` and should be reviewed against Atlas query
-metrics before adding new ones.
+and `nearby_places.location` use `2dsphere` indexes. The application cache
+(`app_cache`) has a unique key index and a TTL index on `expires_at`. Index
+definitions live in `backend/app/core/database.py` and should be reviewed
+against Atlas query metrics before adding new ones.
+
+## Cache layer
+
+`app/core/cache.py` provides the shared, non-personalized cache used for
+market research, property search, catalogue statistics and location lookups:
+
+* **Namespaced keys** — `namespace:sha256(normalized parameters)`; filters,
+  currency, language and model are part of the identity, so a filter change
+  produces a new entry while cosmetic differences (case, whitespace) do not.
+* **TTL per data type** — `market_snapshot` 5 min, `property_search` 2 min,
+  `market_research` 24 h, `external_location` 7 days. Errors are cached for at
+  most 60 seconds and never returned as a success.
+* **Request coalescing** — concurrent identical requests share one in-flight
+  producer; simultaneous callers never trigger duplicate upstream work.
+* **No private data** — authentication responses, account data and
+  user-specific financial inputs are never stored in this cache.
+* **Invalidation** — creating/updating/deleting a listing drops the
+  `property_search` and `market_snapshot` namespaces.
 
 ## Environment and deployment boundary
 

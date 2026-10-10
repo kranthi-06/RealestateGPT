@@ -60,11 +60,25 @@ def test_market_stats_returns_measured_data():
 
 def test_market_stats_reports_no_data_instead_of_inventing_prices():
     result = execute_tool(_FindOnlyDb([]), None, "get_market_stats", {"city": "Atlantis"})
-    assert result["status"] == "no_data"
+    assert result["status"] == "no_catalogue_data"
     assert result["totals"]["listings"] == 0
     assert result["apartments"]["prices"]["median"] is None
     # The message must instruct the model not to estimate.
-    assert "no price statistics" in result["message"]
+    assert "cannot be reported" in result["message"]
+
+
+def test_market_stats_attaches_external_research_for_unknown_locations():
+    """When the catalogue is empty, external research is attempted and attached.
+
+    Unit tests are hermetic (no network): the feature reports
+    ``not_configured`` honestly — never fabricate a figure. Live retrieval is
+    covered by tests/test_external_market_research.py with explicit fakes.
+    """
+    result = execute_tool(_FindOnlyDb([]), None, "get_market_stats", {"city": "Atlantis"})
+    assert "external" in result
+    assert result["external"]["status"] == "not_configured"
+    stats = (result["external"].get("statistics") or {})
+    assert stats.get("data_class", "external_observation") in ("external_observation", "")
 
 
 def test_market_stats_flags_small_samples():

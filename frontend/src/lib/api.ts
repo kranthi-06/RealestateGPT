@@ -38,6 +38,7 @@ import type {
   MarketSnapshotResponse,
   MarketSummaryResponse,
   MarketCompareResponse,
+  ExternalMarketResearch,
 } from "./types";
 import { resolveApiBase } from "./api-base";
 
@@ -363,7 +364,9 @@ export const financeApi = {
     }),
 
   investment: (data: {
-    property_ids: number[];
+    property_ids?: number[];
+    manual_properties?: { label: string; price: number; city?: string; locality?: string; area_sqft?: number; monthly_rent?: number }[];
+    external_locations?: { location: string; label?: string; area_sqft?: number; listing_type?: "sale" | "rent"; property_type?: string; bedrooms?: number }[];
     monthly_rent?: number;
     down_payment_pct?: number;
     down_payment_amount?: number;
@@ -408,6 +411,7 @@ export const marketApi = {
     min_price?: number;
     max_price?: number;
     include_history?: boolean;
+    include_external?: boolean;
   }) => {
     const search = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
@@ -417,6 +421,22 @@ export const marketApi = {
     });
     return request<MarketSnapshotResponse>(`/market/insights?${search.toString()}`);
   },
+  /** External market research for any location (never the catalogue). */
+  external: (data: {
+    location: string;
+    city?: string;
+    locality?: string;
+    country?: string;
+    listing_type?: "sale" | "rent";
+    property_type?: string;
+    bedrooms?: number;
+    currency?: string;
+    language?: string;
+  }) =>
+    request<ExternalMarketResearch>("/market/external", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   summary: (city?: string) =>
     request<MarketSummaryResponse>(
       `/market/summary${city ? `?city=${encodeURIComponent(city)}` : ""}`

@@ -334,12 +334,19 @@ def _tool_search_web(db, user, parsed: SearchWebInput) -> dict:
 
 
 def _tool_market_stats(db, user, parsed: MarketStatsInput) -> dict:
-    """Market Intelligence: real aggregated statistics for a place.
+    """Market Intelligence: catalogue statistics + external research.
 
-    Every figure is measured from verified stored listings. When the sample is
-    too small the response says so instead of returning an invented number.
+    Catalogue figures are measured from verified stored listings. When the
+    catalogue has no (or too little) data, external research is attached so
+    the assistant can still report sourced real-world observations. Every
+    external figure carries its source and must be cited as external, never
+    as verified inventory.
     """
     from app.services.market_service import MarketFilter, MarketService
+    from app.services.external_market_service import (
+        ExternalMarketService,
+        MarketResearchFilter,
+    )
 
     if not parsed.city and not parsed.locality:
         return {
@@ -360,20 +367,36 @@ def _tool_market_stats(db, user, parsed: MarketStatsInput) -> dict:
     payload = snapshot.to_dict()
 
     if snapshot.total_listings == 0:
-        payload["status"] = "no_data"
+        payload["status"] = "no_catalogue_data"
         payload["message"] = (
-            "No verified listings are stored for this location, so no price "
-            "statistics can be reported. Do not estimate prices for it."
+            "No verified listings are stored for this location, so catalogue price "
+            "statistics cannot be reported. External research (when available) is "
+            "attached under 'external' and must be labelled as external observation."
         )
-        return payload
+    else:
+        payload["status"] = "ok"
+        payload["message"] = (
+            f"Statistics measured from {snapshot.total_listings} verified stored "
+            "listings. Figures flagged is_measured=false come from fewer than "
+            f"{payload['coverage'].get('minimum_sample', 3)} listings and are "
+            "indicative only."
+        )
 
-    payload["status"] = "ok"
-    payload["message"] = (
-        f"Statistics measured from {snapshot.total_listings} verified stored "
-        "listings. Figures flagged is_measured=false come from fewer than "
-        f"{payload['coverage'].get('minimum_sample', 3)} listings and are "
-        "indicative only."
-    )
+    try:
+        location = ", ".join(part for part in (parsed.locality, parsed.city) if part)
+        research = ExternalMarketService(db).research(
+            MarketResearchFilter(
+                location=location,
+                city=parsed.city,
+                locality=parsed.locality,
+                listing_type=parsed.listing_type,
+                property_type=parsed.property_type,
+                bedrooms=parsed.bedrooms,
+            )
+        )
+        payload["external"] = research
+    except Exception as exc:  # noqa: BLE001 - external research is additive only
+        logger.info("market_stats_external_research_failed err=%s", type(exc).__name__)
     return payload
 
 
@@ -664,8 +687,11 @@ TOOLS: List[Tool] = [
     Tool("get_market_stats",
          "Market Intelligence for a city and/or locality: apartment/house/plot prices, "
          "price per sq.ft and per sq.yard, typical rents, observed price changes, "
-         "locality comparison and coverage metadata. Works for ANY location, not a fixed "
-         "city list. Never use it to invent prices — report what the tool returns.",
+         "locality comparison and coverage metadata, PLUS external market research "
+         "(asking prices, rents, price per sq.ft, trend direction) with source links "
+         "when the catalogue has no data. Works for ANY location, not a fixed "
+         "city list. Never use it to invent prices — report what the tool returns, "
+         "and always label external observations as external (never 'verified').",
          MarketStatsInput, False, _tool_market_stats),
     Tool("find_nearby_places_by_location",
          "List facilities (hospitals, schools, restaurants, transport, shopping, parks) near "

@@ -184,6 +184,13 @@ def ensure_indexes() -> None:
     cache.create_index("cache_key", unique=True)
     cache.create_index("expires_at", expireAfterSeconds=0)
 
+    # ── Application cache (namespaced, TTL per data type) ─────────────────
+    # Collection name kept in sync with app.core.cache.CacheRepository.COLLECTION.
+    app_cache = db["app_cache"]
+    app_cache.create_index("key", unique=True)
+    app_cache.create_index("expires_at", expireAfterSeconds=0)  # TTL index
+    app_cache.create_index("created_at")
+
     db["discovery_runs"].create_index([("started_at", -1)])
     db["discovery_runs"].create_index("query_hash")
     db["source_health"].create_index("source_domain", unique=True)

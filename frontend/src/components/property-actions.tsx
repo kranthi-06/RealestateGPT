@@ -129,7 +129,7 @@ export function PropertyActions({
         <button
           type="button"
           onClick={onCompare}
-          aria-label={comparing ? "Remove from comparison" : "Add to comparison"}
+          aria-label={comparing ? `Remove ${title ?? "property"} from comparison` : `Add ${title ?? "property"} to comparison`}
           aria-pressed={comparing}
           className={cn(
             "flex size-8 items-center justify-center rounded-full bg-white/90 shadow-sm backdrop-blur-sm transition-transform hover:scale-110 dark:bg-black/50",
@@ -164,7 +164,7 @@ export function PropertyActions({
           size="icon"
           className="size-8"
           onClick={onCompare}
-          aria-label={comparing ? "Remove from comparison" : "Add to comparison"}
+          aria-label={comparing ? `Remove ${title ?? "property"} from comparison` : `Add ${title ?? "property"} to comparison`}
           aria-pressed={comparing}
         >
           {comparing ? <Check className="size-3.5" /> : <GitCompare className="size-3.5" />}

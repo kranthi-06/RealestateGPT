@@ -576,13 +576,17 @@ export interface InvestmentCashFlow {
 }
 
 export interface InvestmentSummary {
-  property_id: number;
+  property_id: number | null;
   title: string;
   city?: string | null;
   locality?: string | null;
   area_sqft?: number | null;
   asking_price: number;
   price_per_sqft?: number | null;
+  /** "catalogue" | "user_input" | "external_estimate" */
+  price_source: string;
+  price_source_note?: string | null;
+  external_sources?: { title?: string; url?: string; domain?: string; published_at?: string | null }[];
   loan: InvestmentLoan;
   upfront_costs: InvestmentUpfrontCosts;
   ownership_expenses: InvestmentOwnershipExpenses;
@@ -602,6 +606,8 @@ export interface InvestmentResponse {
   source: string;
   assumptions_note: string;
   items: InvestmentSummary[];
+  /** Entries that could not be analysed, with an explicit reason. */
+  skipped?: { reference: string; reason: string }[];
   best_net_yield?: number | null;
   best_monthly_cash_flow?: number | null;
   disclaimer: string;
@@ -736,6 +742,89 @@ export interface MarketSnapshotResponse {
   indicators: { gross_rental_yield_pct: number | null; price_to_rent_ratio: number | null };
   coverage: Record<string, unknown>;
   insufficient_data?: { code: string; reason: string } | null;
+  /**
+   * External market research — a SEPARATE, clearly identified data source.
+   * Present when the request asked for it; never mixed with catalogue stats.
+   */
+  external?: ExternalMarketResearch | null;
+}
+
+/* ── External market research (retrieved, sourced, never "verified") ───── */
+
+export interface ExternalSource {
+  title: string;
+  url: string;
+  domain: string;
+  published_at: string | null;
+  retrieved_at: string | null;
+  provider?: string | null;
+}
+
+export interface ExternalObservation {
+  kind: "asking_price" | "rent" | "price_per_sqft" | "trend";
+  value: number | null;
+  currency: string;
+  unit?: string | null;
+  bedrooms?: number | null;
+  source: { title: string; url: string; domain: string; published_at: string | null; retrieved_at: string };
+  snippet: string;
+}
+
+export interface ExternalStatBlock {
+  available: boolean;
+  sample_size: number;
+  is_measured?: boolean;
+  median?: number | null;
+  mean?: number | null;
+  min?: number | null;
+  max?: number | null;
+  p25?: number | null;
+  p75?: number | null;
+  currency?: string;
+  note?: string;
+}
+
+export interface ExternalStatistics {
+  asking_price: ExternalStatBlock;
+  rent_monthly: ExternalStatBlock;
+  price_per_sqft: ExternalStatBlock;
+  price_per_sqm: ExternalStatBlock;
+  rental_yield: {
+    gross_rental_yield_pct: number | null;
+    net_rental_yield_pct: number | null;
+    basis: string | null;
+    is_measured?: boolean;
+  };
+  bedrooms_observed: number[];
+  trend_direction: string | null;
+  trend_basis: string | null;
+  minimum_observations: number;
+  data_class: string;
+}
+
+export interface ExternalMarketResearch {
+  status: "ok" | "no_results" | "unavailable" | "not_configured";
+  message?: string | null;
+  location_input: string;
+  resolved: {
+    found?: boolean;
+    formatted_address?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    country?: string | null;
+    state?: string | null;
+    city?: string | null;
+    provider?: string | null;
+  };
+  sources: ExternalSource[];
+  observations: ExternalObservation[];
+  statistics: Partial<ExternalStatistics>;
+  ai_summary?: { text: string; model?: string | null; provider?: string | null; label: string } | null;
+  queries_used: string[];
+  provider?: string | null;
+  cache: { hit: boolean; cached_at: string | null; expires_at: string | null; age_seconds: number };
+  generated_at: string;
+  data_class?: string;
 }
 
 export interface MarketSummaryResponse {

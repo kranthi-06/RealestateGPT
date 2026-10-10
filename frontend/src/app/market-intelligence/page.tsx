@@ -10,6 +10,8 @@ import {
   Loader2,
   AlertTriangle,
   Search,
+  SearchX,
+  Globe2,
   IndianRupee,
   KeyRound,
   LandPlot,
@@ -18,7 +20,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { marketApi, locationsApi, propertiesApi, ApiError } from "@/lib/api";
-import type { LivePlace, MarketSnapshotResponse, PriceStat } from "@/lib/types";
+import type { LivePlace, MarketSnapshotResponse, PriceStat, ExternalMarketResearch, ExternalStatBlock, ExternalStatistics } from "@/lib/types";
 import { BarChart, ComparisonBars, LineChart } from "@/components/charts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +55,353 @@ const NEARBY_CATEGORIES = [
   { key: "mall", label: "Shopping" },
   { key: "park", label: "Parks" },
 ] as const;
+
+/* ─── External market intelligence (separate data source) ─────────────────── */
+
+const EXTERNAL_KIND_LABELS: Record<string, string> = {
+  asking_price: "Asking price",
+  rent: "Rent",
+  price_per_sqft: "Price per sq.ft",
+  price_per_sqm: "Price per sq.m",
+  trend: "Trend note",
+};
+
+function externalCurrencyLabel(code: string): string {
+  const labels: Record<string, string> = { INR: "₹", USD: "$", GBP: "£", EUR: "€", AED: "AED " };
+  return labels[code] ?? `${code} `;
+}
+
+function formatExternalAmount(
+  value: number | null | undefined,
+  currency: string,
+  unit?: string | null
+): string {
+  if (value == null || !Number.isFinite(value)) return "Data unavailable";
+  const symbol = externalCurrencyLabel(currency);
+  const formatted = value.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+  if (unit === "per_month") return `${symbol}${formatted}/month`;
+  if (unit === "per_night") return `${symbol}${formatted}/night`;
+  if (unit === "per_sqft") return `${symbol}${formatted}/sq.ft`;
+  if (unit === "per_sqm") return `${symbol}${formatted}/sq.m`;
+  return `${symbol}${formatted}`;
+}
+
+function ExternalStatCard({
+  label,
+  stat,
+  unit,
+  hint,
+  icon: Icon,
+}: {
+  label: string;
+  stat?: ExternalStatBlock | null;
+  unit?: string | null;
+  hint?: string;
+  icon?: React.ComponentType<{ className?: string }>;
+}) {
+  const available = Boolean(stat?.available && stat?.sample_size);
+  return (
+    <div className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+        {Icon && <Icon className="h-4 w-4 shrink-0 text-muted-foreground/60" />}
+      </div>
+      <p className="mt-2 text-xl font-bold tabular-nums sm:text-2xl text-foreground">
+        {available ? formatExternalAmount(stat?.median, stat?.currency ?? "INR", unit) : "Data unavailable"}
+      </p>
+      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+        {available ? (
+          <>
+            <p className="text-xs text-muted-foreground">
+              {stat!.sample_size} external observation{stat!.sample_size === 1 ? "" : "s"}
+              {stat!.median != null && stat!.min != null && stat!.max != null
+                ? ` · range ${formatExternalAmount(stat!.min, stat!.currency ?? "INR", unit)} – ${formatExternalAmount(stat!.max, stat!.currency ?? "INR", unit)}`
+                : ""}
+            </p>
+            {!stat!.is_measured && (
+              <Badge variant="outline" className="gap-1 border-amber-300/60 bg-amber-50/60 text-[10px] text-amber-800">
+                <AlertTriangle className="h-2.5 w-2.5" />
+                Low sample
+              </Badge>
+            )}
+          </>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {hint ?? "No retrieved observation for this metric."}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ExternalMarketSection({ research }: { research: ExternalMarketResearch }) {
+  const status = research.status;
+  const stats = (research.statistics ?? {}) as Partial<ExternalStatistics>;
+  const resolved = research.resolved ?? {};
+  const sources = research.sources ?? [];
+  const observations = research.observations ?? [];
+
+  if (status === "not_configured") {
+    return (
+      <Card className="mb-6 border-border/60" data-testid="external-market-section">
+        <CardContent className="flex flex-col items-center justify-center py-10 text-center">
+          <Globe2 className="h-12 w-12 text-muted-foreground/30" />
+          <h2 className="mt-4 text-base font-semibold text-foreground">External market research unavailable</h2>
+          <p className="mt-2 max-w-md text-sm text-muted-foreground">
+            {research.message ??
+              "No web search provider is configured for this deployment, so no external observations could be retrieved. Verified catalogue statistics are still shown below."}
+          </p>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Missing metrics are reported as unavailable — never estimated.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (status === "unavailable") {
+    return (
+      <Card className="mb-6 border-border/60" data-testid="external-market-section">
+        <CardContent className="flex flex-col items-center justify-center py-10 text-center">
+          <AlertTriangle className="h-12 w-12 text-amber-500/60" />
+          <h2 className="mt-4 text-base font-semibold text-foreground">External market search is temporarily unavailable</h2>
+          <p className="mt-2 max-w-md text-sm text-muted-foreground">
+            {research.message ?? "The external search provider did not respond. No figures were retrieved and nothing has been estimated."}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (status === "no_results") {
+    return (
+      <Card className="mb-6 border-border/60" data-testid="external-market-section">
+        <CardContent className="flex flex-col items-center justify-center py-10 text-center">
+          <SearchX className="h-12 w-12 text-muted-foreground/30" />
+          <h2 className="mt-4 text-base font-semibold text-foreground">No external market data found</h2>
+          <p className="mt-2 max-w-md text-sm text-muted-foreground">
+            {research.message ??
+              "No external market information with usable figures was retrieved for this location. Metrics that could not be found are reported as unavailable rather than estimated."}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const trendLabels: Record<string, string> = {
+    up: "Sources describe prices rising",
+    down: "Sources describe prices falling",
+    flat: "Sources describe stable prices",
+    mixed: "Sources disagree on direction",
+  };
+
+  return (
+    <div className="mb-6 space-y-4" data-testid="external-market-section">
+      <Card className="border-amber-300/50 bg-amber-50/30">
+        <CardContent className="p-4 sm:p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Globe2 className="h-4 w-4 text-amber-700" />
+                <h2 className="text-base font-semibold text-foreground">External market research</h2>
+                <Badge variant="outline" className="border-amber-400/60 bg-amber-100/60 text-[10px] text-amber-900">
+                  External observations · not verified inventory
+                </Badge>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Retrieved from public web sources by the backend. Asking prices and published
+                estimates only — nothing here is a verified listing or a guaranteed market rate.
+              </p>
+            </div>
+            <div className="text-right text-[11px] text-muted-foreground">
+              <p>
+                Retrieved {new Date(research.generated_at).toLocaleString("en-IN")}
+              </p>
+              {research.cache?.hit && (
+                <p>
+                  Cached result · {research.cache.age_seconds ?? 0}s old
+                </p>
+              )}
+              {research.provider && <p>Search provider: {research.provider}</p>}
+            </div>
+          </div>
+
+          {resolved.found && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">Location matched: </span>
+              {resolved.formatted_address ?? research.location_input}
+              {resolved.country ? ` · ${resolved.country}` : ""}
+              {resolved.latitude != null && resolved.longitude != null
+                ? ` (${resolved.latitude.toFixed(4)}, ${resolved.longitude.toFixed(4)})`
+                : ""}
+              {" · "}provider: {resolved.provider ?? "n/a"}
+            </p>
+          )}
+
+          {research.ai_summary?.text && (
+            <div className="mt-3 rounded-xl border border-border/60 bg-background/80 p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {research.ai_summary.label}
+              </p>
+              <p className="mt-1 text-sm text-foreground">{research.ai_summary.text}</p>
+              {research.ai_summary.model && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {research.ai_summary.provider ?? "AI"} · {research.ai_summary.model} · every figure
+                  above was validated against the retrieved observations
+                </p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Statistics from retrieved observations */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <ExternalStatCard
+          label="Median asking price"
+          stat={stats.asking_price}
+          icon={IndianRupee}
+          hint="No retrieved asking-price observation."
+        />
+        <ExternalStatCard
+          label="Typical rent"
+          stat={stats.rent_monthly}
+          unit="per_month"
+          icon={KeyRound}
+          hint="No retrieved rent observation."
+        />
+        <ExternalStatCard
+          label="Price per sq.ft"
+          stat={stats.price_per_sqft}
+          unit="per_sqft"
+          icon={LandPlot}
+          hint="No retrieved per-sq.ft observation."
+        />
+        <div className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Gross rental yield
+            </p>
+            <TrendingUp className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+          </div>
+          <p className="mt-2 text-xl font-bold tabular-nums sm:text-2xl text-foreground">
+            {stats.rental_yield?.gross_rental_yield_pct != null
+              ? `${stats.rental_yield.gross_rental_yield_pct.toFixed(2)}%`
+              : "Data unavailable"}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {stats.rental_yield?.basis ??
+              "Requires both an external asking price and an external rent observation."}
+          </p>
+        </div>
+      </div>
+
+      {stats.trend_direction && (
+        <p className="text-xs text-muted-foreground">
+          <span className="font-semibold text-foreground">Trend: </span>
+          {trendLabels[stats.trend_direction] ?? stats.trend_direction}
+          {stats.trend_basis ? ` — ${stats.trend_basis}` : ""}
+        </p>
+      )}
+
+      {/* Observations */}
+      {observations.length > 0 && (
+        <Card className="border-border/60">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-semibold">
+              Retrieved observations ({observations.length})
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Each figure is paired with the page it came from. Nothing is aggregated across
+              currencies, and no value is estimated.
+            </p>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-sm">
+                <thead>
+                  <tr className="border-b border-border/60 text-left text-xs text-muted-foreground">
+                    <th className="pb-2 pr-3 font-medium">Metric</th>
+                    <th className="pb-2 pr-3 font-medium">Value</th>
+                    <th className="pb-2 pr-3 font-medium">Beds</th>
+                    <th className="pb-2 font-medium">Source</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {observations.map((obs, index) => (
+                    <tr key={`${obs.source.url}-${obs.kind}-${index}`} className="border-b border-border/30 last:border-0">
+                      <td className="py-2.5 pr-3 text-foreground">
+                        {EXTERNAL_KIND_LABELS[obs.kind] ?? obs.kind}
+                      </td>
+                      <td className="py-2.5 pr-3 tabular-nums text-foreground">
+                        {obs.kind === "trend"
+                          ? (obs.unit ?? "—")
+                          : formatExternalAmount(obs.value, obs.currency, obs.unit)}
+                      </td>
+                      <td className="py-2.5 pr-3 tabular-nums text-muted-foreground">
+                        {obs.bedrooms != null ? `${obs.bedrooms} BHK` : "—"}
+                      </td>
+                      <td className="py-2.5">
+                        <a
+                          href={obs.source.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline"
+                        >
+                          {obs.source.domain || "source"}
+                        </a>
+                        {obs.source.published_at && (
+                          <span className="ml-1.5 text-[11px] text-muted-foreground">
+                            published {new Date(obs.source.published_at).toLocaleDateString("en-IN")}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Sources */}
+      {sources.length > 0 && (
+        <Card className="border-border/60 bg-muted/20">
+          <CardContent className="p-4 sm:p-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Sources used ({sources.length})
+            </p>
+            <ul className="mt-2 space-y-1.5">
+              {sources.slice(0, 12).map((source) => (
+                <li key={source.url} className="text-xs text-muted-foreground">
+                  <a
+                    href={source.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-primary hover:underline"
+                  >
+                    {source.title || source.domain}
+                  </a>{" "}
+                  <span className="text-muted-foreground/70">
+                    · {source.domain}
+                    {source.published_at
+                      ? ` · published ${new Date(source.published_at).toLocaleDateString("en-IN")}`
+                      : " · publication date unavailable"}
+                    {source.retrieved_at
+                      ? ` · retrieved ${new Date(source.retrieved_at).toLocaleString("en-IN")}`
+                      : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
 
 /* â”€â”€ Indian currency formatting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
@@ -423,8 +772,9 @@ function MarketIntelligenceContent() {
           Real estate data for any location
         </h1>
         <p className="mt-2 max-w-2xl text-muted-foreground">
-          Aggregated from verified listings stored in our catalogue. Estimates are labelled,
-          small samples are flagged, and we never invent prices or trends.
+          Two clearly separated sources: statistics measured from verified listings stored in our
+          catalogue, and external market research retrieved from public web sources. Estimates are
+          labelled, small samples are flagged, and we never invent prices or trends.
         </p>
       </div>
 
@@ -572,6 +922,9 @@ function MarketIntelligenceContent() {
       {/* Results */}
       {!loading && snapshot && (
         <div className="space-y-6">
+          {/* External market intelligence — a separate, clearly identified source */}
+          {snapshot.external && <ExternalMarketSection research={snapshot.external} />}
+
           {/* Insufficient data banner */}
           {insufficient && (
             <div className="flex items-start gap-3 rounded-xl border border-amber-200/60 bg-amber-50/50 px-4 py-3">

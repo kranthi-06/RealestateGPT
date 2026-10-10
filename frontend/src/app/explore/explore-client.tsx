@@ -30,6 +30,8 @@ import { RealEstateMap } from "@/components/real-estate-map";
 import { EmptyState } from "@/components/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { MAX_COMPARE, useCompare } from "@/lib/compare-context";
+import { notifyCompareAdded, notifyCompareFull } from "@/lib/notify";
 
 /** Facility categories, in display order. Keys map to backend valid values. */
 const FACILITY_CATEGORIES = [
@@ -141,6 +143,23 @@ export default function ExploreClient() {
 
   const [selected, setSelected] = useState<FacilityKey | "all" | "verified">("all");
   const inputRef = useRef<HTMLInputElement>(null);
+  const compare = useCompare();
+
+  const toggleCompare = useCallback(
+    (id: number) => {
+      if (compare.has(id)) {
+        compare.remove(id);
+        return;
+      }
+      if (compare.isFull) {
+        notifyCompareFull(MAX_COMPARE);
+        return;
+      }
+      compare.add(id);
+      notifyCompareAdded();
+    },
+    [compare]
+  );
 
   /**
    * Places grouped by the category that found them, deduplicated once: a place
@@ -693,7 +712,13 @@ export default function ExploreClient() {
                   ))
                 ) : (
                   (properties ?? []).map((property) => (
-                    <PropertyListRow key={property.id} property={property} showDistance={false} />
+                    <PropertyListRow
+                      key={property.id}
+                      property={property}
+                      showDistance={false}
+                      onCompareToggle={toggleCompare}
+                      isCompareSelected={compare.has(property.id)}
+                    />
                   ))
                 )}
               </div>

@@ -34,6 +34,19 @@ def _disable_rate_limiter(monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_external_research(monkeypatch):
+    """Keep unit tests off the network.
+
+    External market research performs web searches and (optionally) an AI
+    summary. Both are exercised only by tests that inject explicit fakes;
+    everywhere else the feature reports ``not_configured`` instead of calling
+    out to a live provider.
+    """
+    monkeypatch.setattr(settings, "MARKET_RESEARCH_ENABLED", False)
+    yield
+
+
 def _configured_database_name() -> str:
     uri = settings.MONGODB_URI or ""
     try:

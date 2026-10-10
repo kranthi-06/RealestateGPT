@@ -43,8 +43,13 @@
 | `/api/v1/finance/affordability` | POST | No | Any | 200 | 422 | None | Affordability |
 | `/api/v1/finance/rental-yield` | POST | No | Any | 200 | 422 | None | Rental yield |
 | `/api/v1/finance/roi` | POST | No | Any | 200 | 422 | None | ROI projection |
+| `/api/v1/finance/investment` | POST | No | Any | 200 | 422 | None | Investment analysis (catalogue + manual + external) |
 | `/api/v1/finance/properties/{id}/estimate` | GET | No | Any | 200 | 404 | Read | Price estimate |
 | `/api/v1/finance/properties/{id}/fairness` | GET | No | Any | 200 | 404 | Read | Price fairness |
+| `/api/v1/market/insights` | GET | No | Any | 200 | 422 | Read | Market statistics + external research |
+| `/api/v1/market/external` | POST | No | Any | 200 | 422,429 | Read | External market research (rate limited) |
+| `/api/v1/market/summary` | GET | No | Any | 200 | 422 | Read | City totals |
+| `/api/v1/market/compare` | GET | No | Any | 200 | 422 | Read | City comparison |
 | `/api/v1/locations/status` | GET | No | Any | 200 | - | None | Map status |
 | `/api/v1/locations/properties/{id}/nearby` | GET | Opt | Any | 200 | 404 | Read | Nearby places |
 | `/api/v1/locations/places/{id}` | GET | Opt | Any | 200 | 404 | Read | Place detail |

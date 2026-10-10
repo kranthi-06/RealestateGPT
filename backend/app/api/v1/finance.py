@@ -71,14 +71,22 @@ async def full_affordability(data: FullAffordabilityRequest, db=Depends(get_db))
 
 @router.post("/investment", response_model=InvestmentResponse)
 async def investment_analysis(data: InvestmentRequest, db=Depends(get_db)):
-    """Investment analysis for up to four verified properties.
+    """Investment analysis for catalogue, manual, and external-market properties.
 
-    Every figure is either a verified catalogue value or an explicit
-    assumption; the response keeps the two separate.
+    Every figure is either a verified catalogue value, an explicit user
+    assumption, or a retrieved external observation — the response keeps the
+    three separate and reports skipped entries with reasons.
     """
     assumptions = data.model_dump()
     assumptions.pop("property_ids", None)
-    return FinanceService(db).investment_analysis(data.property_ids, **assumptions)
+    assumptions.pop("manual_properties", None)
+    assumptions.pop("external_locations", None)
+    return FinanceService(db).investment_analysis(
+        data.property_ids,
+        manual_properties=[entry.model_dump() for entry in data.manual_properties],
+        external_locations=[entry.model_dump() for entry in data.external_locations],
+        **assumptions,
+    )
 
 
 @router.post("/rental-yield", response_model=RentalYieldResponse)

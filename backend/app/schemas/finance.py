@@ -116,15 +116,48 @@ class PriceFairnessResponse(BaseModel):
 
 # ─── Investment analysis ────────────────────────────────────────────────
 
-class InvestmentRequest(BaseModel):
-    """Investment model for one or more verified properties.
+class ManualPropertyInput(BaseModel):
+    """A user-entered property for analysis (no catalogue record required).
 
-    ``property_ids`` may come from the client, but the property price, area and
-    city are always read from the database — the request only supplies
-    assumptions, never facts.
+    The price is an explicit user assumption — it is echoed back with
+    ``price_source: "user_input"`` so the UI can label it as such.
     """
 
-    property_ids: List[int] = Field(..., min_length=1, max_length=4)
+    label: str = Field(..., min_length=1, max_length=200)
+    price: float = Field(..., gt=0)
+    city: Optional[str] = Field(None, max_length=100)
+    locality: Optional[str] = Field(None, max_length=100)
+    area_sqft: Optional[float] = Field(None, gt=0)
+    monthly_rent: Optional[float] = Field(None, ge=0)
+
+
+class ExternalLocationInput(BaseModel):
+    """A location whose market price comes from external research.
+
+    The backend resolves a median external asking price from *retrieved*
+    observations (never a generated value). When no external observation
+    exists the entry is skipped with an explicit reason — no fallback price.
+    """
+
+    location: str = Field(..., min_length=1, max_length=200)
+    label: Optional[str] = Field(None, max_length=200)
+    area_sqft: Optional[float] = Field(None, gt=0)
+    listing_type: Optional[str] = Field(None, pattern="^(sale|rent)$")
+    property_type: Optional[str] = Field(None, max_length=50)
+    bedrooms: Optional[int] = Field(None, ge=0, le=20)
+
+
+class InvestmentRequest(BaseModel):
+    """Investment model for catalogue properties and/or user-entered ones.
+
+    Catalogue prices, areas and locations are read from the database; manual
+    and external prices are echoed back as assumptions/observations with their
+    source. The request never supplies facts for catalogue properties.
+    """
+
+    property_ids: List[int] = Field(default_factory=list, max_length=4)
+    manual_properties: List[ManualPropertyInput] = Field(default_factory=list, max_length=4)
+    external_locations: List[ExternalLocationInput] = Field(default_factory=list, max_length=4)
     monthly_rent: float = Field(0, ge=0)
     down_payment_pct: float = Field(20.0, gt=0, le=100)
     down_payment_amount: Optional[float] = Field(None, ge=0)
@@ -146,6 +179,17 @@ class InvestmentRequest(BaseModel):
     base_appreciation_pct: float = Field(5.0, ge=-50, le=100)
     optimistic_appreciation_pct: float = Field(8.0, ge=-50, le=100)
     holding_years: int = Field(5, ge=1, le=30)
+
+    @model_validator(mode="after")
+    def at_least_one_property(self) -> "InvestmentRequest":
+        total = len(self.property_ids) + len(self.manual_properties) + len(self.external_locations)
+        if total == 0:
+            raise ValueError(
+                "Provide at least one catalogue property_id, manual property, or external location."
+            )
+        if total > 4:
+            raise ValueError("Analyse at most four properties at once.")
+        return self
 
 
 class ScenarioSummary(BaseModel):
@@ -199,13 +243,18 @@ class CashFlowSummary(BaseModel):
 
 
 class InvestmentSummary(BaseModel):
-    property_id: int
+    property_id: Optional[int] = None      # None for manual/external entries
     title: str
     city: Optional[str] = None
     locality: Optional[str] = None
     area_sqft: Optional[float] = None
     asking_price: float
     price_per_sqft: Optional[float] = None
+    # "catalogue" | "user_input" | "external_estimate"
+    price_source: str = "catalogue"
+    # Human-readable source note + external provenance when price came from research.
+    price_source_note: Optional[str] = None
+    external_sources: List[dict] = []
     loan: LoanSummary
     upfront_costs: UpfrontCosts
     ownership_expenses: OwnershipExpenses
@@ -225,6 +274,8 @@ class InvestmentResponse(BaseModel):
     source: str
     assumptions_note: str
     items: List[InvestmentSummary] = []
+    # Entries that could not be analysed, with an explicit reason (never silent).
+    skipped: List[dict] = []
     best_net_yield: Optional[int] = None
     best_monthly_cash_flow: Optional[int] = None
     disclaimer: str = (

@@ -228,6 +228,26 @@ class Settings(BaseSettings):
     WEB_DISCOVERY_MIN_CONFIDENCE: float = 0.25  # candidates below this are dropped
     WEB_DISCOVERY_MAX_SOURCES: int = 4          # sources routed per search
 
+    # ── Application cache TTLs (seconds; 0 falls back to the policy default) ──
+    CACHE_MARKET_SNAPSHOT_TTL: int = 300        # catalogue-derived statistics
+    CACHE_MARKET_RESEARCH_TTL: int = 86_400     # external market research
+    CACHE_PROPERTY_SEARCH_TTL: int = 120        # property search results
+    CACHE_EXTERNAL_LOCATION_TTL: int = 604_800  # geocoding / nearby places
+    CACHE_AI_ANALYSIS_TTL: int = 1_800          # AI analysis of retrieved evidence
+
+    # ── External market research ─────────────────────────────────────────
+    # Bounded, honest external market intelligence. Web search is the source
+    # of retrieved observations; the AI gateway may only summarize that
+    # evidence under strict backend validation (never a data source itself).
+    MARKET_RESEARCH_ENABLED: bool = True
+    MARKET_RESEARCH_MAX_QUERIES: int = 4
+    MARKET_RESEARCH_MAX_RESULTS: int = 12       # observations kept after extraction
+    MARKET_RESEARCH_AI_SUMMARY: bool = True     # bounded AI summary of retrieved evidence
+    MARKET_RESEARCH_TIMEOUT_SECONDS: int = 20
+    # Rate limit for the external-research endpoint (per client identity).
+    MARKET_RESEARCH_RATE_LIMIT: int = 12        # requests per window
+    MARKET_RESEARCH_RATE_WINDOW: int = 300
+
     @property
     def web_search_allowed_domains(self) -> List[str]:
         """Normalized lower-case allowlist of domains, or [] when unrestricted."""

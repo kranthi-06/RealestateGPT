@@ -9,7 +9,7 @@ test.describe('Critical User Journeys', () => {
 
   test('search page loads and shows search input', async ({ page }) => {
     await page.goto('/search');
-    await expect(page.getByPlaceholder(/3BHK|search/i).first()).toBeVisible();
+    await expect(page.getByLabel('Search properties').first()).toBeVisible();
   });
 
   test('login page has form fields', async ({ page }) => {
@@ -27,15 +27,14 @@ test.describe('Critical User Journeys', () => {
   test('navigation links work', async ({ page }) => {
     await page.goto('/');
     
-    // Click search link
+    // Click explore link
     await page.getByRole('link', { name: /explore/i }).first().click();
-    await expect(page).toHaveURL(/\/search/);
+    await expect(page).toHaveURL(/\/explore/);
 
     // Navigate to assistant directly (should redirect or show login)
     await page.goto('/assistant');
     await expect(page).toHaveURL(/\/assistant|login/);
   });
-
   test('mobile viewport shows responsive layout', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/');
@@ -45,6 +44,6 @@ test.describe('Critical User Journeys', () => {
     
     // Navigate to search
     await page.goto('/search');
-    await expect(page.getByPlaceholder(/3BHK|search/i).first()).toBeVisible();
+    await expect(page.getByLabel('Search properties').first()).toBeVisible();
   });
 });

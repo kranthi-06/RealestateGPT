@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, Suspense, useRef, useMemo } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useState, useCallback, useEffect, useRef, useMemo, Suspense } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,6 @@ import { Select } from "@/components/ui/select";
 import { HorizontalFilters } from "@/components/horizontal-filters";
 import PropertyCard from "@/components/property-card";
 import WebDiscoveryCard from "@/components/web-discovery-card";
-import { ApiError, searchApi } from "@/lib/api";
 import {
   Search,
   MapPin,
@@ -34,9 +33,10 @@ import {
   Navigation,
   ArrowRight,
 } from "lucide-react";
-import type { SearchFilters, SearchSectionsResponse, Property, SearchIntent, UnifiedSearchResponse } from "@/lib/types";
+import type { Property, SearchIntent } from "@/lib/types";
 import { MAX_COMPARE, useCompare } from "@/lib/compare-context";
 import { notifyCompareAdded, notifyCompareFull } from "@/lib/notify";
+import { useSearchState, useSyncUrlSearch, type SortKey } from "@/lib/search-context";
 
 type LocState = "idle" | "pending" | "granted" | "denied" | "timeout" | "unsupported";
 
@@ -185,8 +185,6 @@ function IntentChips({ intent }: { intent: SearchIntent | null }) {
   );
 }
 
-type SortKey = "relevance" | "price_asc" | "price_desc" | "newest";
-
 function ResultHeader({
   totalCount,
   viewMode,
@@ -273,7 +271,7 @@ function VerifiedSections({
   viewMode,
   sort,
 }: {
-  sections: SearchSectionsResponse["sections"];
+  sections: ReturnType<typeof useSearchState>["state"]["sections"];
   onCompareToggle: (id: number) => void;
   compareIds: number[];
   viewMode: "list" | "grid";
@@ -330,278 +328,104 @@ function VerifiedSections({
 }
 
 export function SearchPageContent() {
-  const searchParams = useSearchParams();
   const router = useRouter();
+  const search = useSearchState();
+  useSyncUrlSearch(typeof window !== "undefined" ? window.location.search.replace(/^\?/, "") : "");
+  const { state, status: searchStatus, error: searchError, hydrated } = search;
+  const loading = searchStatus === "loading";
 
-  const [loading, setLoading] = useState(true);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const [sectionsData, setSectionsData] = useState<SearchSectionsResponse | null>(null);
-  const [unifiedData, setUnifiedData] = useState<UnifiedSearchResponse | null>(null);
-  const [includeWeb, setIncludeWeb] = useState(true);
-  const [intent, setIntent] = useState<SearchIntent | null>(null);
-  const [filters, setFilters] = useState<SearchFilters>({
-    q: searchParams.get("q") || "",
-    city: searchParams.get("city") || undefined,
-    listing_type: searchParams.get("listing_type") || undefined,
-    property_type: searchParams.get("property_type") || undefined,
-  });
+  // Re-mirror the restored filters into the URL whenever the page becomes
+  // visible again: navigating back to /search must restore the query string.
+  useEffect(() => {
+    if (!hydrated || !search.syncUrlSearch) return;
+    search.syncUrlSearch(
+      typeof window !== "undefined" ? window.location.search.replace(/^\?/, "") : ""
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
+
   const [locState, setLocState] = useState<LocState>("idle");
-  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
-  const [sort, setSort] = useState<SortKey>("relevance");
+  const locationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const compare = useCompare();
 
-  const locationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const filtersRef = useRef(filters);
-  const coordsRef = useRef(userCoords);
-  const includeWebRef = useRef(includeWeb);
-  const fetchAbortRef = useRef<AbortController | null>(null);
-  const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastClientErrorRef = useRef<number>(0);
-  const lastSignatureRef = useRef<string>("");
-  const requestCacheRef = useRef<Map<string, { timestamp: number; data: UnifiedSearchResponse }>>(new Map());
-  const inFlightRef = useRef<Set<string>>(new Set());
+  const filters = state.filters;
+  const includeWeb = state.includeWeb;
+  const userCoords = state.userCoords;
+  const sort = state.sort;
+  const viewMode = state.viewMode;
 
-  useEffect(() => { filtersRef.current = filters; }, [filters]);
-  useEffect(() => { coordsRef.current = userCoords; }, [userCoords]);
-  useEffect(() => { includeWebRef.current = includeWeb; }, [includeWeb]);
-
-  const requestSignature = useMemo(
-    () =>
-      JSON.stringify({
-        q: filters.q,
-        city: filters.city,
-        min_bedrooms: filters.min_bedrooms,
-        max_bedrooms: filters.max_bedrooms,
-        bathrooms: filters.bathrooms,
-        min_price: filters.min_price,
-        max_price: filters.max_price,
-        property_type: filters.property_type,
-        listing_type: filters.listing_type,
-        furnishing: filters.furnishing,
-        min_area: filters.min_area,
-        max_area: filters.max_area,
-        construction_status: filters.construction_status,
-        radius_km: filters.radius_km,
-        amenities: filters.amenities,
-      }) +
-      "|" +
-      (userCoords ? `${userCoords.lat.toFixed(6)}_${userCoords.lng.toFixed(6)}` : "none") +
-      "|" +
-      String(includeWeb),
-    [filters, userCoords, includeWeb]
-  );
-
-  const requestLocation = () => {
+  const requestLocation = useCallback(() => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       setLocState("unsupported");
       return;
     }
     setLocState("pending");
-    if (locationTimer.current) clearTimeout(locationTimer.current);
-    locationTimer.current = setTimeout(() => {
+    if (locationTimerRef.current) clearTimeout(locationTimerRef.current);
+    locationTimerRef.current = setTimeout(() => {
       setLocState((current) => (current === "pending" ? "timeout" : current));
     }, 10000);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        if (locationTimer.current) clearTimeout(locationTimer.current);
-        setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        if (locationTimerRef.current) clearTimeout(locationTimerRef.current);
+        search.setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         setLocState("granted");
       },
       () => {
-        if (locationTimer.current) clearTimeout(locationTimer.current);
+        if (locationTimerRef.current) clearTimeout(locationTimerRef.current);
         setLocState("denied");
       },
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
     );
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.setUserCoords]);
 
-  const clearLocation = () => {
-    if (locationTimer.current) clearTimeout(locationTimer.current);
-    setUserCoords(null);
+  const clearLocation = useCallback(() => {
+    if (locationTimerRef.current) clearTimeout(locationTimerRef.current);
+    search.setUserCoords(null);
     setLocState("idle");
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search.setUserCoords]);
 
-  const resetFilters = () => {
-    setFilters(({ q, city, listing_type, property_type }) => ({
+  const resetFilters = useCallback(() => {
+    search.setFilters(({ q, city, listing_type, property_type }) => ({
       q, city, listing_type, property_type,
     }));
-  };
+  }, [search]);
 
-  const fetchProperties = useCallback(async (opts?: { isUserInitiated?: boolean }) => {
-    const isUserInitiated = opts?.isUserInitiated ?? false;
-    const now = Date.now();
-    // Back-off only applies to repeated automatic retries of the SAME failed
-    // request. A changed query, filter set or location always proceeds, so
-    // adjusting filters never appears to be ignored.
-    const signatureChanged = lastSignatureRef.current !== requestSignature;
-    if (
-      !isUserInitiated &&
-      !signatureChanged &&
-      lastClientErrorRef.current > 0 &&
-      now - lastClientErrorRef.current < 5000
-    ) {
-      return;
-    }
-    lastSignatureRef.current = requestSignature;
-
-    const cacheKey = requestSignature;
-    const cached = requestCacheRef.current.get(cacheKey);
-    if (cached && now - cached.timestamp < 30000) {
-      setSectionsData({ sections: cached.data.sections });
-      setUnifiedData(cached.data);
-      setIntent(cached.data.parsed || null);
-      setLoading(false);
-      return;
-    }
-
-    if (inFlightRef.current.has(cacheKey)) {
-      return;
-    }
-    inFlightRef.current.add(cacheKey);
-
-    if (fetchAbortRef.current) {
-      fetchAbortRef.current.abort();
-    }
-    const controller = new AbortController();
-    fetchAbortRef.current = controller;
-    setLoading(true);
-    setSearchError(null);
-    try {
-      const currentFilters = filtersRef.current;
-      const currentCoords = coordsRef.current;
-      const currentIncludeWeb = includeWebRef.current;
-      const params: SearchFilters = { ...currentFilters };
-      if (currentCoords) {
-        params.latitude = currentCoords.lat;
-        params.longitude = currentCoords.lng;
-        params.radius_km = currentFilters.radius_km ?? 5.0;
-      }
-      const unifiedQuery = (
-        currentFilters.q?.trim() ||
-        (currentCoords
-          ? `properties near ${currentCoords.lat.toFixed(4)}, ${currentCoords.lng.toFixed(4)}`
-          : "")
-      ).trim();
-      if (!unifiedQuery) {
-        setSectionsData(null);
-        setUnifiedData(null);
-        setSearchError("Type a search or allow location for near-me results.");
-        setLoading(false);
+  const toggleCompare = useCallback(
+    (id: number) => {
+      if (compare.has(id)) {
+        compare.remove(id);
         return;
       }
-      const data = await searchApi.unified(
-        {
-          query: unifiedQuery,
-          location: currentCoords
-            ? {
-                latitude: currentCoords.lat,
-                longitude: currentCoords.lng,
-                radius_km: currentFilters.radius_km ?? 5.0,
-              }
-            : undefined,
-          filters: params,
-          include_web: currentIncludeWeb,
-          limit: 24,
-        },
-        controller.signal
-      );
-      requestCacheRef.current.set(cacheKey, { timestamp: now, data });
-      setSectionsData({ sections: data.sections });
-      setUnifiedData(data);
-      setIntent(data.parsed || null);
-      lastClientErrorRef.current = 0;
-    } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === "AbortError") {
+      if (compare.isFull) {
+        notifyCompareFull(MAX_COMPARE);
         return;
       }
-      setSectionsData(null);
-      setUnifiedData(null);
-      if (err instanceof ApiError) {
-        if (err.status >= 400 && err.status < 500) {
-          lastClientErrorRef.current = Date.now();
-        }
-        if (err.status === 401) {
-          setSearchError("Please sign in again before searching.");
-        } else if (err.status === 422) {
-          setSearchError("Check your search and filters, then try again.");
-        } else if (err.status === 429) {
-          setSearchError("Search is rate-limited. Please wait a moment and try again.");
-        } else if (err.status >= 500) {
-          setSearchError("We couldn't load property results. Please try again.");
-        } else {
-          setSearchError(err.message || "We couldn't load property results. Please try again.");
-        }
-      } else {
-        setSearchError("We couldn't load property results. Check your connection and try again.");
-      }
-    } finally {
-      inFlightRef.current.delete(cacheKey);
-      if (fetchAbortRef.current === controller) {
-        fetchAbortRef.current = null;
-      }
-      if (!controller.signal.aborted) {
-        setLoading(false);
-      }
-    }
-  }, [requestSignature]);
-
-  useEffect(() => {
-    if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
-    fetchDebounceRef.current = setTimeout(() => fetchProperties(), 300);
-    return () => {
-      if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
-      if (fetchAbortRef.current) fetchAbortRef.current.abort();
-    };
-  }, [requestSignature, fetchProperties]);
-
-  const toggleCompare = useCallback((id: number) => {
-    if (compare.has(id)) {
-      compare.remove(id);
-      return;
-    }
-    if (compare.isFull) {
-      notifyCompareFull(MAX_COMPARE);
-      return;
-    }
-    compare.add(id);
-    notifyCompareAdded();
-  }, [compare]);
+      compare.add(id);
+      notifyCompareAdded();
+    },
+    [compare]
+  );
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (fetchDebounceRef.current) {
-      clearTimeout(fetchDebounceRef.current);
-      fetchDebounceRef.current = null;
-    }
-    if (filters.q?.trim()) {
-      router.replace(`/search?q=${encodeURIComponent(filters.q.trim())}`, { scroll: false });
-    }
-    fetchProperties({ isUserInitiated: true });
+    void search.runSearch();
   };
 
   const clearSearch = () => {
-    setFilters({});
-    setUserCoords(null);
+    search.clearSearch();
     setLocState("idle");
-    setSectionsData(null);
-    setIntent(null);
-    if (locationTimer.current) clearTimeout(locationTimer.current);
-    router.replace("/search", { scroll: false });
   };
 
-  const totalCount = unifiedData?.verified_total ?? sectionsData?.sections.reduce((s, sec) => s + sec.count, 0) ?? 0;
+  const totalCount = state.results.length;
+  const webDiscoveries = state.webDiscoveries;
+  const hasVerified = state.sections.length > 0 && totalCount > 0;
 
-  const webNotice =
-    unifiedData?.metadata?.web_message ? (
-      <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200/50 bg-amber-50/10 px-3 py-2 text-xs text-amber-900/90">
-        <Globe2 className="h-4 w-4 shrink-0" />
-        <span>{unifiedData.metadata.web_message}</span>
-      </div>
-    ) : null;
+  const webNotice = null;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background" data-search-hydrated={hydrated ? "true" : "false"}>
       {/* Search Bar - Sticky at top */}
       <div className="sticky top-[65px] z-30 border-b border-border/60 bg-background/90 backdrop-blur">
         <div className="page-shell py-3">
@@ -610,20 +434,32 @@ export function SearchPageContent() {
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
               <Input
                 value={filters.q || ""}
-                onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
+                onChange={(e) => search.setFilters((f) => ({ ...f, q: e.target.value }))}
                 placeholder='Try "3 BHK under ₹90L near metro in Hyderabad"'
                 className="h-10 rounded-xl border-border/70 bg-card pl-9 pr-3 text-sm shadow-sm focus-visible:ring-primary"
                 aria-label="Search properties"
               />
             </div>
-            <Button type="submit" className="h-10 rounded-xl px-5 gap-1.5 text-sm font-medium shadow-sm">
-              {loading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Search className="h-4 w-4" />
+            <div className="flex gap-2">
+              <Button type="submit" className="h-10 rounded-xl px-5 gap-1.5 text-sm font-medium shadow-sm">
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Search className="h-4 w-4" />
+                )}
+                Search
+              </Button>
+              {(filters.q || state.hasResults) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={clearSearch}
+                  className="h-10 rounded-xl text-sm"
+                >
+                  Clear
+                </Button>
               )}
-              Search
-            </Button>
+            </div>
           </form>
         </div>
       </div>
@@ -637,7 +473,7 @@ export function SearchPageContent() {
             userCoords={userCoords}
             onRequest={requestLocation}
             onClear={clearLocation}
-            onRefresh={() => fetchProperties({ isUserInitiated: true })}
+            onRefresh={() => void search.refreshSearch()}
           />
         </div>
 
@@ -645,7 +481,7 @@ export function SearchPageContent() {
         <div className="mb-4">
           <HorizontalFilters
             filters={filters}
-            onChange={(next) => setFilters(next)}
+            onChange={(next) => search.setFilters(next)}
             onReset={resetFilters}
           />
         </div>
@@ -656,7 +492,7 @@ export function SearchPageContent() {
             id="include-web"
             type="checkbox"
             checked={includeWeb}
-            onChange={(e) => setIncludeWeb(e.target.checked)}
+            onChange={(e) => search.setIncludeWeb(e.target.checked)}
             className="mt-0.5 h-3.5 w-3.5 rounded accent-amber-600"
           />
           <label htmlFor="include-web" className="text-muted-foreground">
@@ -687,7 +523,22 @@ export function SearchPageContent() {
 
         {/* Results */}
         <main className="min-w-0">
-          {loading ? (
+          {!hydrated ? (
+            <div className="space-y-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Card key={i}>
+                  <CardContent className="flex gap-4 p-3.5">
+                    <Skeleton className="h-24 w-32 shrink-0 rounded-lg sm:block" />
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <Skeleton className="h-4 w-2/3" />
+                      <Skeleton className="h-3 w-1/2" />
+                      <Skeleton className="h-3 w-full" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : loading ? (
             <div className="space-y-3">
               {Array.from({ length: 6 }).map((_, i) => (
                 <Card key={i}>
@@ -714,7 +565,7 @@ export function SearchPageContent() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => fetchProperties({ isUserInitiated: true })}
+                    onClick={() => void search.runSearch()}
                   >
                     Retry search
                   </Button>
@@ -724,22 +575,21 @@ export function SearchPageContent() {
                 </div>
               </CardContent>
             </Card>
-          ) : (sectionsData && sectionsData.sections.length > 0) ||
-            (unifiedData && unifiedData.web_discoveries.length > 0) ? (
+          ) : hasVerified || webDiscoveries.length > 0 ? (
             <>
-              <IntentChips intent={intent} />
+              <IntentChips intent={state.intent} />
 
-              {(unifiedData && (unifiedData.verified_total > 0 || unifiedData.web_total > 0)) && (
+              {state.hasResults && (
                 <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
                   <Badge variant="outline" className="rounded-md tabular-nums">
-                    {unifiedData.verified_total} Verified
+                    {totalCount} Verified
                   </Badge>
-                  {unifiedData.web_total > 0 && (
+                  {webDiscoveries.length > 0 && (
                     <Badge
                       variant="secondary"
                       className="rounded-md bg-amber-500/15 text-amber-800 tabular-nums"
                     >
-                      {unifiedData.web_total} Web discoveries
+                      {webDiscoveries.length} Web discoveries
                     </Badge>
                   )}
                 </div>
@@ -747,15 +597,15 @@ export function SearchPageContent() {
 
               {webNotice}
 
-              {sectionsData?.sections && sectionsData.sections.length > 0 && (
+              {hasVerified && (
                 <Tabs defaultValue="verified" className="w-full">
                   <TabsList variant="line" className="mb-3 h-auto w-full justify-start rounded-none border-b border-border p-0">
                     <TabsTrigger value="verified" className="h-8 text-xs">
                       Verified ({totalCount})
                     </TabsTrigger>
-                    {unifiedData && unifiedData.web_discoveries.length > 0 && (
+                    {webDiscoveries.length > 0 && (
                       <TabsTrigger value="web" className="h-8 text-xs">
-                        Web ({unifiedData.web_discoveries.length})
+                        Web ({webDiscoveries.length})
                       </TabsTrigger>
                     )}
                   </TabsList>
@@ -764,12 +614,12 @@ export function SearchPageContent() {
                     <ResultHeader
                       totalCount={totalCount}
                       viewMode={viewMode}
-                      onViewModeChange={setViewMode}
+                      onViewModeChange={search.setViewMode}
                       sort={sort}
-                      onSortChange={setSort}
+                      onSortChange={search.setSort}
                     />
                     <VerifiedSections
-                      sections={sectionsData.sections}
+                      sections={state.sections}
                       onCompareToggle={toggleCompare}
                       compareIds={compare.ids}
                       viewMode={viewMode}
@@ -777,7 +627,7 @@ export function SearchPageContent() {
                     />
                   </TabsContent>
 
-                  {unifiedData && unifiedData.web_discoveries.length > 0 && (
+                  {webDiscoveries.length > 0 && (
                     <TabsContent value="web">
                       <div className="mb-3 flex items-center gap-2">
                         <Badge
@@ -786,16 +636,13 @@ export function SearchPageContent() {
                         >
                           <Globe2 className="h-3.5 w-3.5" /> Web Discovery
                         </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          · {unifiedData.metadata?.cache_hit ? "cached" : "live search"}
-                        </span>
                       </div>
                       <p className="mb-4 text-xs text-muted-foreground/90">
                         These listings were discovered from web sources and are not verified inventory.
                         Check the original source for current availability.
                       </p>
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                        {unifiedData.web_discoveries.map((d) => (
+                        {webDiscoveries.map((d) => (
                           <WebDiscoveryCard key={d.id} discovery={d} />
                         ))}
                       </div>
@@ -804,31 +651,24 @@ export function SearchPageContent() {
                 </Tabs>
               )}
 
-              {(!sectionsData || sectionsData.sections.length === 0) &&
-                unifiedData &&
-                unifiedData.web_discoveries.length > 0 && (
-                  <>
-                    <div className="mb-3 flex items-center gap-2">
-                      <Badge
-                        variant="secondary"
-                        className="rounded-md bg-amber-500/15 text-amber-800 text-xs"
-                      >
-                        <Globe2 className="h-3.5 w-3.5" /> Web Discoveries
-                      </Badge>
-                    </div>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                      {unifiedData.web_discoveries.map((d) => (
-                        <WebDiscoveryCard key={d.id} discovery={d} />
-                      ))}
-                    </div>
-                  </>
-                )}
+              {!hasVerified && webDiscoveries.length > 0 && (
+                <>
+                  <div className="mb-3 flex items-center gap-2">
+                    <Badge
+                      variant="secondary"
+                      className="rounded-md bg-amber-500/15 text-amber-800 text-xs"
+                    >
+                      <Globe2 className="h-3.5 w-3.5" /> Web Discoveries
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {webDiscoveries.map((d) => (
+                      <WebDiscoveryCard key={d.id} discovery={d} />
+                    ))}
+                  </div>
+                </>
+              )}
             </>
-          ) : webNotice ? (
-            <div>
-              <IntentChips intent={intent} />
-              {webNotice}
-            </div>
           ) : (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-16 text-center">

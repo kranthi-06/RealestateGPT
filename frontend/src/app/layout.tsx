@@ -3,6 +3,7 @@ import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
 import { SavedProvider } from "@/lib/saved-context";
 import { CompareProvider } from "@/lib/compare-context";
+import { SearchProvider } from "@/lib/search-context";
 import { Toaster } from "@/components/ui/toast";
 import Navbar from "@/components/navbar";
 import CompareBar from "@/components/compare-bar";
@@ -53,12 +54,14 @@ export default function RootLayout({
         <AuthProvider>
           <SavedProvider>
             <CompareProvider>
-              <Navbar />
-              <main className="min-h-[calc(100vh-4rem)]">{children}</main>
-              <div className="fixed inset-x-0 bottom-0 z-30 pointer-events-none [&>*]:pointer-events-auto">
-                <CompareBar />
-              </div>
-              <Toaster />
+              <SearchProvider>
+                <Navbar />
+                <main className="min-h-[calc(100vh-4rem)]">{children}</main>
+                <div className="fixed inset-x-0 bottom-0 z-30 pointer-events-none [&>*]:pointer-events-auto">
+                  <CompareBar />
+                </div>
+                <Toaster />
+              </SearchProvider>
             </CompareProvider>
           </SavedProvider>
         </AuthProvider>

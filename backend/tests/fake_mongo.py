@@ -9,6 +9,7 @@ create_index (no-op). Only the query operators actually used are supported
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
 
@@ -43,6 +44,21 @@ class FakeCursor:
         return self
 
 
+def _comparable(value: Any) -> Any:
+    """Normalize datetimes the way PyMongo does: naive UTC on both sides.
+
+    PyMongo returns naive UTC datetimes, so a stored ``expires_at`` is naive
+    while ``datetime.now(timezone.utc)`` is aware. Comparing the two directly
+    raises TypeError, so both sides are coerced to naive UTC first — exactly
+    what MongoDB does server-side.
+    """
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            return value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
+    return value
+
+
 def _matches(doc: dict, query: dict) -> bool:
     for key, expected in (query or {}).items():
         if key == "$and":
@@ -67,20 +83,20 @@ def _matches(doc: dict, query: dict) -> bool:
                 if not _regex_matches(actual, expected["$regex"], expected.get("$options", "")):
                     return False
                 continue
-            if "$ne" in expected and actual == expected["$ne"]:
+            if "$ne" in expected and _comparable(actual) == _comparable(expected["$ne"]):
                 return False
-            if "$in" in expected and actual not in expected["$in"]:
+            if "$in" in expected and _comparable(actual) not in [_comparable(v) for v in expected["$in"]]:
                 return False
-            if "$gt" in expected and not (actual is not None and actual > expected["$gt"]):
+            if "$gt" in expected and not (actual is not None and _comparable(actual) > _comparable(expected["$gt"])):
                 return False
-            if "$lt" in expected and not (actual is not None and actual < expected["$lt"]):
+            if "$lt" in expected and not (actual is not None and _comparable(actual) < _comparable(expected["$lt"])):
                 return False
-            if "$gte" in expected and not (actual is not None and actual >= expected["$gte"]):
+            if "$gte" in expected and not (actual is not None and _comparable(actual) >= _comparable(expected["$gte"])):
                 return False
-            if "$lte" in expected and not (actual is not None and actual <= expected["$lte"]):
+            if "$lte" in expected and not (actual is not None and _comparable(actual) <= _comparable(expected["$lte"])):
                 return False
             continue
-        if expected is not None and actual != expected:
+        if expected is not None and _comparable(actual) != _comparable(expected):
             return False
     return True
 

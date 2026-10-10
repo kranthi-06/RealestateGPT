@@ -14,6 +14,18 @@ from app.models.user import User
 router = APIRouter(prefix="/properties", tags=["Properties"])
 
 
+def _invalidate_catalogue_cache(db) -> None:
+    """Drop cached catalogue queries + statistics when listings change."""
+    from app.core.cache import CacheRepository
+
+    try:
+        repo = CacheRepository(db)
+        repo.invalidate_namespace("property_search")
+        repo.invalidate_namespace("market_snapshot")
+    except Exception:  # pragma: no cover - never fail a mutation on cache cleanup
+        pass
+
+
 @router.post("/bulk", response_model=List[PropertyCardResponse])
 async def get_properties_bulk(
     data: PropertyBulkRequest,
@@ -76,32 +88,43 @@ async def list_properties(
     ):
         raise HTTPException(status_code=422, detail="latitude, longitude and radius_km must be provided together")
     service = PropertyService(db)
-    return service.search_properties(
-        user_id=current_user.id if current_user else None,
-        q=q,
-        city=city,
-        locality=locality,
-        property_type=property_type,
-        listing_type=listing_type,
-        min_price=min_price,
-        max_price=max_price,
-        bedrooms=bedrooms,
-        bathrooms=bathrooms,
-        min_bedrooms=min_bedrooms,
-        max_bedrooms=max_bedrooms,
-        min_area=min_area,
-        max_area=max_area,
-        furnishing=furnishing,
-        amenities=amenities,
-        latitude=latitude,
-        longitude=longitude,
-        radius_km=radius_km,
-        construction_status=construction_status,
-        sort_by=sort_by,
-        sort_order=sort_order,
-        page=page,
-        page_size=page_size,
-    )
+    user_id = current_user.id if current_user else None
+
+    # Short-lived, non-personalized cache: the identical query for any user
+    # reuses the same catalogue result, and the per-user saved flags are
+    # applied AFTER retrieval so no private data is ever stored in the cache.
+    from app.core.cache import CacheRepository, cache_key, policy_for
+
+    filters = {
+        "q": q, "city": city, "locality": locality, "property_type": property_type,
+        "listing_type": listing_type, "min_price": min_price, "max_price": max_price,
+        "bedrooms": bedrooms, "bathrooms": bathrooms, "min_bedrooms": min_bedrooms,
+        "max_bedrooms": max_bedrooms, "min_area": min_area, "max_area": max_area,
+        "furnishing": furnishing, "amenities": amenities, "latitude": latitude,
+        "longitude": longitude, "radius_km": radius_km,
+        "construction_status": construction_status, "sort_by": sort_by,
+        "sort_order": sort_order, "page": page, "page_size": page_size,
+    }
+    key = cache_key("property_search", filters)
+    cache = CacheRepository(db)
+    entry = cache.get(key)
+    if entry is not None and not entry["is_error"]:
+        result = PropertyListResponse.model_validate(entry["payload"])
+    else:
+        result = service.search_properties(user_id=None, **filters)
+        cache.set(
+            key,
+            result.model_dump(mode="json"),
+            policy=policy_for("property_search"),
+        )
+
+    if user_id:
+        from app.repositories.saved_repo import SavedRepository
+
+        saved_ids = set(SavedRepository(db).get_saved_property_ids(user_id))
+        for item in result.properties:
+            item.is_saved = item.id in saved_ids
+    return result
 
 
 @router.post("", response_model=PropertyResponse, status_code=status.HTTP_201_CREATED)
@@ -111,7 +134,9 @@ async def create_property(
     current_user: User = Depends(get_current_admin),
 ):
     """Create a property. Restricted to admins regardless of UI state."""
-    return PropertyService(db).create_property(data)
+    result = PropertyService(db).create_property(data)
+    _invalidate_catalogue_cache(db)
+    return result
 
 
 @router.get("/featured", response_model=List[PropertyCardResponse])
@@ -157,7 +182,9 @@ async def update_property(
     current_user: User = Depends(get_current_admin),
 ):
     """Update a property. Restricted to admins regardless of frontend permissions."""
-    return PropertyService(db).update_property(property_id, data)
+    result = PropertyService(db).update_property(property_id, data)
+    _invalidate_catalogue_cache(db)
+    return result
 
 
 @router.delete("/{property_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -168,6 +195,7 @@ async def delete_property(
 ):
     """Soft-delete a property while retaining provenance/audit history."""
     PropertyService(db).delete_property(property_id)
+    _invalidate_catalogue_cache(db)
 
 
 @router.get("/{property_id}/price-intelligence", response_model=PriceIntelligenceResponse)
