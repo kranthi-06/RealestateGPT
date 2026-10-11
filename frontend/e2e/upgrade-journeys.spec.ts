@@ -20,14 +20,15 @@ async function register(page: Page, email: string) {
   await page.locator('#name').fill('Journey User');
   await page.locator('#email').fill(email);
   await page.locator('#password').fill(password);
-  await page.getByRole('button', { name: /create/i }).first().click();
-  // Wait until the session cookie is actually established: the navbar swaps
-  // "Sign In / Get Started" for the account menu once /auth/me resolves.
-  await page.waitForFunction(
-    () => !document.body.textContent?.includes('Get Started'),
-    { polling: 400, timeout: 30000 }
-  );
-  await page.waitForTimeout(1000);
+  // Registration redirects to Search only after the API has issued the
+  // session cookie and the auth provider has accepted the response. This is
+  // stable across desktop and mobile; unlike inspecting nav text, it is not
+  // confused by desktop navigation that is visually hidden on small screens.
+  await Promise.all([
+    page.waitForURL(/\/search(?:\?|$)/, { timeout: 30000 }),
+    page.getByRole('button', { name: /create/i }).first().click(),
+  ]);
+  await page.waitForSelector('[data-search-hydrated="true"]', { timeout: 30000 });
 }
 
 async function searchFor(page: Page, q: string, options: { includeWeb?: boolean } = {}) {

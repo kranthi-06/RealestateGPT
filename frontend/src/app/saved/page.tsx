@@ -15,7 +15,7 @@ import {
   Globe2,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
-import { savedApi, discoveryApi } from "@/lib/api";
+import { savedApi } from "@/lib/api";
 import type { SavedPropertyItem, SavedSearch, Property, WebDiscoveryCard as WebDiscoveryCardType } from "@/lib/types";
 import { PropertyListRow } from "@/components/property-list-row";
 import PropertyCard from "@/components/property-card";
@@ -24,7 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { formatPrice } from "@/lib/format";
@@ -305,7 +305,8 @@ export default function SavedPage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="properties" className="mt-6">
+        {activeTab === "properties" && (
+        <section role="tabpanel" aria-label="Saved properties" className="mt-6">
           {error && (
             <div className="mb-6">
               <ErrorState message={error} onRetry={fetchSavedProperties} />
@@ -453,9 +454,11 @@ export default function SavedPage() {
               ))}
             </div>
           )}
-        </TabsContent>
+        </section>
+        )}
 
-        <TabsContent value="discoveries" className="mt-6">
+        {activeTab === "discoveries" && (
+        <section role="tabpanel" aria-label="Saved web discoveries" className="mt-6">
           {discoveriesLoading ? (
             <div className="space-y-4">
               {[...Array(3)].map((_, i) => (
@@ -480,9 +483,11 @@ export default function SavedPage() {
               ))}
             </div>
           )}
-        </TabsContent>
+        </section>
+        )}
 
-        <TabsContent value="searches" className="mt-6">
+        {activeTab === "searches" && (
+        <section role="tabpanel" aria-label="Saved searches" className="mt-6">
           {searchesLoading ? (
             <div className="space-y-3">
               {[...Array(3)].map((_, i) => (
@@ -542,7 +547,8 @@ export default function SavedPage() {
               actionLabel="Search properties"
             />
           )}
-        </TabsContent>
+        </section>
+        )}
       </Tabs>
     </div>
   );

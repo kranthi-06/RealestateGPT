@@ -327,7 +327,7 @@ function VerifiedSections({
   );
 }
 
-export function SearchPageContent() {
+function SearchPageContent() {
   const router = useRouter();
   const search = useSearchState();
   useSyncUrlSearch(typeof window !== "undefined" ? window.location.search.replace(/^\?/, "") : "");

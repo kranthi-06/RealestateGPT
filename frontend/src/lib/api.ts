@@ -54,25 +54,16 @@ export class ApiError extends Error {
   }
 }
 
-const TOKEN_STORAGE_KEY = "regpt_access_token";
-
-export function getStoredToken(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return localStorage.getItem(TOKEN_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-export function setStoredToken(token: string | null): void {
+/**
+ * Remove the token used by pre-cookie versions of the web app. Browser
+ * authentication now uses only the HttpOnly session cookie issued by the API;
+ * keeping a bearer token in localStorage would make it readable to injected
+ * JavaScript.
+ */
+export function clearLegacyStoredToken(): void {
   if (typeof window === "undefined") return;
   try {
-    if (token) {
-      localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    } else {
-      localStorage.removeItem(TOKEN_STORAGE_KEY);
-    }
+    localStorage.removeItem("regpt_access_token");
   } catch {
     // Ignore storage errors in restricted contexts
   }
@@ -82,16 +73,10 @@ async function request<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = getStoredToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
-  // Send the Bearer token whenever available, complementing the HttpOnly session cookie
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
   const res = await fetch(`${API_BASE}/api/v1${endpoint}`, {
     ...options,
     headers,

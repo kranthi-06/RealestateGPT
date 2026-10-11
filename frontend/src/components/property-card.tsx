@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   MapPin,
@@ -94,6 +93,9 @@ export default function PropertyCard({
           {/* Thumbnail */}
           <div className="relative h-24 w-32 sm:w-36 flex-shrink-0 rounded-lg overflow-hidden bg-muted">
             {primaryImage ? (
+              /* Image hosts come from verified catalogue records and are not
+                 safely enumerable for Next's proxy allowlist. */
+              /* eslint-disable-next-line @next/next/no-img-element */
               <img
                 src={primaryImage}
                 alt={property.title}
@@ -306,6 +308,7 @@ export default function PropertyCard({
       <article className="card-surface card-hover flex flex-col h-full overflow-hidden">
         <div className="relative h-48 bg-muted overflow-hidden">
           {primaryImage ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={primaryImage}
               alt={property.title}

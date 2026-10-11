@@ -7,7 +7,7 @@ import { ArrowRight, Building2, Calculator, ChevronRight, GitCompare, Landmark, 
 import { propertiesApi } from "@/lib/api";
 
 const querySuggestions = ["3 BHK near metro in Hyderabad", "Family homes under ₹60 lakh", "Investment property with rental potential"];
-const categories = [["Buy a home", "/search?listing_type=sale"], ["Rent", "/search?listing_type=rent"], ["Explore plots", "/search?property_type=plot"], ["Commercial", "/search?property_type=commercial"]] as const;
+const categories = [["Buy a home", "/search?listing_type=sale"], ["Rent", "/search?listing_type=rent"], ["Explore the map", "/explore"], ["Plots", "/search?property_type=plot"], ["Commercial", "/search?property_type=commercial"]] as const;
 const fallbackCities = ["Hyderabad", "Bangalore", "Mumbai", "Pune", "Chennai", "Delhi NCR"];
 
 function StoryEyebrow({ children, dark = false }: { children: React.ReactNode; dark?: boolean }) {

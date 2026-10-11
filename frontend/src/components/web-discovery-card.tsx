@@ -69,7 +69,7 @@ export default function WebDiscoveryCard({
         setSavingInProgress(false);
       }
     },
-    [isAuthenticated, savingInProgress, isSaved, discovery.id, onSaveToggle, notify, router]
+    [isAuthenticated, savingInProgress, isSaved, discovery.id, onSaveToggle, router]
   );
 
   const sourceLabel =

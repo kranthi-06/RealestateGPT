@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import type { User } from "@/lib/types";
-import { authApi, getStoredToken, setStoredToken, ApiError } from "@/lib/api";
+import { authApi, clearLegacyStoredToken } from "@/lib/api";
 
 interface AuthContextType {
   user: User | null;
@@ -21,22 +21,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   /**
-   * Session restoration combines the HttpOnly session cookie and
-   * the persistent client bearer token for resilient cross-environment auth.
+   * Session restoration is cookie-only. The HttpOnly cookie cannot be read
+   * by page JavaScript, which avoids turning an XSS issue into an account
+   * takeover. Remove the legacy localStorage token if this browser has one.
    */
   useEffect(() => {
     let cancelled = false;
+    clearLegacyStoredToken();
     queueMicrotask(() => {
       authApi
         .getProfile()
         .then((profile) => {
           if (!cancelled) setUser(profile);
         })
-        .catch((err) => {
+        .catch(() => {
           if (!cancelled) {
-            if (err instanceof ApiError && err.status === 401) {
-              setStoredToken(null);
-            }
             setUser(null);
           }
         })
@@ -51,9 +50,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const response = await authApi.login({ email, password });
-    if (response.access_token) {
-      setStoredToken(response.access_token);
-    }
     setUser(response.user);
     return response.user;
   }, []);
@@ -64,9 +60,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       full_name: fullName,
       password,
     });
-    if (response.access_token) {
-      setStoredToken(response.access_token);
-    }
     setUser(response.user);
   }, []);
 
@@ -76,7 +69,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Even if the request fails, drop local state so the UI signs out.
     } finally {
-      setStoredToken(null);
       setUser(null);
     }
   }, []);
