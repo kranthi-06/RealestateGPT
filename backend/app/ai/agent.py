@@ -86,6 +86,7 @@ class GroqToolCallingAgent:
         search_payload: dict | None = None
         total_provider_ms = 0.0
         provider_used = "unknown"
+        tool_limit_reached = False
         for step in range(settings.MAX_AGENT_STEPS):
             completion = gateway.generate_with_tools(messages, self.registry.definitions())
             total_provider_ms += completion["latency_ms"]
@@ -96,7 +97,12 @@ class GroqToolCallingAgent:
             if not calls:
                 break
             if len(records) + len(calls) > settings.MAX_TOOL_CALLS:
-                raise AIValidationError("The AI tool-call limit was reached")
+                # Some providers batch several harmless tools in one turn.
+                # Preserve the verified context already collected and ask for a
+                # final answer rather than returning a 422 to the user.
+                tool_limit_reached = True
+                logger.info("agent_tool_limit_reached calls=%s completed=%s", len(calls), len(records))
+                break
             for call in calls:
                 function = call.get("function") or {}
                 name, arguments = function.get("name"), function.get("arguments", "{}")
@@ -123,6 +129,11 @@ class GroqToolCallingAgent:
             messages.append({
                 "role": "system",
                 "content": "Tool calls are complete. Use the verified tool results already provided and produce the final answer now.",
+            })
+        if tool_limit_reached:
+            messages.append({
+                "role": "system",
+                "content": "The tool-call budget is complete. Use only the verified tool results already provided and produce the final answer now.",
             })
         # The final answer must be a raw JSON object. The model sometimes leaks
         # a second `<tool_call>` here; strip tool-call context and retry once

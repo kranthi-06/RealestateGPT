@@ -130,6 +130,20 @@ def test_agent_returns_only_grounded_property_ids():
     assert result.tool_calls[0].tool == "search_properties"
 
 
+def test_agent_finalizes_when_provider_exceeds_tool_budget(monkeypatch):
+    """A tool budget is a bounded-answer condition, never a client 422."""
+    monkeypatch.setattr(settings, "MAX_TOOL_CALLS", 1)
+    calls = [
+        {"id": "tool-1", "function": {"name": "search_properties", "arguments": '{"query":"Hyderabad"}'}},
+        {"id": "tool-2", "function": {"name": "search_properties", "arguments": '{"query":"Hyderabad"}'}},
+    ]
+    result = GroqToolCallingAgent(
+        None, object(), provider=FakeProvider(calls), registry=FakeRegistry()
+    ).run("Find a home", [])
+    assert result.answer == "Here are verified matches."
+    assert result.tool_calls == []
+
+
 def test_gateway_raises_configuration_error_without_any_provider(monkeypatch):
     """No credential at all must be a clean configuration error, not a crash."""
     from app.ai.gateway import AIGateway
