@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 import type { Property } from "@/lib/types";
 import { formatPrice, formatArea, getBedroomLabel, formatPricePerSqft } from "@/lib/format";
-import { useAuth } from "@/lib/auth-context";
 import { formatDistanceToNow } from "date-fns";
 import { PropertyListRow } from "@/components/property-list-row";
 import { PropertyActions } from "@/components/property-actions";
@@ -56,8 +55,6 @@ export default function PropertyCard({
   aiScore,
   showAiScore = false,
 }: PropertyCardProps) {
-  const { isAuthenticated } = useAuth();
-
   if (variant === "list-row") {
     return (
       <PropertyListRow

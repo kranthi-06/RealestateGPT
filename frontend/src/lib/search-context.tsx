@@ -246,7 +246,6 @@ export function SearchProvider({ children }: { children: ReactNode }) {
         stored.signature === restoredSignature &&
         Date.now() - (stored.fetchedAt ?? 0) < RESULT_MAX_AGE_MS;
       if (restoreResults) {
-        lastSignatureRef.current = restoredSignature;
         return {
           ...base,
           results: stored?.results ?? [],
@@ -399,11 +398,11 @@ export function SearchProvider({ children }: { children: ReactNode }) {
     // never trigger a request: the shared state is restored, not re-run.
     if (pathname !== "/search") return;
     if (signature === lastSignatureRef.current) return;
-    lastSignatureRef.current = signature;
     const hasQuery = (state.filters.q ?? "").trim() || state.userCoords;
     if (!hasQuery) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
+      lastSignatureRef.current = signature;
       void executeSearch(state);
     }, SEARCH_DEBOUNCE_MS);
     return () => {

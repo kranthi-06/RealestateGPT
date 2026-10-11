@@ -15,24 +15,11 @@ export default function ProfilePage() {
   const { user, isLoading, isAuthenticated, refreshProfile } = useAuth();
   const router = useRouter();
 
-  const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.replace("/auth/login?next=/profile");
     }
   }, [isLoading, isAuthenticated, router]);
-
-  useEffect(() => {
-    if (user) {
-      setFullName(user.full_name || "");
-      setPhone(user.phone || "");
-    }
-  }, [user]);
 
   if (isLoading) {
     return (
@@ -45,6 +32,22 @@ export default function ProfilePage() {
   if (!user) {
     return null;
   }
+
+  return <ProfileForm user={user} refreshProfile={refreshProfile} />;
+}
+
+function ProfileForm({
+  user,
+  refreshProfile,
+}: {
+  user: NonNullable<ReturnType<typeof useAuth>["user"]>;
+  refreshProfile: () => Promise<void>;
+}) {
+  const [fullName, setFullName] = useState(user.full_name || "");
+  const [phone, setPhone] = useState(user.phone || "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
