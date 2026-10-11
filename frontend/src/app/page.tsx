@@ -1,324 +1,62 @@
 "use client";
 
 import Link from "next/link";
-import { useState, FormEvent, useEffect } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Search,
-  LocateFixed,
-  Home,
-  KeyRound,
-  MapPin,
-  Building2,
-  Sparkles,
-  Brain,
-  ArrowRight,
-  ChevronRight,
-  CheckCircle2,
-  GitCompare,
-} from "lucide-react";
+import { ArrowRight, Building2, Calculator, ChevronRight, GitCompare, Landmark, MapPin, MessageCircle, Search, Sparkles, TrainFront } from "lucide-react";
 import { propertiesApi } from "@/lib/api";
 
-const quickActions = [
-  { href: "/search?listing_type=sale", label: "Buy", icon: Home, prefix: "🏠" },
-  { href: "/search?listing_type=rent", label: "Rent", icon: KeyRound, prefix: "🔑" },
-  { href: "/search?property_type=plot", label: "Plots", icon: MapPin, prefix: "🗺️" },
-  { href: "/search?property_type=commercial", label: "Commercial", icon: Building2, prefix: "🏢" },
-];
+const querySuggestions = ["3 BHK near metro in Hyderabad", "Family homes under ₹60 lakh", "Investment property with rental potential"];
+const categories = [["Buy a home", "/search?listing_type=sale"], ["Rent", "/search?listing_type=rent"], ["Explore plots", "/search?property_type=plot"], ["Commercial", "/search?property_type=commercial"]] as const;
+const fallbackCities = ["Hyderabad", "Bangalore", "Mumbai", "Pune", "Chennai", "Delhi NCR"];
 
-const fallbackCities = [
-  "Hyderabad",
-  "Bangalore",
-  "Mumbai",
-  "Pune",
-  "Chennai",
-  "Delhi NCR",
-  "Kolkata",
-  "Ahmedabad",
-  "Jaipur",
-  "Surat",
-  "Lucknow",
-  "Nagpur",
-];
-
-const howItWorks = [
-  {
-    step: "01",
-    title: "AI Search",
-    body: "Describe what you want in plain language — budgets, localities, amenities, proximity.",
-    icon: Sparkles,
-  },
-  {
-    step: "02",
-    title: "Evaluate with Scores",
-    body: "Every listing gets 6 AI scores, pros/cons, real distances, and price benchmarks.",
-    icon: Brain,
-  },
-  {
-    step: "03",
-    title: "Compare & Decide",
-    body: "Side-by-side tables, affordability, and AI recommendation to close with confidence.",
-    icon: GitCompare,
-  },
-];
+function StoryEyebrow({ children, dark = false }: { children: React.ReactNode; dark?: boolean }) {
+  return <p className={`landing-eyebrow ${dark ? "landing-eyebrow-dark" : ""}`}>{children}</p>;
+}
 
 export default function HomePage() {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [cities, setCities] = useState<string[] | null>(null);
-  const [citiesError, setCitiesError] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    propertiesApi
-      .getCities()
-      .then((list) => {
-        if (!cancelled) setCities(Array.isArray(list) ? list.slice(0, 18) : null);
-      })
-      .catch(() => {
-        if (!cancelled) setCitiesError(true);
-      });
-    return () => {
-      cancelled = true;
-    };
+    let active = true;
+    propertiesApi.getCities().then((items) => { if (active && Array.isArray(items)) setCities(items.slice(0, 6)); }).catch(() => undefined);
+    return () => { active = false; };
   }, []);
 
-  const handleSearch = (e: FormEvent) => {
-    e.preventDefault();
-    if (!query.trim()) return;
+  function search(value: string) {
+    if (!value.trim()) return;
     setIsSearching(true);
-    const params = new URLSearchParams();
-    params.set("q", query.trim());
-    router.push(`/search?${params.toString()}`);
-    setIsSearching(false);
-  };
+    router.push(`/search?q=${encodeURIComponent(value.trim())}`);
+  }
+  function handleSearch(event: FormEvent) { event.preventDefault(); search(query); }
 
-  const displayCities = cities ?? (!citiesError ? null : fallbackCities);
-
-  return (
-    <div className="min-h-screen bg-background">
-      <section className="py-12 sm:py-16 lg:py-20">
-        <div className="page-shell">
-          <div className="mx-auto max-w-4xl text-center">
-            <Badge variant="default" className="mb-5 gap-1.5 px-3 py-1 text-[11px] uppercase tracking-wider animate-in animate-stagger-1">
-              <Sparkles className="h-3 w-3" />
-              AI · Search · Real Estate Intelligence
-            </Badge>
-
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-foreground animate-in animate-stagger-2">
-              Search smarter. <span className="text-primary">Decide faster.</span>
-            </h1>
-
-            <p className="mt-4 text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto animate-in animate-stagger-3">
-              A decision engine for real estate — natural-language search, AI-scored listings,
-              real nearby-facility distances, and side-by-side comparisons grounded in live data.
-            </p>
-
-            <form onSubmit={handleSearch} className="mt-10 max-w-3xl mx-auto animate-in animate-stagger-4">
-              <div className="group/card relative">
-                <div className="absolute -inset-[1px] rounded-2xl bg-gradient-to-b from-primary/20 via-primary/10 to-transparent opacity-60 blur-sm transition-opacity group-hover/card:opacity-100 pointer-events-none" aria-hidden />
-                <div className="relative flex items-stretch gap-2 rounded-2xl border border-border bg-card p-2 shadow-sm focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/40">
-                  <div className="flex flex-1 items-center gap-2 px-3">
-                    <Search className="h-5 w-5 shrink-0 text-primary" />
-                    <Input
-                      placeholder='Try "2 BHK under ₹40L near a hospital in Hyderabad"'
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      className="h-12 border-0 bg-transparent px-0 text-base placeholder:text-muted-foreground/60 focus-visible:ring-0 focus-visible:ring-offset-0"
-                      aria-label="Search properties with AI"
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    size="lg"
-                    disabled={isSearching || !query.trim()}
-                    className="h-12 rounded-xl px-6 gap-2"
-                  >
-                    {isSearching ? (
-                      <>
-                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" fill="none" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                        </svg>
-                        Searching
-                      </>
-                    ) : (
-                      <>
-                        Search
-                        <ArrowRight className="h-4 w-4" />
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
-              <p className="mt-3 text-[11px] text-muted-foreground">
-                Verified listings · Server-side location lookup · No frontend API keys
-              </p>
-            </form>
-
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-2 animate-in animate-stagger-5">
-              {quickActions.map((a) => (
-                <Link
-                  key={a.href}
-                  href={a.href}
-                  className="group inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3.5 py-2 text-sm font-medium text-foreground transition-all hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
-                >
-                  <span aria-hidden className="text-sm">{a.prefix}</span>
-                  {a.label}
-                </Link>
-              ))}
-            </div>
-          </div>
+  return <div className="landing-page overflow-hidden bg-[#f7f6f1] text-[#17372e]">
+    <section className="landing-hero relative isolate min-h-[760px] overflow-hidden bg-[#153c31] text-[#f7f6f1]">
+      <div className="landing-hero-image" aria-hidden="true" /><div className="landing-grain" aria-hidden="true" />
+      <div className="page-shell relative z-10 grid min-h-[760px] items-end gap-12 pb-14 pt-16 lg:grid-cols-[1.12fr_.88fr] lg:pb-20 lg:pt-24">
+        <div className="max-w-3xl"><StoryEyebrow dark>Real estate intelligence, made human</StoryEyebrow>
+          <h1 className="landing-display mt-6 text-5xl leading-[.94] sm:text-6xl lg:text-[5.7rem]">Finding the right home <em>should feel different.</em></h1>
+          <p className="mt-7 max-w-xl text-base leading-7 text-[#e7eadf]/80 sm:text-lg">Search naturally. Understand every location. Compare your possibilities. Make your next move with confidence.</p>
+          <form onSubmit={handleSearch} className="landing-search mt-9" aria-label="Property search"><div className="flex items-center gap-3 border-b border-[#d5ddcb]/40 px-1 pb-3"><Search className="size-5 shrink-0 text-[#b5d67c]" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-base text-white outline-none placeholder:text-[#dbe3d5]/55" placeholder="Describe the place you're looking for" aria-label="Describe the property you want" /><button type="submit" disabled={!query.trim() || isSearching} className="landing-round-button" aria-label="Search properties"><ArrowRight className="size-5" /></button></div><div className="mt-4 flex flex-wrap gap-2">{querySuggestions.map((suggestion) => <button key={suggestion} type="button" onClick={() => setQuery(suggestion)} className="landing-suggestion">{suggestion}</button>)}</div></form>
+          <div className="mt-8 flex flex-wrap gap-x-5 gap-y-3 text-sm text-[#e7eadf]/80">{categories.map(([label, href]) => <Link key={label} href={href} className="group inline-flex items-center gap-1.5 hover:text-[#b5d67c]"><span>{label}</span><ChevronRight className="size-3.5 transition-transform group-hover:translate-x-0.5" /></Link>)}</div>
         </div>
-      </section>
+        <aside className="landing-hero-note justify-self-end self-center lg:mt-24"><p className="font-mono text-[10px] uppercase tracking-[.2em] text-[#b5d67c]">A clearer place to begin</p><p className="mt-4 font-serif text-2xl leading-tight">One question can reveal a world of possibilities.</p><div className="mt-7 flex items-center gap-3 border-t border-white/15 pt-4 text-xs text-[#e7eadf]/65"><span className="size-2 rounded-full bg-[#b5d67c]" />Live inventory, location context & decision tools</div></aside>
+      </div>
+    </section>
 
-      <section className="py-10 sm:py-14">
-        <div className="page-shell">
-          <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <span className="eyebrow">Popular locations</span>
-              <h2 className="mt-1 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-                Browse cities with live inventory
-              </h2>
-            </div>
-            <Link href="/search" className="text-sm font-medium link">
-              View all search <ChevronRight className="ml-0.5 inline h-4 w-4 align-[-2px]" />
-            </Link>
-          </div>
+    <section className="landing-section bg-[#f7f6f1]" aria-labelledby="natural-search-heading"><div className="page-shell grid gap-12 lg:grid-cols-[.75fr_1.25fr] lg:items-start"><div className="lg:sticky lg:top-28"><StoryEyebrow>01 — Ask in your own words</StoryEyebrow><h2 id="natural-search-heading" className="landing-heading mt-5">From a question to the right possibilities.</h2><p className="landing-copy mt-6">RealEstateGPT turns intent into a useful starting point—without asking you to learn a maze of filters.</p><Link href="/search" className="landing-text-link mt-8">Start a search <ArrowRight className="size-4" /></Link></div><div className="landing-query-panel"><div className="flex items-center gap-3"><span className="flex size-9 items-center justify-center rounded-full bg-[#b7d77e] text-[#153c31]"><MessageCircle className="size-4" /></span><p className="font-medium">“Find a spacious 3 BHK apartment near a metro station in Hyderabad.”</p></div><div className="my-8 h-px bg-[#17372e]/10" /><p className="text-[11px] font-semibold uppercase tracking-[.16em] text-[#557167]">What we understood</p><div className="mt-4 grid gap-3 sm:grid-cols-2">{[["Location", "Hyderabad"], ["Home type", "Apartment"], ["Space", "3 bedrooms"], ["Priority", "Near metro"]].map(([key, value]) => <div className="landing-query-item" key={key}><span>{key}</span><strong>{value}</strong></div>)}</div><div className="mt-8 flex items-end justify-between gap-4"><div><p className="text-xs text-[#557167]">Then, refine the search with your live catalog.</p><p className="mt-1 font-serif text-2xl">Your requirements, made useful.</p></div><Search className="size-8 text-[#74a84a]" /></div></div></div></section>
 
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 md:grid-cols-4 lg:grid-cols-6">
-            {displayCities === null && !citiesError
-              ? Array.from({ length: 12 }).map((_, i) => (
-                  <div key={i} className="rounded-xl border border-border bg-card p-3">
-                    <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="mt-2 h-3 w-1/2" />
-                  </div>
-                ))
-              : (displayCities ?? fallbackCities).slice(0, 12).map((city) => (
-                  <Link
-                    key={city}
-                    href={`/search?city=${encodeURIComponent(city)}`}
-                    className="group rounded-xl border border-border bg-card p-3 sm:p-3.5 transition-all hover:border-primary/30 hover:shadow-sm"
-                  >
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <MapPin className="h-3 w-3" />
-                      City
-                    </div>
-                    <div className="mt-1 flex items-baseline justify-between gap-2">
-                      <h3 className="truncate text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
-                        {city}
-                      </h3>
-                      <ArrowRight className="h-3.5 w-3.5 shrink-0 translate-x-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
-                    </div>
-                    {cities && (
-                      <Badge variant="outline" className="mt-2 px-1.5 py-0 text-[10px]">
-                        Live catalog
-                      </Badge>
-                    )}
-                  </Link>
-                ))}
-          </div>
-          {citiesError && displayCities && (
-            <p className="mt-3 text-[11px] text-muted-foreground">
-              * City list is an illustrative sample; catalog API was temporarily unreachable.
-            </p>
-          )}
-        </div>
-      </section>
+    <section className="landing-place-section" aria-labelledby="place-heading"><div className="landing-place-image" aria-hidden="true" /><div className="page-shell relative z-10 grid min-h-[680px] items-end py-14 lg:grid-cols-2 lg:py-20"><div className="max-w-xl text-white"><StoryEyebrow dark>02 — Explore the whole picture</StoryEyebrow><h2 id="place-heading" className="landing-heading mt-5 text-white">A home is more than its four walls.</h2><p className="mt-6 max-w-lg text-base leading-7 text-white/75">See the surrounding place—the routines, routes, and essentials that shape how a property feels every day.</p></div><div className="landing-map-card mt-10 lg:justify-self-end"><div className="flex items-center justify-between"><span className="font-mono text-[10px] uppercase tracking-[.18em] text-[#557167]">Location context</span><MapPin className="size-4 text-[#4b8d56]" /></div><div className="landing-map-art mt-5"><span className="map-dot map-dot-one" /><span className="map-dot map-dot-two" /><span className="map-dot map-dot-three" /><span className="map-route" /></div><div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs"><span><TrainFront className="mx-auto mb-1 size-3.5 text-[#4b8d56]" />Metro<br /><b>0.8 km</b></span><span><Building2 className="mx-auto mb-1 size-3.5 text-[#4b8d56]" />Hospital<br /><b>1.2 km</b></span><span><Landmark className="mx-auto mb-1 size-3.5 text-[#4b8d56]" />School<br /><b>1.5 km</b></span></div><p className="mt-4 text-[10px] leading-4 text-[#557167]">Nearby places appear only when location data is available.</p></div></div></section>
 
-      <section className="py-10 sm:py-14 border-y border-border/50 bg-muted/20">
-        <div className="page-shell">
-          <div className="mb-8 text-center max-w-2xl mx-auto">
-            <span className="eyebrow">How it works</span>
-            <h2 className="mt-1 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-              From query to decision in 3 steps
-            </h2>
-          </div>
+    <section className="landing-section bg-[#e8e7de]" aria-labelledby="compare-heading"><div className="page-shell"><div className="grid gap-10 lg:grid-cols-[.8fr_1.2fr]"><div><StoryEyebrow>03 — See the trade-offs</StoryEyebrow><h2 id="compare-heading" className="landing-heading mt-5">The details that make a decision.</h2><p className="landing-copy mt-6">Put opportunities beside each other. Let price, space, location, and available financial data tell a more complete story.</p><Link href="/compare" className="landing-text-link mt-8">Compare properties <GitCompare className="size-4" /></Link></div><div className="landing-comparison overflow-x-auto"><div className="min-w-[520px]"><div className="grid grid-cols-[1fr_1fr_1fr] border-b border-[#17372e]/15 pb-4 text-xs font-semibold uppercase tracking-[.12em] text-[#557167]"><span>At a glance</span><span className="text-[#17372e]">Option A</span><span>Option B</span></div>{[["Asking price", "₹58L", "₹61L"], ["Living space", "1,420 sq ft", "1,580 sq ft"], ["Metro access", "0.8 km", "1.4 km"], ["Price / sq ft", "₹4,085", "₹3,861"]].map(([label,a,b], index) => <div key={label} className="grid grid-cols-[1fr_1fr_1fr] border-b border-[#17372e]/10 py-4 text-sm"><span className="text-[#557167]">{label}</span><strong className={index === 0 || index === 2 ? "text-[#3f844c]" : ""}>{a}</strong><span>{b}</span></div>)}<p className="mt-5 text-xs text-[#557167]">Illustrative format—open Compare to work with selected live listings.</p></div></div></div></div></section>
 
-          <div className="grid gap-4 md:grid-cols-3 md:gap-5">
-            {howItWorks.map((w, i) => {
-              const Icon = w.icon;
-              return (
-                <Card key={w.step} className="overflow-hidden">
-                  <CardContent className="p-5 sm:p-6">
-                    <div className="flex items-center justify-between">
-                      <Badge variant="default" className="gap-1 px-2 py-0.5 text-[10px] font-mono">
-                        STEP {w.step}
-                      </Badge>
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                        <Icon className="h-4.5 w-4.5" />
-                      </div>
-                    </div>
-                    <h3 className="mt-4 text-base font-semibold text-foreground sm:text-lg">{w.title}</h3>
-                    <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">{w.body}</p>
-                    <div className="mt-5 flex items-center gap-1 text-xs text-muted-foreground">
-                      {Array.from({ length: 3 }).map((_, j) => (
-                        <CheckCircle2
-                          key={j}
-                          className={`h-3.5 w-3.5 ${j <= i ? "text-primary" : "text-border"}`}
-                        />
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        </div>
-      </section>
+    <section className="landing-section bg-[#f7f6f1]" aria-labelledby="numbers-heading"><div className="page-shell grid gap-10 lg:grid-cols-2 lg:items-center"><div className="landing-finance-graphic"><div className="landing-finance-orbit" /><div className="relative z-10"><span className="font-mono text-[10px] uppercase tracking-[.18em] text-[#7da35a]">Decision lens</span><p className="mt-3 font-serif text-5xl">₹42,600</p><p className="mt-1 text-sm text-white/65">estimated monthly EMI</p><div className="mt-9 grid grid-cols-2 gap-5 border-t border-white/15 pt-5 text-xs"><span>Upfront costs<br /><b className="text-base text-white">₹14.5L</b></span><span>Rental yield<br /><b className="text-base text-white">Available data</b></span></div></div></div><div><StoryEyebrow>04 — Understand the numbers</StoryEyebrow><h2 id="numbers-heading" className="landing-heading mt-5">Know what a move could mean.</h2><p className="landing-copy mt-6">Bring affordability, ownership costs, rental potential, and cash flow into the same conversation—always with your own assumptions in view.</p><Link href="/finance" className="landing-text-link mt-8">Explore investment intelligence <Calculator className="size-4" /></Link><p className="mt-6 text-xs leading-5 text-[#557167]">Estimates depend on available listing data and the assumptions you choose. They are not financial advice or a lender quote.</p></div></div></section>
 
-      <section className="py-10 sm:py-12">
-        <div className="page-shell">
-          <div className="grid gap-4 md:grid-cols-[1.4fr_1fr]">
-            <Card>
-              <CardContent className="p-5 sm:p-6">
-                <Badge variant="outline" className="gap-1 text-[10px] uppercase tracking-wide">
-                  <Sparkles className="h-3 w-3" />
-                  Try the AI Assistant
-                </Badge>
-                <h3 className="mt-3 text-xl font-semibold text-foreground">
-                  Talk to RealEstateGPT — not a generic chatbot
-                </h3>
-                <p className="mt-1.5 text-sm text-muted-foreground">
-                  Ask for investment advice, area analysis, shortlists, or comparisons.
-                  Every reply is grounded in your saved data, listings, and backend tools.
-                </p>
-                <Button asChild className="mt-4 gap-1.5">
-                  <Link href="/assistant">
-                    Open AI Assistant <ArrowRight className="h-4 w-4" />
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-5 sm:p-6">
-                <Badge variant="outline" className="gap-1 text-[10px] uppercase tracking-wide">
-                  <LocateFixed className="h-3 w-3" />
-                  Near you
-                </Badge>
-                <h3 className="mt-3 text-xl font-semibold text-foreground">
-                  Search around your current location
-                </h3>
-                <p className="mt-1.5 text-sm text-muted-foreground">
-                  Grant browser location access on the Search page to find verified listings
-                  within a radius of you — or search by city, locality, or address.
-                </p>
-                <Button asChild variant="outline" className="mt-4 gap-1.5">
-                  <Link href="/search">
-                    Search near me <ArrowRight className="h-4 w-4" />
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
+    <section className="landing-assistant-section" aria-labelledby="assistant-heading"><div className="page-shell grid gap-12 py-20 lg:grid-cols-2 lg:py-28"><div><StoryEyebrow dark>05 — Your real estate assistant</StoryEyebrow><h2 id="assistant-heading" className="landing-heading mt-5 text-white">A conversation that keeps the decision moving.</h2><p className="mt-6 max-w-lg text-base leading-7 text-white/70">Ask a better question. Review results. Compare what matters. The assistant is designed to join the journey, not replace it.</p><Link href="/assistant" className="landing-light-link mt-8">Meet the AI assistant <Sparkles className="size-4" /></Link></div><div className="landing-chat"><div className="landing-chat-user">I have a budget of ₹60 lakh. Help me find a suitable property.</div><div className="landing-chat-ai"><span className="mb-2 block text-[10px] font-bold uppercase tracking-[.16em] text-[#6d9847]">RealEstateGPT</span>Let&apos;s explore properties that match your budget, location preferences, and priorities.<div className="mt-4 flex gap-1"><i /><i /><i /></div></div><p className="mt-5 text-[10px] leading-4 text-white/45">The assistant is available when signed in. Marketing examples do not send AI requests.</p></div></div></section>
+
+    <section className="landing-closing bg-[#b5d67c] py-20 sm:py-28"><div className="page-shell text-center"><p className="font-mono text-[10px] font-bold uppercase tracking-[.22em] text-[#31522d]">Discover · Explore · Compare · Understand · Decide</p><h2 className="landing-display mx-auto mt-6 max-w-4xl text-5xl leading-[.95] text-[#153c31] sm:text-7xl">Your next move starts with <em>clarity.</em></h2><Link href="/search" className="landing-closing-cta mt-10">Begin searching <ArrowRight className="size-5" /></Link><div className="mt-16 flex flex-wrap justify-center gap-x-5 gap-y-3 text-sm text-[#31522d]">{(cities ?? fallbackCities).map((city) => <Link key={city} href={`/search?city=${encodeURIComponent(city)}`} className="underline decoration-[#31522d]/30 underline-offset-4 hover:decoration-[#31522d]">{city}</Link>)}</div></div></section>
+  </div>;
 }
