@@ -103,7 +103,12 @@ async def market_insights(
     else:
         snapshot = service.snapshot(flt, include_history=include_history)
         payload = snapshot.to_dict()
-        cache.set(snapshot_key, payload, policy=policy_for("market_snapshot"))
+        # Caching is strictly additive: a cache failure must never break the
+        # statistics response.
+        try:
+            cache.set(snapshot_key, payload, policy=policy_for("market_snapshot"))
+        except Exception:  # pragma: no cover - defensive
+            logger.info("market_snapshot_cache_set_failed", exc_info=True)
 
     snapshot_total = payload.get("totals", {}).get("listings", 0)
     snapshot_sale = payload.get("totals", {}).get("sale", 0)

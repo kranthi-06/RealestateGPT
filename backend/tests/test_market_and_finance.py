@@ -7,6 +7,7 @@ the standard amortisation EMI formula.
 from __future__ import annotations
 
 import math
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -415,3 +416,137 @@ def test_market_insights_regex_input_is_escaped(client):
         assert response.json()["totals"]["listings"] == 0
     finally:
         app.dependency_overrides.clear()
+
+
+# ─── Cache must never break an endpoint ────────────────────────────────────
+
+class _NoCacheCollectionsDb(_FindOnlyDb):
+    """A database handle that refuses any collection outside the catalogue.
+
+    Mirrors what a restricted or read-only deployment handle can do:
+    ``db["app_cache"]`` raises KeyError. Caching is additive, so every
+    endpoint must still answer.
+    """
+
+    def __init__(self, docs):
+        super().__init__(docs)
+        # Collections the property service needs at construction time. Kept so
+        # the only missing collection is the cache itself.
+        self.saved_properties = self.properties
+        self.saved_searches = self.properties
+        self.comparisons = self.properties
+        self.search_history = self.properties
+
+    def __getitem__(self, name):
+        if name in ("saved_properties", "saved_searches", "comparisons", "search_history"):
+            return self.properties
+        return super().__getitem__(name)
+
+
+def test_market_insights_works_when_the_cache_collection_is_unavailable():
+    """Regression: the cache must not make /market/insights fail.
+
+    The snapshot cache previously constructed ``CacheRepository(db)``
+    eagerly, which accessed ``db["app_cache"]`` outside any error handling.
+    Against a handle that raises for unknown collections this turned a
+    working 200 into a 500, and it escaped local runs because the tests that
+    cover this endpoint were skipped by the live-database guard.
+    """
+    client = TestClient(app)
+    app.dependency_overrides[get_db] = lambda: _NoCacheCollectionsDb(
+        [_listing(city="Hyderabad", price=3500000)]
+    )
+    try:
+        response = client.get("/api/v1/market/insights?city=Hyderabad")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["totals"]["listings"] == 1
+        # External research is additive and honest even without a cache.
+        assert body["external"] is not None
+        assert body["external"]["status"] in ("not_configured", "unavailable", "ok", "no_results")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_properties_list_works_when_the_cache_collection_is_unavailable():
+    """The property-search cache must degrade to a no-op, not a 500.
+
+    Uses a full in-memory DB that refuses only ``app_cache`` so the assertion
+    isolates cache degradation (a minimal find-only stub cannot serve the
+    property repository at all).
+    """
+    from tests.fake_mongo import FakeDB
+
+    class _NoCacheDb:
+        def __init__(self):
+            self._inner = FakeDB()
+
+        def __getitem__(self, name):
+            if name == "app_cache":
+                raise KeyError(name)
+            return self._inner[name]
+
+    store = _NoCacheDb()
+    now = datetime.now(timezone.utc)
+    store["properties"].insert_one({
+        "_id": 9001,
+        "title": "Test Property 9001",
+        "slug": "test-property-9001",
+        "price": 3500000.0,
+        "currency": "INR",
+        "property_type": "apartment",
+        "listing_type": "sale",
+        "bedrooms": 2,
+        "bathrooms": 2,
+        "area_sqft": 1100.0,
+        "price_per_sqft": 3181.0,
+        "city": "Hyderabad",
+        "locality": "HITEC City",
+        "state": "Telangana",
+        "source": "test",
+        "source_type": "admin",
+        "verification_status": "verified",
+        "is_featured": False,
+        "is_synthetic": False,
+        "is_active": True,
+        "status": "active",
+        "amenities": [],
+        "images": [],
+        "data_quality_score": 100.0,
+        "created_at": now,
+        "updated_at": now,
+        "last_verified_at": now,
+    })
+
+    client = TestClient(app)
+    app.dependency_overrides[get_db] = lambda: store
+    try:
+        response = client.get("/api/v1/properties?city=Hyderabad")
+        assert response.status_code == 200
+        assert response.json()["total"] == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_cache_repository_degrades_when_the_collection_is_missing():
+    """Directly assert the cache never raises for an unusable handle."""
+    from app.core.cache import CacheRepository
+
+    class _RaisingDb:
+        def __getitem__(self, name):
+            raise KeyError(name)
+
+    cache = CacheRepository(_RaisingDb())
+    assert cache.coll is None
+    # Every operation is a no-op rather than an error.
+    assert cache.get("k") is None
+    assert cache.get_including_stale("k") is None
+    assert cache.set("k", {"v": 1}) is None
+    assert cache.delete("k") is None
+    assert cache.invalidate_namespace("market_research") == 0
+    assert cache.cleanup() == 0
+    assert cache.stats()["fresh_entries_by_namespace"] == {}
+    # A miss still runs the producer (coalescing preserved), uncached.
+    result = cache.get_or_set("k", lambda: {"value": "computed"}, ttl_seconds=60)
+    assert result["payload"] == {"value": "computed"}
+    assert result["cache_hit"] is False

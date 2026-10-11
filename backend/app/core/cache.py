@@ -141,16 +141,29 @@ class CacheRepository:
 
     def __init__(self, db=None) -> None:
         self.db = db if db is not None else get_database()
-        self.coll = self.db[self.COLLECTION]
+        # Resolve the collection tolerantly: a database handle that does not
+        # expose this collection (for example a test stub that raises KeyError
+        # for unknown names) must not make construction fail. The cache is
+        # strictly additive, so it degrades to a no-op instead.
+        try:
+            self.coll = self.db[self.COLLECTION]
+        except Exception:  # pragma: no cover - degraded/foreign db handles
+            self.coll = None
         # In-flight producers: cache_key -> Future. Concurrent identical
         # requests await the same future instead of duplicating upstream work.
         self._inflight: Dict[str, Future] = {}
         self._lock = threading.Lock()
 
+    def _usable(self) -> bool:
+        """False when the backing collection is unavailable. Every public
+        operation degrades to a no-op in that case, so a caller can never
+        fail because of the cache."""
+        return self.coll is not None
+
     # ── reads ───────────────────────────────────────────────────────────
     def get(self, key: str) -> Optional[dict]:
         """Return a *fresh* entry, or None (miss / expired)."""
-        if not key:
+        if not key or not self._usable():
             return None
         try:
             doc = self.coll.find_one({"key": key, "expires_at": {"$gt": _utcnow()}})
@@ -174,7 +187,7 @@ class CacheRepository:
 
     def get_including_stale(self, key: str) -> Optional[dict]:
         """Return the entry even when expired (honest 'previously cached' UI)."""
-        if not key:
+        if not key or not self._usable():
             return None
         try:
             doc = self.coll.find_one({"key": key})
@@ -203,7 +216,7 @@ class CacheRepository:
         is_error: bool = False,
         policy: Optional[CachePolicy] = None,
     ) -> None:
-        if not key:
+        if not key or not self._usable():
             return
         policy = policy or CachePolicy(3600, "default")
         ttl = coerce_ttl(policy, ttl_seconds)
@@ -231,7 +244,7 @@ class CacheRepository:
             logger.info("cache_set_failed key=%s err=%s", key, exc)
 
     def delete(self, key: str) -> None:
-        if not key:
+        if not key or not self._usable():
             return
         try:
             self.coll.delete_one({"key": key})
@@ -240,6 +253,8 @@ class CacheRepository:
 
     def invalidate_namespace(self, namespace: str) -> int:
         """Drop every entry in a namespace (e.g. when listings change)."""
+        if not self._usable():
+            return 0
         prefix = f"{namespace.strip().lower()}:"
         try:
             result = self.coll.delete_many({"key": {"$regex": f"^{prefix}"}})
@@ -357,6 +372,8 @@ class CacheRepository:
     # ── housekeeping ────────────────────────────────────────────────────
     def cleanup(self, limit: int = 1000) -> int:
         """Delete expired entries (defensive; the TTL index does the work)."""
+        if not self._usable():
+            return 0
         try:
             result = self.coll.delete_many({"expires_at": {"$lt": _utcnow()}}).acknowledged
             return 0 if not result else limit  # deleted_count is not exposed here
@@ -365,15 +382,17 @@ class CacheRepository:
 
     def stats(self) -> dict:
         """Non-sensitive observability: counts per namespace and hit counters."""
-        try:
-            pipeline = [
-                {"$match": {"expires_at": {"$gt": _utcnow()}}},
-                {"$project": {"ns": {"$arrayElemAt": [{"$split": ["$key", ":"]}, 0]}}},
-                {"$group": {"_id": "$ns", "entries": {"$sum": 1}}},
-            ]
-            rows = list(self.coll.aggregate(pipeline))
-        except Exception:  # pragma: no cover - defensive
-            rows = []
+        rows: list = []
+        if self._usable():
+            try:
+                pipeline = [
+                    {"$match": {"expires_at": {"$gt": _utcnow()}}},
+                    {"$project": {"ns": {"$arrayElemAt": [{"$split": ["$key", ":"]}, 0]}}},
+                    {"$group": {"_id": "$ns", "entries": {"$sum": 1}}},
+                ]
+                rows = list(self.coll.aggregate(pipeline))
+            except Exception:  # pragma: no cover - defensive
+                rows = []
         return {
             "fresh_entries_by_namespace": {row["_id"]: row["entries"] for row in rows},
             "in_flight_producers": len(self._inflight),
