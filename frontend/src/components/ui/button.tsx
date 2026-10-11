@@ -26,14 +26,14 @@ const Slot = React.forwardRef<
 Slot.displayName = "Slot";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98]",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/15 disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98]",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm",
-        primary: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm",
+        default: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-[0_5px_14px_rgb(44_112_73_/_0.18)]",
+        primary: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-[0_5px_14px_rgb(44_112_73_/_0.18)]",
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        outline: "border border-border bg-transparent hover:bg-accent",
+        outline: "border border-border/90 bg-card hover:border-primary/30 hover:bg-accent",
         ghost: "bg-transparent hover:bg-accent",
         destructive: "bg-destructive text-white hover:bg-destructive/90 shadow-sm",
         success: "bg-green-600 text-white hover:bg-green-700 shadow-sm",

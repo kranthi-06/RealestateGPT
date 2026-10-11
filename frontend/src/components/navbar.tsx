@@ -61,15 +61,15 @@ export default function Navbar() {
   };
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border/60 bg-background/95 backdrop-blur-xl">
+    <header className="sticky top-0 z-50 border-b border-border/60 bg-[#f8f7f2]/90 shadow-[0_1px_0_rgb(21_60_49_/_0.03)] backdrop-blur-xl">
       <div className="container-page">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2.5" aria-label="RealEstateGPT Home">
-            <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-[0_5px_14px_rgb(44_112_73_/_0.18)]">
               <Building2 className="w-5 h-5" />
             </div>
-            <span className="text-lg font-bold tracking-tight text-foreground">
+            <span className="font-serif text-lg font-bold tracking-tight text-foreground">
               RealEstate<span className="text-primary">GPT</span>
             </span>
           </Link>

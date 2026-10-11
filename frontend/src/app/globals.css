@@ -148,12 +148,24 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    background-image: linear-gradient(180deg, rgb(247 247 241 / .72), transparent 28rem);
   }
   html {
     @apply font-sans scroll-smooth;
   }
   ::selection {
     @apply bg-primary/20 text-primary;
+  }
+  main h1:not(.landing-display), main h2:not(.landing-heading) {
+    font-family: Georgia, "Times New Roman", serif;
+  }
+  main table thead {
+    background: color-mix(in oklab, var(--muted) 72%, white);
+  }
+  main table th {
+    font-size: .72rem;
+    letter-spacing: .055em;
+    text-transform: uppercase;
   }
 }
 
@@ -170,10 +182,26 @@
   .page-shell {
     @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
   }
+  .app-kicker {
+    @apply text-[10px] font-bold uppercase tracking-[0.18em] text-primary;
+  }
+  .app-page-title {
+    font-family: Georgia, "Times New Roman", serif;
+    @apply text-3xl font-semibold tracking-[-0.035em] text-foreground sm:text-4xl;
+  }
+  .app-page-copy {
+    @apply mt-2 max-w-2xl text-sm leading-6 text-muted-foreground;
+  }
+  .app-surface {
+    @apply rounded-2xl border border-border/80 bg-card shadow-[0_1px_2px_rgb(21_60_49_/_0.04),0_10px_28px_rgb(21_60_49_/_0.035)];
+  }
+  .app-page-enter {
+    animation: pageEnter .45s ease-out both;
+  }
 
   /* Compact info-dense list rows */
   .compact-card-row {
-    @apply rounded-xl border border-border bg-card p-3 sm:p-3.5 transition-all hover:border-primary/30 hover:shadow-sm;
+    @apply rounded-2xl border border-border/80 bg-card p-3 sm:p-3.5 shadow-[0_1px_2px_rgb(21_60_49_/_0.035)] transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-[0_12px_28px_rgb(21_60_49_/_0.08)];
   }
   .compact-card-row + .compact-card-row {
     @apply mt-2;
@@ -240,13 +268,13 @@
   }
   
   .card-surface {
-    @apply bg-card border border-border rounded-xl shadow-sm;
+    @apply rounded-2xl border border-border/80 bg-card shadow-[0_1px_2px_rgb(21_60_49_/_0.04),0_8px_24px_rgb(21_60_49_/_0.03)];
   }
   .card-elevated {
-    @apply bg-card border border-border rounded-xl shadow-md;
+    @apply rounded-2xl border border-border/80 bg-card shadow-[0_15px_35px_rgb(21_60_49_/_0.09)];
   }
   .card-hover {
-    @apply transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5;
+    @apply transition-all duration-300 hover:border-primary/30 hover:shadow-[0_16px_32px_rgb(21_60_49_/_0.09)] hover:-translate-y-0.5;
   }
   .input-field {
     @apply w-full rounded-lg border border-input bg-background px-3 py-2.5 text-sm 
@@ -371,6 +399,10 @@
   @keyframes scaleIn {
     from { opacity: 0; transform: scale(0.98); }
     to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes pageEnter {
+    from { opacity: 0; transform: translateY(7px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 }
 

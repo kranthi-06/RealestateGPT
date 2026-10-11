@@ -89,9 +89,9 @@ export default function PropertyCard({
         className="block group outline-none focus-visible:ring-2 focus-visible:ring-primary"
         aria-label={`View ${property.title} details`}
       >
-        <article className="card-surface card-hover flex gap-4 p-4">
+        <article className="card-surface card-hover flex gap-4 p-3.5 sm:p-4">
           {/* Thumbnail */}
-          <div className="relative h-24 w-32 sm:w-36 flex-shrink-0 rounded-lg overflow-hidden bg-muted">
+          <div className="relative h-24 w-32 shrink-0 overflow-hidden rounded-xl bg-muted sm:w-36">
             {primaryImage ? (
               /* Image hosts come from verified catalogue records and are not
                  safely enumerable for Next's proxy allowlist. */
@@ -305,8 +305,8 @@ export default function PropertyCard({
       className="block group outline-none focus-visible:ring-2 focus-visible:ring-primary"
       aria-label={`View ${property.title} details`}
     >
-      <article className="card-surface card-hover flex flex-col h-full overflow-hidden">
-        <div className="relative h-48 bg-muted overflow-hidden">
+      <article className="card-surface card-hover flex h-full flex-col overflow-hidden">
+        <div className="relative h-48 overflow-hidden bg-muted">
           {primaryImage ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img

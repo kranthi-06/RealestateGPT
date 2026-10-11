@@ -14,9 +14,9 @@ export function EmptyState({
   actionLabel?: string;
 }) {
   return (
-    <section className="surface-raised flex min-h-72 flex-col items-center justify-center rounded-2xl border border-dashed border-border px-6 py-12 text-center">
+    <section className="surface-raised relative flex min-h-72 flex-col items-center justify-center overflow-hidden rounded-3xl border border-dashed border-border px-6 py-12 text-center before:absolute before:inset-x-0 before:top-0 before:h-1 before:bg-primary/30">
       <span className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary"><Building2 className="size-6" /></span>
-      <h2 className="product-heading mt-5 text-2xl">{title}</h2>
+      <h2 className="product-heading mt-5 font-serif text-2xl">{title}</h2>
       <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">{description}</p>
       {actionHref && actionLabel ? <Link className="mt-6" href={actionHref}><Button className="rounded-xl">{actionLabel}</Button></Link> : null}
     </section>
