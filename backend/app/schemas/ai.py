@@ -128,7 +128,15 @@ class AssistantRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     conversation_id: Optional[int] = None
     property_id: Optional[int] = None      # contextual: "is this worth buying?"
-    limit: int = Field(8, ge=1, le=20)
+    limit: int = Field(default=8, ge=1, le=20)
+
+    @model_validator(mode="after")
+    def clean_ids(self) -> "AssistantRequest":
+        if self.property_id is not None and self.property_id <= 0:
+            self.property_id = None
+        if self.conversation_id is not None and self.conversation_id <= 0:
+            self.conversation_id = None
+        return self
 
 
 class ToolCallRecord(BaseModel):

@@ -6,7 +6,6 @@ import {
   AlertCircle,
   ArrowRight,
   Bot,
-  Brain,
   Calculator,
   Globe,
   Heart,
@@ -36,36 +35,39 @@ type ChatMessage = {
   content: string;
   response?: AssistantResponse;
   toolCalls?: string[];
-  /** True when the request failed and the user can retry this message. */
-  failed?: boolean;
   createdAt: string;
 };
 
 const QUICK_ACTIONS = [
   {
-    label: "2BHK for rent in Nandyal",
-    prompt: "Find two-bedroom houses for rent in Nandyal",
+    label: "Say Hello",
+    prompt: "Hii",
+    icon: Sparkles,
+  },
+  {
+    label: "Explain home loans",
+    prompt: "Explain home loans.",
     icon: Home,
   },
   {
-    label: "Hyderabad market outlook",
-    prompt: "What market intelligence is available for apartments in Hyderabad?",
+    label: "What is rental yield?",
+    prompt: "What is rental yield?",
     icon: TrendingUp,
   },
   {
-    label: "EMI for ₹40 lakh",
-    prompt: "What is the estimated EMI for a ₹40 lakh property?",
-    icon: TrendingUp,
-  },
-  {
-    label: "Hospitals & schools near me",
-    prompt: "Find hospitals and schools near this location",
+    label: "Hyderabad location advice",
+    prompt: "What is a good location to buy a house in Hyderabad?",
     icon: MapPin,
   },
   {
-    label: "Websites listing here",
-    prompt: "Show real-estate websites listing properties in this area",
-    icon: Globe,
+    label: "Can I afford ₹60 lakh?",
+    prompt: "Can I afford a house worth ₹60 lakh?",
+    icon: Calculator,
+  },
+  {
+    label: "Rent in Nandyal",
+    prompt: "Find two bedroom houses for rent in Nandyal",
+    icon: Search,
   },
 ];
 
@@ -77,7 +79,7 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   get_market_stats: TrendingUp,
   nearby_places: MapPin,
   find_nearby_places_by_location: MapPin,
-  get_area_intelligence: Brain,
+  get_area_intelligence: Sparkles,
   calculate_affordability: Calculator,
   calculate_emi: Calculator,
   calculate_route: MapPin,
@@ -87,20 +89,20 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
 };
 
 const TOOL_LABELS: Record<string, string> = {
-  search_properties: "Verified listings",
-  search_web_properties: "Web discovery",
+  search_properties: "Catalog search",
+  search_web_properties: "Web research",
   get_property: "Property details",
   get_price_intelligence: "Price intelligence",
   get_market_stats: "Market data",
-  nearby_places: "Near a property",
-  find_nearby_places_by_location: "Near this location",
+  nearby_places: "Near property",
+  find_nearby_places_by_location: "Local amenities",
   get_area_intelligence: "Area intelligence",
-  calculate_affordability: "Affordability",
-  calculate_emi: "EMI",
-  calculate_route: "Route",
-  save_property: "Saved for you",
+  calculate_affordability: "Affordability calculator",
+  calculate_emi: "EMI calculator",
+  calculate_route: "Route calculation",
+  save_property: "Saved property",
   unsave_property: "Updated saved list",
-  list_saved_properties: "Your saved list",
+  list_saved_properties: "Saved properties",
 };
 
 function ToolCallBadge({ tool }: { tool: string }) {
@@ -121,7 +123,6 @@ function RecommendationCard({ property }: { property: ScoredProperty }) {
     <article className="overflow-hidden rounded-2xl border border-emerald-950/10 bg-white shadow-[0_10px_25px_rgb(21_60_49_/_0.08)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgb(21_60_49_/_0.13)]">
       {image && (
         <Link href={`/properties/${property.property_id}`} className="block h-24 overflow-hidden bg-emerald-50">
-          {/* Catalogue image domains are user-managed, so Next Image cannot safely allowlist them. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={image} alt="" className="h-full w-full object-cover" loading="lazy" />
         </Link>
@@ -130,26 +131,30 @@ function RecommendationCard({ property }: { property: ScoredProperty }) {
         <Link href={`/properties/${property.property_id}`} className="block">
           <p className="line-clamp-2 text-xs font-semibold text-slate-900 hover:text-green-700">{property.title}</p>
           <p className="mt-1 font-serif text-base font-bold text-emerald-800">{formatPrice(property.price)}</p>
-          <p className="text-xs text-slate-500">{property.locality || property.city}{property.bedrooms != null && ` · ${property.bedrooms} BHK`}{property.area_sqft != null && ` · ${property.area_sqft} sq ft`}</p>
+          <p className="text-xs text-slate-500">
+            {property.locality || property.city}
+            {property.bedrooms != null && ` · ${property.bedrooms} BHK`}
+            {property.area_sqft != null && ` · ${property.area_sqft} sq ft`}
+          </p>
         </Link>
         <div className="mt-3 flex items-center justify-between gap-2">
-        <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700">
-          {Math.round(property.overall_score)}% match
-        </span>
-        <div className="flex items-center gap-1">
-          <Link
-            href={`/properties/${property.property_id}`}
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-          >
-            Details
-            <ArrowRight className="h-3 w-3" />
-          </Link>
-          <PropertyActions
-            propertyId={property.property_id}
-            title={property.title}
-            variant="compact"
-          />
-        </div>
+          <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700">
+            {Math.round(property.overall_score)}% match
+          </span>
+          <div className="flex items-center gap-1">
+            <Link
+              href={`/properties/${property.property_id}`}
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+            >
+              Details
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+            <PropertyActions
+              propertyId={property.property_id}
+              title={property.title}
+              variant="compact"
+            />
+          </div>
         </div>
       </div>
     </article>
@@ -197,7 +202,7 @@ export default function AssistantPage() {
 
       lastFailedMessage.current = message;
       setMessages((current) => [
-        ...current.filter((m) => !m.failed),
+        ...current,
         { role: "user", content: message, createdAt: new Date().toISOString() },
       ]);
       setText("");
@@ -216,19 +221,17 @@ export default function AssistantPage() {
           { role: "assistant", content: response.answer, response, toolCalls, createdAt: new Date().toISOString() },
         ]);
         lastFailedMessage.current = null;
+        setError(undefined);
       } catch (caught) {
         const message_ =
           caught instanceof ApiError
             ? caught.status === 429
-              ? "The assistant is busy right now. Please wait a moment and try again."
-              : caught.message || "The assistant could not complete that request."
+              ? "The assistant is currently busy. Please wait a moment and try again."
+              : caught.status === 503
+                ? "All AI providers are temporarily unavailable. Please try again in a few moments."
+                : caught.message || "The assistant could not complete that request."
             : "The assistant could not complete that request. Check your connection and try again.";
         setError(message_);
-        // Keep the failed turn visible so the user can retry it in place.
-        setMessages((current) => [
-          ...current,
-          { role: "assistant", content: message_, failed: true, createdAt: new Date().toISOString() },
-        ]);
       } finally {
         setSending(false);
       }
@@ -239,7 +242,6 @@ export default function AssistantPage() {
   const retry = useCallback(() => {
     const message = lastFailedMessage.current;
     if (!message) return;
-    setMessages((current) => current.slice(0, -1));
     void send(undefined, message);
   }, [send]);
 
@@ -247,8 +249,7 @@ export default function AssistantPage() {
     return (
       <div className="mx-auto max-w-4xl px-4 py-24">
         <div className="flex h-64 flex-col items-center justify-center gap-4">
-          <Brain className="h-12 w-12 animate-pulse text-green-600" />
-          <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+          <Sparkles className="h-10 w-10 animate-pulse text-green-600" />
           <p className="text-slate-500">Initializing your property assistant…</p>
         </div>
       </div>
@@ -257,18 +258,17 @@ export default function AssistantPage() {
 
   if (!isAuthenticated) {
     return (
-      <div className="mx-auto max-w-xl px-4 py-24 text-center">
-        <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-green-100 text-green-600">
-          <Brain className="size-7" />
+      <div className="mx-auto max-w-md px-4 py-24 text-center">
+        <div className="mx-auto mb-6 flex size-14 items-center justify-center rounded-2xl bg-emerald-950 text-[#d7e9bd] shadow-lg shadow-emerald-950/15">
+          <Sparkles className="size-7" />
         </div>
         <h1 className="text-2xl font-bold text-slate-900">Sign in to use your property assistant</h1>
-        <p className="mt-2 text-slate-500">
-          Conversations are private and saved to your account.
+        <p className="mt-2 text-sm text-slate-500">
+          Save your conversations, search real listings conversationally, and get personalized property guidance.
         </p>
         <Link href="/auth/login?next=%2Fassistant">
-          <Button className="mt-6 bg-green-600 text-white hover:bg-green-700">
-            <MessageSquare className="mr-2 h-4 w-4" />
-            Sign in
+          <Button className="mt-6 w-full bg-green-600 hover:bg-green-700">
+            Sign In to Continue
           </Button>
         </Link>
       </div>
@@ -276,17 +276,17 @@ export default function AssistantPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 sm:py-10">
-      <div className="mb-8">
-        <div className="mb-5 flex items-center justify-center gap-3">
+    <div className="mx-auto max-w-4xl px-4 py-8">
+      <div className="mb-6">
+        <div className="mb-4 flex items-center justify-center gap-3">
           <div className="flex size-12 items-center justify-center rounded-2xl bg-emerald-950 text-[#d7e9bd] shadow-lg shadow-emerald-950/15">
             <Sparkles className="size-6" />
           </div>
           <div>
-            <p className="app-kicker">Private property intelligence</p>
-            <h1 className="app-page-title mt-1 text-3xl">Property decision assistant</h1>
+            <p className="app-kicker">Conversational Real Estate Intelligence</p>
+            <h1 className="app-page-title mt-1 text-3xl">RealEstateGPT Assistant</h1>
             <p className="mt-1 text-slate-600">
-              Search real listings conversationally. Every recommendation is grounded in platform data.
+              Conversational guidance for property buying, renting, mortgages, affordability, and market insights.
             </p>
           </div>
         </div>
@@ -313,13 +313,12 @@ export default function AssistantPage() {
           <div className="space-y-6 p-4 sm:p-6">
             {messages.length === 0 ? (
               <div className="flex min-h-[300px] flex-col items-center justify-center text-center">
-                <Brain className="mb-4 size-10 text-green-600/60" />
-                <p className="font-medium text-slate-900">
-                  What kind of property are you looking for?
+                <Sparkles className="mb-4 size-10 text-emerald-600" />
+                <p className="text-base font-semibold text-slate-900">
+                  How can I help with your real estate journey today?
                 </p>
-                <p className="mt-1 max-w-sm text-sm text-slate-500">
-                  Ask for listings, market data, or a financing question. Answers come from
-                  the stored catalogue, and the assistant says so when nothing matches.
+                <p className="mt-1 max-w-md text-sm text-slate-500">
+                  Ask anything about buying or renting, home loans, EMI calculations, rental yield, or locality comparisons.
                 </p>
               </div>
             ) : (
@@ -336,10 +335,8 @@ export default function AssistantPage() {
                       className={cn(
                         "whitespace-pre-line rounded-2xl px-4 py-3 text-sm leading-relaxed",
                         message.role === "user"
-                          ? "rounded-br-md bg-green-600 text-white"
-                          : message.failed
-                            ? "rounded-bl-md border border-red-200 bg-red-50 text-red-900"
-                            : "rounded-bl-md border border-slate-200 bg-slate-50 text-slate-900"
+                          ? "rounded-br-md bg-green-600 text-white shadow-sm"
+                          : "rounded-bl-md border border-slate-200/80 bg-white text-slate-900 shadow-sm"
                       )}
                     >
                       {message.content}
@@ -347,18 +344,6 @@ export default function AssistantPage() {
                     <p className={cn("mt-1.5 text-[10px] uppercase tracking-[.12em] text-slate-400", message.role === "user" && "text-right")}>
                       {message.role === "assistant" ? "RealEstateGPT · " : ""}{new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                     </p>
-
-                    {message.failed && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={retry}
-                        className="mt-2 h-8 gap-1.5"
-                      >
-                        <RefreshCw className="h-3.5 w-3.5" />
-                        Retry
-                      </Button>
-                    )}
 
                     {message.toolCalls && message.toolCalls.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -392,11 +377,20 @@ export default function AssistantPage() {
                         {message.response.citations.map((citation, i) => {
                           const citationContent = <><Bot className="h-3 w-3" />{citation.label}</>;
                           return citation.url ? (
-                          <a href={citation.url} target="_blank" rel="noopener noreferrer"
-                            key={i}
-                            className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
-                          >{citationContent}</a>
-                          ) : <span key={i} className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs text-blue-700">{citationContent}</span>;
+                            <a
+                              href={citation.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              key={i}
+                              className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs text-blue-700 hover:underline"
+                            >
+                              {citationContent}
+                            </a>
+                          ) : (
+                            <span key={i} className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
+                              {citationContent}
+                            </span>
+                          );
                         })}
                       </div>
                     )}
@@ -412,14 +406,25 @@ export default function AssistantPage() {
           {sending && (
             <div className="mb-4 flex items-center gap-2 text-sm text-slate-500">
               <Loader2 className="size-4 animate-spin text-green-600" />
-              <span>Searching verified listings and analyzing location context…</span>
+              <span>RealEstateGPT is thinking…</span>
             </div>
           )}
           {error && !sending && (
-            <p role="alert" className="mb-4 flex items-start gap-2 text-sm text-red-600">
-              <AlertCircle className="mt-0.5 size-4 shrink-0" />
-              {error}
-            </p>
+            <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="size-4 shrink-0 text-red-600" />
+                <span>{error}</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={retry}
+                className="h-8 gap-1.5 border-red-200 bg-white text-xs font-medium text-red-700 hover:bg-red-50"
+              >
+                <RefreshCw className="size-3.5" />
+                Retry
+              </Button>
+            </div>
           )}
           <form onSubmit={(event) => send(event)} className="flex gap-2">
             <Input

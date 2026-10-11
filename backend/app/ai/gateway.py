@@ -171,22 +171,29 @@ class AIGateway:
             except Exception as exc:  # noqa: BLE001 - classify then fall through
                 last_error = exc
                 classified = self._classify(exc)
-                if classified is not None:
-                    # Permanent: no point trying the same thing elsewhere.
-                    logger.warning(
-                        "ai_provider_permanent_error provider=%s code=%s",
-                        name, classified.code,
-                    )
-                    self._registry.metrics.health(name).record(
-                        success=False, latency_ms=0.0, error=classified.code)
-                    self._registry.circuit.record_failure(name)
-                    raise classified
+                err_code = getattr(classified, "code", type(exc).__name__)
                 logger.warning(
-                    "ai_provider_failed_falling_back provider=%s next=%s error=%s",
-                    name, attempts[-1] if len(attempts) > 1 else "none", type(exc).__name__,
+                    "ai_provider_failed provider=%s code=%s error=%s",
+                    name, err_code, str(exc),
                 )
                 self._registry.metrics.health(name).record(
-                    success=False, latency_ms=0.0, error=type(exc).__name__)
+                    success=False, latency_ms=0.0, error=err_code)
+                self._registry.circuit.record_failure(name)
+
+                # An invalid credential (401/403) is fatal: fail fast without falling back
+                if isinstance(classified, AIAuthenticationError):
+                    raise classified
+
+                # If more candidates are available, fall back to the next provider
+                if entry != candidates[-1]:
+                    next_provider = candidates[candidates.index(entry) + 1].name
+                    logger.warning(
+                        "ai_provider_failed_falling_back provider=%s next=%s error=%s",
+                        name, next_provider, type(exc).__name__,
+                    )
+                    continue
+
+                break
 
         detail = f"providers tried: {', '.join(attempts)}"
         raise AIUnavailableError(
@@ -318,7 +325,7 @@ class AIGateway:
         if is_permanent_status(status):
             if status in (401, 403):
                 return AIAuthenticationError("AI provider rejected the configured credential")
-            return AIValidationError("AI provider rejected the request")
+            return AIUnavailableError("AI provider rejected the request")
         return None
 
 
