@@ -242,11 +242,11 @@ export function SearchProvider({ children }: { children: ReactNode }) {
       // triggers a real search instead of showing stale data.
       const restoredSignature = signatureOf(base.filters, base.userCoords, base.includeWeb);
       const restoreResults =
-        !hasUrlQuery &&
         stored &&
         stored.signature === restoredSignature &&
         Date.now() - (stored.fetchedAt ?? 0) < RESULT_MAX_AGE_MS;
       if (restoreResults) {
+        lastSignatureRef.current = restoredSignature;
         return {
           ...base,
           results: stored?.results ?? [],

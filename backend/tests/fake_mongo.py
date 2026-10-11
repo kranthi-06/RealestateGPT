@@ -35,6 +35,10 @@ class FakeCursor:
         return (value is None, value if isinstance(value, (int, float, str)) else str(value))
 
     def sort(self, key, direction: int = 1):
+        if isinstance(key, (list, tuple)) and len(key) == 1 and isinstance(key[0], (list, tuple)):
+            field, order = key[0]
+            if isinstance(order, dict) and "$meta" in order:
+                return self
         reverse = direction < 0
         if isinstance(key, str):
             self._docs.sort(key=lambda d: self._sort_key(d.get(key)), reverse=reverse)
@@ -67,6 +71,14 @@ def _matches(doc: dict, query: dict) -> bool:
             continue
         if key == "$or":
             if not any(_matches(doc, q) for q in expected):
+                return False
+            continue
+        if key == "$text":
+            search_str = expected.get("$search", "").lower()
+            text_corpus = " ".join(
+                str(v) for k, v in doc.items() if isinstance(v, str)
+            ).lower()
+            if not all(term in text_corpus for term in search_str.split()):
                 return False
             continue
         if key not in doc:
@@ -156,7 +168,13 @@ class FakeCollection:
         for doc in self._docs:
             if _matches(doc, query or {}):
                 if projection:
-                    matched.append({k: v for k, v in doc.items() if k in projection or k == "_id"})
+                    if all(isinstance(v, dict) and "$meta" in v for v in projection.values()):
+                        d = dict(doc)
+                        for k in projection:
+                            d[k] = 1.0
+                        matched.append(d)
+                    else:
+                        matched.append({k: v for k, v in doc.items() if k in projection or k == "_id"})
                 else:
                     matched.append(dict(doc))
         return FakeCursor(matched)

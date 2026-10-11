@@ -36,7 +36,7 @@ const navItems = [
   { href: "/search", label: "Search", icon: Search, exact: false },
   { href: "/explore", label: "Explore", icon: Map, exact: false },
   { href: "/assistant", label: "AI Assistant", icon: Sparkles, exact: false, auth: true },
-  { href: "/compare", label: "Compare", icon: GitCompare, exact: false, auth: true },
+  { href: "/compare", label: "Compare", icon: GitCompare, exact: false },
   { href: "/saved", label: "Saved", icon: Heart, exact: false, auth: true },
 ];
 

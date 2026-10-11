@@ -85,7 +85,7 @@ class PropertyRepository:
         longitude: Optional[float] = None,
         radius_km: Optional[float] = None,
         construction_status: Optional[str] = None,
-        sort_by: str = "created_at",
+        sort_by: Optional[str] = None,
         sort_order: str = "desc",
         page: int = 1,
         page_size: int = 12,
@@ -108,9 +108,15 @@ class PropertyRepository:
         near_query = query.get("location", {}).get("$near")
         count_query = self._geo_count_query(query) if near_query else query
         total = self.coll.count_documents(count_query)
-        cursor = self.coll.find(query)
+        projection = {"score": {"$meta": "textScore"}} if (q and not near_query) else None
+        cursor = self.coll.find(query, projection) if projection else self.coll.find(query)
         if not near_query:
-            cursor = cursor.sort(sort_by, -1 if sort_order == "desc" else 1)
+            if sort_by and sort_by != "score":
+                cursor = cursor.sort(sort_by, -1 if sort_order == "desc" else 1)
+            elif q or sort_by == "score":
+                cursor = cursor.sort([("score", {"$meta": "textScore"})])
+            else:
+                cursor = cursor.sort("created_at", -1 if sort_order == "desc" else 1)
         cursor = cursor.skip((page - 1) * page_size).limit(page_size)
         return [Property.from_doc(doc) for doc in cursor if doc], total
 
@@ -132,11 +138,7 @@ class PropertyRepository:
         q, city, locality = filters["q"], filters["city"], filters["locality"]
 
         if q:
-            pattern = re.escape(q)
-            query["$or"] = [
-                {field: {"$regex": pattern, "$options": "i"}}
-                for field in _TEXTLIKE_FIELDS
-            ]
+            query["$text"] = {"$search": q}
         if city:
             query["city"] = {"$regex": re.escape(city), "$options": "i"}
         if locality:

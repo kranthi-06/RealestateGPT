@@ -151,6 +151,14 @@ def ensure_indexes() -> None:
     properties.create_index("transaction_type")
     properties.create_index("stale_at")
     properties.create_index("expired_at")
+    properties.create_index(
+        [("title", "text"), ("description", "text"), ("locality", "text"),
+         ("city", "text"), ("builder_name", "text"), ("project_name", "text"),
+         ("address", "text")],
+        name="properties_text_search",
+        default_language="english",
+        weights={"title": 10, "locality": 8, "city": 6, "project_name": 5, "builder_name": 3, "address": 2, "description": 1},
+    )
 
     db["price_history"].create_index([("property_id", 1), ("changed_at", -1)])
     db["price_history"].create_index("change_type")

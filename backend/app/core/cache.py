@@ -375,8 +375,8 @@ class CacheRepository:
         if not self._usable():
             return 0
         try:
-            result = self.coll.delete_many({"expires_at": {"$lt": _utcnow()}}).acknowledged
-            return 0 if not result else limit  # deleted_count is not exposed here
+            result = self.coll.delete_many({"expires_at": {"$lt": _utcnow()}})
+            return int(result.deleted_count)
         except Exception:  # pragma: no cover - defensive
             return 0
 

@@ -220,6 +220,7 @@ class Property(BaseModel):
             return None
         data = dict(doc)
         data["id"] = data.pop("_id")
+        data.pop("score", None)
         return cls(**data)
 
     def __repr__(self) -> str:

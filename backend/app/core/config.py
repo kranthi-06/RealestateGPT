@@ -231,7 +231,7 @@ class Settings(BaseSettings):
     # ── Application cache TTLs (seconds; 0 falls back to the policy default) ──
     CACHE_MARKET_SNAPSHOT_TTL: int = 300        # catalogue-derived statistics
     CACHE_MARKET_RESEARCH_TTL: int = 86_400     # external market research
-    CACHE_PROPERTY_SEARCH_TTL: int = 120        # property search results
+    CACHE_PROPERTY_SEARCH_TTL: int = 300        # property search results
     CACHE_EXTERNAL_LOCATION_TTL: int = 604_800  # geocoding / nearby places
     CACHE_AI_ANALYSIS_TTL: int = 1_800          # AI analysis of retrieved evidence
 

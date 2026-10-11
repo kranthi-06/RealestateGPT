@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Heart,
   Search as SearchIcon,
@@ -215,7 +216,29 @@ export default function SavedPage() {
     );
   }
 
-  if (!isAuthenticated) return null;
+  if (!isAuthenticated) {
+    return (
+      <div className="container-page py-16">
+        <div className="mx-auto max-w-md text-center">
+          <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+            <Heart className="size-7" />
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Saved Properties</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Sign in to access your shortlisted properties, saved searches, and comparisons across all your devices.
+          </p>
+          <div className="mt-6 flex items-center justify-center gap-3">
+            <Button asChild>
+              <Link href="/auth/login?next=/saved">Sign In</Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href="/auth/register?next=/saved">Create Account</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container-page py-8">

@@ -71,7 +71,7 @@ async def list_properties(
     longitude: Optional[float] = Query(None, ge=-180, le=180),
     radius_km: Optional[float] = Query(None, gt=0, le=100),
     construction_status: Optional[str] = Query(None),
-    sort_by: str = Query("created_at", pattern="^(price|area_sqft|created_at|updated_at|bedrooms|bathrooms|price_per_sqft)$"),
+    sort_by: Optional[str] = Query(None, pattern="^(price|area_sqft|created_at|updated_at|bedrooms|bathrooms|price_per_sqft)$"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     page: int = Query(1, ge=1),
     page_size: int = Query(12, ge=1, le=50),

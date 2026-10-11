@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useMemo, useState, FormEvent, useEffect, useRef } from "react";
+import { useCallback, useMemo, useState, FormEvent, useEffect, useRef, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   Banknote,
@@ -366,12 +367,42 @@ function PropertyInvestmentCard({ item }: { item: InvestmentSummary }) {
 
 /* ── Page ────────────────────────────────────────────────────────────── */
 
-export default function FinancePage() {
+function FinancePageContent() {
+  const searchParams = useSearchParams();
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<Property[]>([]);
   const [searching, setSearching] = useState(false);
   /** Up to four analysis entries from any source. */
   const [entries, setEntries] = useState<AnalysisEntry[]>([]);
+
+  // Preload properties from URL query params (?id= or ?property_id= or ?ids=)
+  useEffect(() => {
+    const rawIds = searchParams.get("property_id") || searchParams.get("id") || searchParams.get("ids");
+    if (!rawIds) return;
+    const parsed = rawIds
+      .split(",")
+      .map((s) => Number.parseInt(s.trim(), 10))
+      .filter((n) => Number.isInteger(n) && n > 0);
+    if (parsed.length === 0) return;
+
+    void (async () => {
+      try {
+        const props = await propertiesApi.bulk(parsed.slice(0, MAX_ANALYSIS_ENTRIES));
+        if (props.length > 0) {
+          setEntries(
+            props.map((p) => ({
+              key: `cat-${p.id}`,
+              source: "catalogue",
+              propertyId: p.id,
+              label: p.title,
+            }))
+          );
+        }
+      } catch {
+        // Catalogue properties will remain unselected if unavailable
+      }
+    })();
+  }, [searchParams]);
 
   // Manual entry form.
   const [manualLabel, setManualLabel] = useState("");
@@ -413,6 +444,21 @@ export default function FinancePage() {
     if (!q) return;
     setSearching(true);
     try {
+      // Check if user entered a property ID directly (e.g. "1589" or "#1589")
+      const cleanQ = q.startsWith("#") ? q.slice(1).trim() : q;
+      if (/^\d+$/.test(cleanQ)) {
+        const propId = Number.parseInt(cleanQ, 10);
+        try {
+          const directProp = await propertiesApi.get(propId);
+          if (directProp) {
+            setResults([directProp]);
+            setSearching(false);
+            return;
+          }
+        } catch {
+          // Fall through to general catalogue search if ID lookup fails
+        }
+      }
       const data = await propertiesApi.list({ q, page_size: 6 });
       setResults(data.properties);
     } catch {
@@ -1110,5 +1156,21 @@ export default function FinancePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function FinancePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="container-page py-8">
+          <Skeleton className="mb-3 h-9 w-64" />
+          <Skeleton className="mb-8 h-5 w-80" />
+          <Skeleton className="h-96 rounded-xl" />
+        </div>
+      }
+    >
+      <FinancePageContent />
+    </Suspense>
   );
 }

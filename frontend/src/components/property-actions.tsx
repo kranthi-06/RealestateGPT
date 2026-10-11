@@ -86,23 +86,7 @@ export function PropertyActions({
     [compare, comparing, propertyId]
   );
 
-  if (!isAuthenticated) {
-    return (
-      <Button
-        variant="outline"
-        size="sm"
-        className={cn("h-8 gap-1.5", className)}
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          router.push("/auth/login");
-        }}
-      >
-        <Heart className="size-3.5" />
-        Sign in to save
-      </Button>
-    );
-  }
+  // If not authenticated, onSave redirects to /auth/login while onCompare works locally.
 
   if (variant === "icon") {
     return (

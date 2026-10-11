@@ -147,6 +147,34 @@ async def unified_search(
     started = time.perf_counter()
     intent = parse_query(data.query)
     user_id = current_user.id if current_user else None
+    filters_dict = data.filters if isinstance(data.filters, dict) else (data.filters.model_dump() if hasattr(data.filters, "model_dump") else {})
+
+    # Check cache for identical queries
+    from app.core.cache import CacheRepository, cache_key, policy_for
+    cache = CacheRepository(db)
+    norm_cache_key = cache_key("unified_search", {
+        "q": (data.query or "").strip().lower(),
+        "filters": {k: v for k, v in filters_dict.items() if v not in (None, "")},
+        "location": data.location if isinstance(data.location, dict) else (data.location.model_dump() if hasattr(data.location, "model_dump") else None),
+        "include_web": data.include_web,
+        "limit": data.limit,
+    })
+    cached_entry = cache.get(norm_cache_key)
+    if cached_entry is not None and not cached_entry.get("is_error"):
+        try:
+            cached_resp = UnifiedSearchResponse.model_validate(cached_entry["payload"])
+            cached_resp.metadata.cache_hit = True
+            if user_id:
+                from app.repositories.saved_repo import SavedRepository
+                saved_ids = set(SavedRepository(db).get_saved_property_ids(user_id))
+                for prop_card in cached_resp.verified_properties:
+                    if isinstance(prop_card, dict):
+                        prop_card["is_saved"] = prop_card.get("id") in saved_ids
+                    elif hasattr(prop_card, "is_saved"):
+                        prop_card.is_saved = getattr(prop_card, "id", None) in saved_ids
+            return cached_resp
+        except Exception as exc:
+            logger.debug("Failed to deserialize cached unified_search: %s", exc)
 
     # Fallback free-text place extraction if query_parser didn't find a known city alias
     if not intent.city:
@@ -164,7 +192,6 @@ async def unified_search(
     if loc:
         lat = loc.get("latitude") if isinstance(loc, dict) else getattr(loc, "latitude", None)
         lng = loc.get("longitude") if isinstance(loc, dict) else getattr(loc, "longitude", None)
-    filters_dict = data.filters if isinstance(data.filters, dict) else (data.filters.model_dump() if hasattr(data.filters, "model_dump") else {})
     if lat is None and filters_dict:
         lat = filters_dict.get("latitude")
     if lng is None and filters_dict:
@@ -313,7 +340,7 @@ async def unified_search(
         latency_ms["database_ms"] = verified["metrics"].get("database_latency_ms")
         latency_ms["location_ms"] = verified["metrics"].get("location_latency_ms")
 
-    return UnifiedSearchResponse(
+    response = UnifiedSearchResponse(
         query=data.query,
         parsed=intent.model_dump(),
         verified_properties=verified_properties,
@@ -334,6 +361,15 @@ async def unified_search(
             latency_ms=latency_ms,
         ),
     )
+    try:
+        cache.set(
+            norm_cache_key,
+            response.model_dump(mode="json"),
+            policy=policy_for("property_search"),
+        )
+    except Exception as exc:
+        logger.debug("Failed to cache unified_search response: %s", exc)
+    return response
 
 
 def _facet_counts(items, key: str) -> dict:

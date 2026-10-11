@@ -42,50 +42,60 @@ class SearchSectionsService:
         self._user_id: Optional[int] = None
 
     def build_sections(self, params: Dict[str, Any], user_id: Optional[int] = None):
+        from concurrent.futures import ThreadPoolExecutor
+
         self._user_id = user_id
         base = self._merge_intent({k: v for k, v in params.items() if v not in (None, "")})
         intent = parse_query(params["q"]) if (params.get("q") or "").strip() else None
-        sections = []
 
-        # 1) Best matches — the plain query result.
-        self._add(sections, base, "best_matches", "Best Matches", {})
+        # Build list of planned section specs in display order
+        specs: list[tuple[str, str, dict[str, Any]]] = [
+            ("best_matches", "Best Matches", {}),
+        ]
 
-        # 2) Budget-driven sections (only when the query implies a budget).
         if intent and intent.max_price and not base.get("min_price"):
-            self._add(sections, base, "under_budget", "Under Budget", {"max_price": intent.max_price, "min_price": None})
+            specs.append(("under_budget", "Under Budget", {"max_price": intent.max_price, "min_price": None}))
         if intent and intent.min_price:
-            self._add(sections, base, "premium", "Premium Options", {"min_price": intent.min_price, "max_price": None})
+            specs.append(("premium", "Premium Options", {"min_price": intent.min_price, "max_price": None}))
 
-        # 3) BHK buckets — skipped when already filtered by bedrooms.
         if not any(base.get(key) is not None for key in ("bedrooms", "min_bedrooms", "max_bedrooms")):
             for bhk in _BHK_BUCKETS:
-                self._add(sections, base, "bhk_" + str(bhk), str(bhk) + " BHK", {"bedrooms": bhk})
+                specs.append(("bhk_" + str(bhk), str(bhk) + " BHK", {"bedrooms": bhk}))
 
-        # 4) Property-type buckets — skipped when already filtered by type.
         if not base.get("property_type"):
             for ptype, label in _TYPE_BUCKETS:
-                self._add(sections, base, ptype, label, {"property_type": ptype})
+                specs.append((ptype, label, {"property_type": ptype}))
 
-        # 5) Rental / sale split — skipped when already filtered.
         if not base.get("listing_type"):
-            self._add(sections, base, "for_rent", "For Rent", {"listing_type": "rent"})
-            self._add(sections, base, "for_sale", "For Sale", {"listing_type": "sale"})
+            specs.append(("for_rent", "For Rent", {"listing_type": "rent"}))
+            specs.append(("for_sale", "For Sale", {"listing_type": "sale"}))
 
-        # 6) Proximity sections.
         coord_lat, coord_lon = base.get("latitude"), base.get("longitude")
         if coord_lat is not None and coord_lon is not None:
-            self._add(sections, base, "near_me", "Near You", {"radius_km": float(params.get("radius_km") or 5.0)})
+            specs.append(("near_me", "Near You", {"radius_km": float(params.get("radius_km") or 5.0)}))
 
         if intent and intent.nearby_requirements and coord_lat is None:
             for req in intent.nearby_requirements[:3]:
                 coords = self._geocode_place(req, base)
-                if coords is None:
-                    continue
-                title = "Near " + req.type.replace("_", " ").title()
-                self._add(
-                    sections, base, "near_" + req.type, title,
-                    {"latitude": coords[0], "longitude": coords[1], "radius_km": min(req.max_distance_km, 10)},
-                )
+                if coords is not None:
+                    title = "Near " + req.type.replace("_", " ").title()
+                    specs.append((
+                        "near_" + req.type, title,
+                        {"latitude": coords[0], "longitude": coords[1], "radius_km": min(req.max_distance_km, 10)},
+                    ))
+
+        # Query all sections in parallel via thread pool (I/O bound DB queries)
+        with ThreadPoolExecutor(max_workers=min(8, len(specs) or 1)) as executor:
+            futures = [
+                executor.submit(self._fetch_section, base, sid, title, extra)
+                for sid, title, extra in specs
+            ]
+            sections = []
+            for f in futures:
+                sec = f.result()
+                if sec is not None:
+                    sections.append(sec)
+
         return {"sections": sections}
 
     def _merge_intent(self, base: Dict[str, Any]) -> Dict[str, Any]:
@@ -105,32 +115,38 @@ class SearchSectionsService:
             merged["listing_type"] = intent.listing_type
         return merged
 
-    def _add(self, sections, base: Dict[str, Any], section_id: str, title: str, extra: Dict[str, Any], limit: int = 4) -> int:
+    def _fetch_section(self, base: Dict[str, Any], section_id: str, title: str, extra: Dict[str, Any], limit: int = 4) -> Optional[SearchSection]:
         filters = {k: v for k, v in base.items() if k in _ALLOWED and v not in (None, "")}
         filters.pop("q", None)
         filters.update(extra)
         filters.setdefault("sort_by", "created_at")
         filters.setdefault("sort_order", "desc")
 
-        resp = None
         try:
             resp = self.service.search_properties(user_id=self._user_id, page=1, page_size=limit, **filters)
         except Exception as exc:
             logger.warning("section_query_failed section=%s error=%s", section_id, exc)
-            return 0
+            return None
         total = resp.total if resp else 0
         if total > 0:
             from app.schemas import PropertyCardResponse
 
             items = [PropertyCardResponse.model_validate(prop) for prop in resp.properties]
-            sections.append(SearchSection(
+            return SearchSection(
                 id=section_id,
                 title=title,
                 count=total,
                 items=items,
                 next_cursor="2" if total > len(items) else None,
-            ))
-        return total
+            )
+        return None
+
+    def _add(self, sections, base: Dict[str, Any], section_id: str, title: str, extra: Dict[str, Any], limit: int = 4) -> int:
+        sec = self._fetch_section(base, section_id, title, extra, limit)
+        if sec is not None:
+            sections.append(sec)
+            return sec.count
+        return 0
 
     def _geocode_place(self, req, base: Dict[str, Any]) -> Optional[tuple[float, float]]:
         """Real OSM geocoding of 'place category near <city>' — never fabricated."""

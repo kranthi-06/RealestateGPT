@@ -129,11 +129,9 @@ export default function PropertyCard({
               )}
             </div>
             {/* Save + Compare actions */}
-            {isAuthenticated && (
-              <div className="absolute right-2 top-2">
-                <PropertyActions propertyId={property.id} title={property.title} variant="icon" />
-              </div>
-            )}
+            <div className="absolute right-2 top-2">
+              <PropertyActions propertyId={property.id} title={property.title} variant="icon" />
+            </div>
           </div>
 
           {/* Content */}
@@ -300,9 +298,7 @@ export default function PropertyCard({
               </div>
             </div>
             <div className="flex items-center gap-1">
-              {isAuthenticated && (
-                <PropertyActions propertyId={property.id} title={property.title} variant="compact" />
-              )}
+              <PropertyActions propertyId={property.id} title={property.title} variant="compact" />
               {onCompareToggle && (
                 <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
               )}
@@ -338,11 +334,9 @@ export default function PropertyCard({
             {property.is_featured && <Badge className="badge-warning"><Star className="w-2.5 h-2.5 mr-1" />Featured</Badge>}
             {property.verification_status === "verified" && <Badge className="badge-success"><CheckCircle2 className="w-2.5 h-2.5 mr-1" />Verified</Badge>}
           </div>
-          {isAuthenticated && (
-            <div className="absolute top-2 right-2">
-              <PropertyActions propertyId={property.id} title={property.title} variant="icon" />
-            </div>
-          )}
+          <div className="absolute top-2 right-2">
+            <PropertyActions propertyId={property.id} title={property.title} variant="icon" />
+          </div>
         </div>
         <div className="p-4 flex flex-col flex-1">
           <h3 className="font-semibold text-base leading-snug line-clamp-2 text-foreground group-hover:text-primary transition-colors mb-2">
