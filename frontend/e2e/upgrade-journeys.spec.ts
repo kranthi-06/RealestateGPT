@@ -7,7 +7,7 @@ import { test, expect, type Page } from '@playwright/test';
  *   A — Market Intelligence without catalogue data
  *   B — Investment Intelligence with an external/manual price
  *   C — Saved properties persistence
- *   D — Compare workflow
+ *   D — Compare removal
  *   E — Search persistence
  *   F — Cache behaviour (API level)
  *   G — Security boundaries (API level)
@@ -332,34 +332,16 @@ test.describe('C: Saved properties', () => {
   });
 });
 
-test.describe('D: Compare', () => {
-  test('selection persists and the compare page shows both', async ({ page }) => {
-    test.setTimeout(300000);
-    const email = `journey_d_${Date.now()}@example.com`;
-    await register(page, email);
-    await searchFor(page, 'Hyderabad');
-    const labels = await page.locator('button[aria-label^="Save "]').evaluateAll((els) =>
-      els.map((el) => (el.getAttribute('aria-label') ?? '').replace(/^Save /, ''))
-    );
-    const t1 = labels[0];
-    const t2 = labels[1];
+test.describe('D: Compare removal', () => {
+  test('comparison navigation, controls and page are absent', async ({ page }) => {
+    await page.goto('/search');
+    await page.waitForSelector('[data-search-hydrated="true"]', { timeout: 30000 });
+    expect(await page.getByRole('link', { name: /compare/i }).count()).toBe(0);
+    expect(await page.locator('button[aria-label*="comparison" i]').count()).toBe(0);
 
-    await page.locator(`button[aria-label="Add ${t1} to comparison"]`).first().click();
-    await page.waitForTimeout(700);
-    await page.locator(`button[aria-label="Add ${t2} to comparison"]`).first().click();
-    await page.waitForTimeout(1000);
-
-    let body = (await page.locator('body').textContent()) ?? '';
-    console.log('D bar shows 2 selected:', /2\s+properties selected/.test(body));
-
-    await page.goto('/explore');
-    await page.waitForTimeout(1500);
     await page.goto('/compare');
-    await page.waitForTimeout(4000);
-    body = (await page.locator('body').textContent()) ?? '';
-    console.log('D compare shows t1:', body.includes(t1), 't2:', body.includes(t2));
-    console.log('D financing table present:', /Financing comparison/.test(body));
-    expect(body.includes(t1) && body.includes(t2)).toBe(true);
+    await page.waitForTimeout(500);
+    expect((await page.locator('body').textContent()) ?? '').toMatch(/could not be found/i);
   });
 });
 
@@ -427,11 +409,9 @@ test.describe('E: Search persistence', () => {
     expect(urlAfter).toContain('q=Hyderabad');
     expect(/Verified \(/.test(body)).toBe(true);
 
-    // Saved properties and compare selections must survive a Clear.
+    // Saved properties must survive a Clear independently of search state.
     await page.locator('button[aria-label^="Save "]').first().click();
     await page.waitForTimeout(2000);
-    await page.locator('button[aria-label^="Add "]').first().click();
-    await page.waitForTimeout(1200);
 
     await page.getByRole('button', { name: /^clear$/i }).first().click();
     await page.waitForTimeout(2500);
@@ -443,9 +423,6 @@ test.describe('E: Search persistence', () => {
       return res.ok ? await res.json() : { error: res.status };
     });
     console.log('E saved survive clear:', JSON.stringify(savedAfterClear));
-    const compareAfterClear = await page.evaluate(() => localStorage.getItem('regpt_compare_ids_v1'));
-    console.log('E compare survives clear:', compareAfterClear);
     expect(JSON.stringify(savedAfterClear)).toContain('property_ids');
-    expect(compareAfterClear).toBeTruthy();
   });
 });

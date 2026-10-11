@@ -68,6 +68,11 @@ def test_production_configuration_requires_an_ai_provider():
     assert not any("AI provider credential" in p for p in settings.validate_runtime())
 
 
+def test_gemini_fallback_defaults_to_a_supported_model():
+    # Inspect the declared application default, not a developer's local .env.
+    assert Settings.model_fields["GEMINI_MODEL"].default == "gemini-2.5-flash"
+
+
 def test_configuration_never_leaks_a_credential_in_errors():
     """A typo in .env must not print an API key into a traceback."""
     with pytest.raises(ValueError) as excinfo:

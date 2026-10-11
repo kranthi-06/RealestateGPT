@@ -15,7 +15,6 @@ import {
   Star,
   Home as HomeIcon,
   Brain,
-  GitCompare,
   Sparkles,
   ShieldCheck,
   CalendarDays,
@@ -54,12 +53,8 @@ import type { MapMarker } from "@/components/real-estate-map";
 import { propertiesApi, financeApi } from "@/lib/api";
 import type { PriceFairness } from "@/lib/types";
 import { useAuth } from "@/lib/auth-context";
-import { MAX_COMPARE, useCompare } from "@/lib/compare-context";
 import { useSaved } from "@/lib/saved-context";
 import {
-  notifyCompareAdded,
-  notifyCompareFull,
-  notifyCompareRemoved,
   notifySaveFailed,
   notifySaved,
   notifyUnsaved,
@@ -82,7 +77,6 @@ export default function PropertyDetailPage() {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const { isSaved, toggleSaved } = useSaved();
-  const compare = useCompare();
   const [property, setProperty] = useState<Property | null>(null);
   const [priceIntel, setPriceIntel] = useState<PriceIntelligence | null>(null);
   const [priceFairness, setPriceFairness] = useState<PriceFairness | null>(null);
@@ -505,24 +499,6 @@ export default function PropertyDetailPage() {
                   </Link>
                 </Button>
               )}
-              <Button
-                onClick={() => {
-                  if (compare.has(property.id)) {
-                    compare.remove(property.id);
-                    notifyCompareRemoved();
-                  } else if (compare.isFull) {
-                    notifyCompareFull(MAX_COMPARE);
-                  } else {
-                    compare.add(property.id);
-                    notifyCompareAdded(property.title);
-                  }
-                }}
-                variant={compare.has(property.id) ? "default" : "secondary"}
-                className="w-full justify-center rounded-xl"
-              >
-                <GitCompare className="mr-2 h-4 w-4" />
-                {compare.has(property.id) ? "In comparison" : "Compare"}
-              </Button>
               <Button
                 asChild
                 variant="outline"
@@ -1033,9 +1009,6 @@ export default function PropertyDetailPage() {
                 similarity query.
               </p>
             </div>
-            <Badge variant="outline" className="text-[10px]">
-              compare up to 4
-            </Badge>
           </div>
           <div className="space-y-2.5">
             {similar.slice(0, 6).map((p) => (
@@ -1043,7 +1016,6 @@ export default function PropertyDetailPage() {
                 key={p.id}
                 property={p}
                 showSave={!!isAuthenticated}
-                showCompare
               />
             ))}
           </div>

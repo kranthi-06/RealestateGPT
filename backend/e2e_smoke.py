@@ -28,11 +28,11 @@ def main() -> None:
         if reg.status_code != 201:
             print("FAIL register", reg.status_code, reg.text[:200])
             sys.exit(1)
-        token = reg.json()["access_token"]
-        headers = {"Authorization": f"Bearer {token}"}
+        # Authentication is cookie-only. httpx keeps the HttpOnly session
+        # cookie from registration, just as the browser client does.
         print("PASS register")
 
-        first = client.post("/ai/assistant", headers=headers, json={
+        first = client.post("/ai/assistant", json={
             "message": "Find a 3BHK under 90 lakhs in Hyderabad near metro",
             "conversation_id": None,
         })
@@ -43,26 +43,32 @@ def main() -> None:
         conversation_id = body1["conversation_id"]
         print(f"PASS assistant[1] conversation={conversation_id} results={len(body1.get('results', []))} "
               f"tools={','.join(t['tool'] for t in body1.get('tool_calls', []))}")
-        assert body1["provider"] == "groq"
+        assert body1.get("answer", "").strip(), "assistant must never report an empty success"
 
-        second = client.post("/ai/assistant", headers=headers, json={
+        second = client.post("/ai/assistant", json={
             "message": "Only show properties near metro",
             "conversation_id": conversation_id,
         })
+        if second.status_code != 200:
+            print("FAIL assistant[2]", second.status_code, second.text[:400])
+            sys.exit(1)
         body2 = second.json()
         print(f"PASS assistant[2] status={second.status_code} results={len(body2.get('results', []))}")
 
-        third = client.post("/ai/assistant", headers=headers, json={
+        third = client.post("/ai/assistant", json={
             "message": "What is the commute to HITEC City?",
             "conversation_id": conversation_id,
         })
+        if third.status_code != 200:
+            print("FAIL assistant[3]", third.status_code, third.text[:400])
+            sys.exit(1)
         body3 = third.json()
         tools3 = ",".join(t["tool"] for t in body3.get("tool_calls", []))
         print(f"PASS assistant[3] status={third.status_code} tools={tools3}")
         if "route" not in body3.get("tool_calls", [{"tool": ""}]) and "calculate_route" not in tools3:
             print("NOTE: follow-up did not call the route tool (the model chooses the tool).")
 
-        convs = client.get("/ai/conversations", headers=headers)
+        convs = client.get("/ai/conversations")
         print(f"PASS conversations status={convs.status_code} count={len(convs.json())}")
 
     print("E2E OK")

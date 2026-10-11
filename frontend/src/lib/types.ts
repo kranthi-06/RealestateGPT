@@ -157,14 +157,6 @@ export interface SavedSearch {
   created_at: string;
 }
 
-export interface Comparison {
-  id: number;
-  name?: string | null;
-  property_ids: string;
-  created_at: string;
-  properties: Property[];
-}
-
 export interface SearchFilters {
   q?: string;
   city?: string;
@@ -274,7 +266,6 @@ export interface AdminStats {
   total_users: number;
   total_saved_properties: number;
   total_saved_searches: number;
-  total_comparisons: number;
   total_searches: number;
   properties_by_city: Record<string, number>;
   properties_by_type: Record<string, number>;

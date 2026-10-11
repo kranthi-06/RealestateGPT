@@ -19,7 +19,7 @@ import { timeAgo, formatPrice } from "@/lib/format";
 import {
   RefreshCw, Database, MapPin, TrendingUp, ShieldAlert, PlayCircle, Clock3,
   Server, Users, Search, Brain, HardDrive, CheckCircle2, Activity,
-  HeartPulse, FileText, Building2, BarChart3, Shield,
+  HeartPulse, FileText, Building2, Shield,
 } from "lucide-react";
 
 /* ---------- worker labels ---------- */
@@ -223,11 +223,6 @@ export default function AdminPage() {
           label="Saved Properties"
           value={stats?.total_saved_properties?.toLocaleString() ?? "—"}
           icon={HardDrive}
-        />
-        <KpiCard
-          label="Comparisons"
-          value={stats?.total_comparisons?.toLocaleString() ?? "—"}
-          icon={BarChart3}
         />
         <KpiCard
           label="API Health"

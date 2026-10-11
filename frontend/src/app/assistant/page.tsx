@@ -8,7 +8,6 @@ import {
   Bot,
   Brain,
   Calculator,
-  GitCompare,
   Globe,
   Heart,
   Home,
@@ -39,6 +38,7 @@ type ChatMessage = {
   toolCalls?: string[];
   /** True when the request failed and the user can retry this message. */
   failed?: boolean;
+  createdAt: string;
 };
 
 const QUICK_ACTIONS = [
@@ -48,9 +48,9 @@ const QUICK_ACTIONS = [
     icon: Home,
   },
   {
-    label: "Compare prices in Hyderabad",
-    prompt: "Compare apartment prices in Hyderabad",
-    icon: GitCompare,
+    label: "Hyderabad market outlook",
+    prompt: "What market intelligence is available for apartments in Hyderabad?",
+    icon: TrendingUp,
   },
   {
     label: "EMI for ₹40 lakh",
@@ -77,7 +77,6 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   get_market_stats: TrendingUp,
   nearby_places: MapPin,
   find_nearby_places_by_location: MapPin,
-  compare_properties: GitCompare,
   get_area_intelligence: Brain,
   calculate_affordability: Calculator,
   calculate_emi: Calculator,
@@ -95,7 +94,6 @@ const TOOL_LABELS: Record<string, string> = {
   get_market_stats: "Market data",
   nearby_places: "Near a property",
   find_nearby_places_by_location: "Near this location",
-  compare_properties: "Comparison",
   get_area_intelligence: "Area intelligence",
   calculate_affordability: "Affordability",
   calculate_emi: "EMI",
@@ -118,20 +116,23 @@ function ToolCallBadge({ tool }: { tool: string }) {
 
 /** A real catalogue property the assistant retrieved, with its own actions. */
 function RecommendationCard({ property }: { property: ScoredProperty }) {
+  const image = property.image_urls?.split(",").map((value) => value.trim()).find(Boolean);
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3 transition-colors hover:border-green-300 hover:shadow-sm">
-      <Link href={`/properties/${property.property_id}`} className="block">
-        <p className="line-clamp-2 text-xs font-semibold text-slate-900 hover:text-green-700">
-          {property.title}
-        </p>
-        <p className="mt-1 text-sm font-bold text-green-600">{formatPrice(property.price)}</p>
-        <p className="text-xs text-slate-500">
-          {property.locality || property.city}
-          {property.bedrooms != null && ` · ${property.bedrooms} BHK`}
-          {property.area_sqft != null && ` · ${property.area_sqft} sq ft`}
-        </p>
-      </Link>
-      <div className="mt-2 flex items-center justify-between gap-2">
+    <article className="overflow-hidden rounded-2xl border border-emerald-950/10 bg-white shadow-[0_10px_25px_rgb(21_60_49_/_0.08)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgb(21_60_49_/_0.13)]">
+      {image && (
+        <Link href={`/properties/${property.property_id}`} className="block h-24 overflow-hidden bg-emerald-50">
+          {/* Catalogue image domains are user-managed, so Next Image cannot safely allowlist them. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={image} alt="" className="h-full w-full object-cover" loading="lazy" />
+        </Link>
+      )}
+      <div className="p-3">
+        <Link href={`/properties/${property.property_id}`} className="block">
+          <p className="line-clamp-2 text-xs font-semibold text-slate-900 hover:text-green-700">{property.title}</p>
+          <p className="mt-1 font-serif text-base font-bold text-emerald-800">{formatPrice(property.price)}</p>
+          <p className="text-xs text-slate-500">{property.locality || property.city}{property.bedrooms != null && ` · ${property.bedrooms} BHK`}{property.area_sqft != null && ` · ${property.area_sqft} sq ft`}</p>
+        </Link>
+        <div className="mt-3 flex items-center justify-between gap-2">
         <span className="rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700">
           {Math.round(property.overall_score)}% match
         </span>
@@ -149,8 +150,9 @@ function RecommendationCard({ property }: { property: ScoredProperty }) {
             variant="compact"
           />
         </div>
+        </div>
       </div>
-    </div>
+    </article>
   );
 }
 
@@ -196,18 +198,22 @@ export default function AssistantPage() {
       lastFailedMessage.current = message;
       setMessages((current) => [
         ...current.filter((m) => !m.failed),
-        { role: "user", content: message },
+        { role: "user", content: message, createdAt: new Date().toISOString() },
       ]);
       setText("");
       setError(undefined);
       setSending(true);
       try {
-        const response = await aiApi.assistant({ message, conversation_id: conversationId });
+        const contextualPropertyId = typeof window === "undefined"
+          ? undefined
+          : Number(new URLSearchParams(window.location.search).get("property_id")) || undefined;
+        const response = await aiApi.assistant({ message, conversation_id: conversationId, property_id: contextualPropertyId });
+        if (!response.answer?.trim()) throw new ApiError("The assistant returned an empty response. Please retry.", 502);
         setConversationId(response.conversation_id);
         const toolCalls = response.tool_calls?.map((tc) => tc.tool) || [];
         setMessages((current) => [
           ...current,
-          { role: "assistant", content: response.answer, response, toolCalls },
+          { role: "assistant", content: response.answer, response, toolCalls, createdAt: new Date().toISOString() },
         ]);
         lastFailedMessage.current = null;
       } catch (caught) {
@@ -221,7 +227,7 @@ export default function AssistantPage() {
         // Keep the failed turn visible so the user can retry it in place.
         setMessages((current) => [
           ...current,
-          { role: "assistant", content: message_, failed: true },
+          { role: "assistant", content: message_, failed: true, createdAt: new Date().toISOString() },
         ]);
       } finally {
         setSending(false);
@@ -270,14 +276,15 @@ export default function AssistantPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8">
+    <div className="mx-auto max-w-5xl px-4 py-8 sm:py-10">
       <div className="mb-8">
-        <div className="mb-4 flex items-center justify-center gap-3">
-          <div className="flex size-12 items-center justify-center rounded-2xl bg-green-100 text-green-600">
+        <div className="mb-5 flex items-center justify-center gap-3">
+          <div className="flex size-12 items-center justify-center rounded-2xl bg-emerald-950 text-[#d7e9bd] shadow-lg shadow-emerald-950/15">
             <Sparkles className="size-6" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold text-slate-900">Property decision assistant</h1>
+            <p className="app-kicker">Private property intelligence</p>
+            <h1 className="app-page-title mt-1 text-3xl">Property decision assistant</h1>
             <p className="mt-1 text-slate-600">
               Search real listings conversationally. Every recommendation is grounded in platform data.
             </p>
@@ -301,7 +308,7 @@ export default function AssistantPage() {
         </div>
       </div>
 
-      <Card className="flex h-[calc(100vh-300px)] max-h-[700px] min-h-[500px] flex-col border-border/60">
+      <Card className="flex h-[calc(100vh-318px)] max-h-[720px] min-h-[520px] flex-col overflow-hidden border-emerald-950/10 bg-[#fffefa] shadow-[0_18px_50px_rgb(21_60_49_/_0.09)]">
         <ScrollArea className="flex-1 overflow-y-auto" ref={scrollAreaRef}>
           <div className="space-y-6 p-4 sm:p-6">
             {messages.length === 0 ? (
@@ -311,7 +318,7 @@ export default function AssistantPage() {
                   What kind of property are you looking for?
                 </p>
                 <p className="mt-1 max-w-sm text-sm text-slate-500">
-                  Ask for listings, a price comparison, or a financing question. Answers come from
+                  Ask for listings, market data, or a financing question. Answers come from
                   the stored catalogue, and the assistant says so when nothing matches.
                 </p>
               </div>
@@ -337,6 +344,9 @@ export default function AssistantPage() {
                     >
                       {message.content}
                     </div>
+                    <p className={cn("mt-1.5 text-[10px] uppercase tracking-[.12em] text-slate-400", message.role === "user" && "text-right")}>
+                      {message.role === "assistant" ? "RealEstateGPT · " : ""}{new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                    </p>
 
                     {message.failed && (
                       <Button
@@ -379,15 +389,15 @@ export default function AssistantPage() {
 
                     {message.response?.citations && message.response.citations.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1">
-                        {message.response.citations.map((citation, i) => (
-                          <span
+                        {message.response.citations.map((citation, i) => {
+                          const citationContent = <><Bot className="h-3 w-3" />{citation.label}</>;
+                          return citation.url ? (
+                          <a href={citation.url} target="_blank" rel="noopener noreferrer"
                             key={i}
                             className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
-                          >
-                            <Bot className="h-3 w-3" />
-                            {citation.label}
-                          </span>
-                        ))}
+                          >{citationContent}</a>
+                          ) : <span key={i} className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs text-blue-700">{citationContent}</span>;
+                        })}
                       </div>
                     )}
                   </div>
@@ -398,7 +408,7 @@ export default function AssistantPage() {
           </div>
         </ScrollArea>
 
-        <div className="border-t border-slate-200 bg-white p-4">
+        <div className="border-t border-emerald-950/10 bg-white/85 p-4 backdrop-blur">
           {sending && (
             <div className="mb-4 flex items-center gap-2 text-sm text-slate-500">
               <Loader2 className="size-4 animate-spin text-green-600" />
@@ -415,7 +425,7 @@ export default function AssistantPage() {
             <Input
               value={text}
               onChange={(event) => setText(event.target.value)}
-              placeholder="Ask for a property, budget, location, or comparison…"
+              placeholder="Ask about a property, budget, location, market, or EMI…"
               disabled={sending}
               className="flex-1"
               aria-label="Message the property assistant"

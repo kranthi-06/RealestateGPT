@@ -207,6 +207,18 @@ class TestGatewayFallback:
         assert result["provider"] == "gemini"
         assert primary.attempts >= 1
 
+    def test_empty_primary_response_falls_through_without_fabricating(self):
+        """A 200 with no text or tool calls is a provider failure, not success."""
+        primary = ScriptedProvider("groq", [(200, {"text": ""})])
+        fallback = ScriptedProvider("gemini", [(200, {"text": "grounded fallback"})])
+        gateway = AIGateway(_registry([_entry(primary, 0), _entry(fallback, 1)]))
+        gateway.retry = RetryPolicy(max_attempts=1, base_seconds=0.001, max_seconds=0.002)
+
+        result = gateway.generate_with_tools([{"role": "user", "content": "hi"}], [])
+        assert result["provider"] == "gemini"
+        assert result["message"]["content"] == "grounded fallback"
+        assert primary.attempts == 1
+
     def test_a_single_transient_failure_is_retried_on_the_same_provider(self):
         # One 503 then success: the retry stays on the same provider.
         provider = ScriptedProvider("groq", [(503, {}), (200, {"text": "recovered"})])

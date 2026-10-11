@@ -29,8 +29,7 @@ import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { formatPrice } from "@/lib/format";
 import { useSaved } from "@/lib/saved-context";
-import { MAX_COMPARE, useCompare } from "@/lib/compare-context";
-import { notify, notifyUnsaved, notifyCompareAdded, notifyCompareFull } from "@/lib/notify";
+import { notify, notifyUnsaved } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 
 type SortKey = "created_at" | "price_asc" | "price_desc";
@@ -45,7 +44,6 @@ export default function SavedPage() {
   const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
   const { hydrate, revision } = useSaved();
-  const compare = useCompare();
 
   const [savedProperties, setSavedProperties] = useState<SavedPropertyItem[]>([]);
   const [savedDiscoveries, setSavedDiscoveries] = useState<WebDiscoveryCardType[]>([]);
@@ -165,24 +163,6 @@ export default function SavedPage() {
     [router]
   );
 
-  // Saved listings can be compared from here too; the selection lives in the
-  // shared compare store so it survives navigation.
-  const toggleCompare = useCallback(
-    (id: number) => {
-      if (compare.has(id)) {
-        compare.remove(id);
-        return;
-      }
-      if (compare.isFull) {
-        notifyCompareFull(MAX_COMPARE);
-        return;
-      }
-      compare.add(id);
-      notifyCompareAdded();
-    },
-    [compare]
-  );
-
   const buildSearchChips = (search: SavedSearch) => {
     const chips: string[] = [];
     if (search.city) chips.push(search.city);
@@ -242,7 +222,7 @@ export default function SavedPage() {
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Saved Properties</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Sign in to access your shortlisted properties, saved searches, and comparisons across all your devices.
+            Sign in to access your shortlisted properties and saved searches across all your devices.
           </p>
           <div className="mt-6 flex items-center justify-center gap-3">
             <Button asChild>
@@ -438,8 +418,6 @@ export default function SavedPage() {
                   <PropertyListRow
                     property={{ ...item.property, is_saved: true }}
                     showDistance={false}
-                    onCompareToggle={toggleCompare}
-                    isCompareSelected={compare.has(item.property.id)}
                   />
                   <button
                     type="button"

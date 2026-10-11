@@ -8,7 +8,6 @@ import {
   Building2,
   ArrowRight,
   Navigation,
-  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,9 +28,6 @@ interface PropertyListRowProps {
   distanceKm?: number;
   nearbyFacilities?: string[];
   aiScore?: number;
-  onCompareToggle?: (id: number) => void;
-  isCompareSelected?: boolean;
-  showCompare?: boolean;
   showSave?: boolean;
   className?: string;
 }
@@ -51,9 +47,6 @@ export function PropertyListRow({
   distanceKm,
   nearbyFacilities,
   aiScore,
-  onCompareToggle,
-  isCompareSelected = false,
-  showCompare = true,
   showSave = true,
   className,
 }: PropertyListRowProps) {
@@ -71,26 +64,9 @@ export function PropertyListRow({
     <article
       className={cn(
         "group relative flex flex-col gap-3 rounded-xl border border-border bg-card p-3.5 transition-all hover:border-primary/30 hover:shadow-sm sm:flex-row sm:items-stretch sm:gap-4",
-        isCompareSelected && "border-primary/60 ring-1 ring-primary/20",
         className
       )}
     >
-      {showCompare && onCompareToggle && (
-        <button
-          type="button"
-          onClick={() => onCompareToggle(property.id)}
-          aria-label={`Toggle compare for ${property.title}`}
-          aria-pressed={isCompareSelected}
-          className={cn(
-            "absolute right-3 top-3 z-10 flex h-5 w-5 items-center justify-center rounded border transition-all",
-            isCompareSelected
-              ? "border-primary bg-primary text-primary-foreground"
-              : "border-border bg-background text-transparent hover:border-primary/50 hover:text-muted-foreground"
-          )}
-        >
-          <Check className="h-3 w-3" strokeWidth={3} />
-        </button>
-      )}
 
       {firstImage && (
         <div className="relative h-24 w-full shrink-0 overflow-hidden rounded-lg bg-slate-100 sm:h-auto sm:w-32">

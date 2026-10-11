@@ -2,11 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
 import { SavedProvider } from "@/lib/saved-context";
-import { CompareProvider } from "@/lib/compare-context";
 import { SearchProvider } from "@/lib/search-context";
 import { Toaster } from "@/components/ui/toast";
 import Navbar from "@/components/navbar";
-import CompareBar from "@/components/compare-bar";
 
 export const metadata: Metadata = {
   title: {
@@ -14,7 +12,7 @@ export const metadata: Metadata = {
     template: "%s | RealEstateGPT",
   },
   description:
-    "Find your perfect property with AI-powered search, intelligent recommendations, and comprehensive analysis. Discover, compare, and decide with confidence.",
+    "Find your perfect property with AI-powered search, intelligent recommendations, and comprehensive analysis. Discover and decide with confidence.",
   applicationName: "RealEstateGPT",
   openGraph: {
     type: "website",
@@ -53,16 +51,11 @@ export default function RootLayout({
       <body className="antialiased">
         <AuthProvider>
           <SavedProvider>
-            <CompareProvider>
-              <SearchProvider>
-                <Navbar />
-                <main className="min-h-[calc(100vh-4rem)]">{children}</main>
-                <div className="fixed inset-x-0 bottom-0 z-30 pointer-events-none [&>*]:pointer-events-auto">
-                  <CompareBar />
-                </div>
-                <Toaster />
-              </SearchProvider>
-            </CompareProvider>
+            <SearchProvider>
+              <Navbar />
+              <main className="min-h-[calc(100vh-4rem)]">{children}</main>
+              <Toaster />
+            </SearchProvider>
           </SavedProvider>
         </AuthProvider>
       </body>

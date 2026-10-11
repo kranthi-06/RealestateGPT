@@ -7,7 +7,6 @@ import type {
   SavedPropertyItem,
   SavePropertyResult,
   SavedSearch,
-  Comparison,
   SearchFilters,
   SearchSectionsResponse,
   SearchIntent,
@@ -222,27 +221,10 @@ export const savedApi = {
     request<WebDiscoveryCard[]>(`/saved/discoveries?limit=${limit}`),
 };
 
-// â”€â”€â”€ Comparisons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-export const comparisonsApi = {
-  create: (property_ids: number[], name?: string) =>
-    request<Comparison>("/saved/comparisons", {
-      method: "POST",
-      body: JSON.stringify({ property_ids, name }),
-    }),
-
-  list: () => request<Comparison[]>("/saved/comparisons"),
-
-  get: (id: number) => request<Comparison>(`/saved/comparisons/${id}`),
-
-  delete: (id: number) =>
-    request<{ message: string }>(`/saved/comparisons/${id}`, { method: "DELETE" }),
-};
-
 // â”€â”€â”€ Grounded AI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export const aiApi = {
-  assistant: (data: { message: string; conversation_id?: number; property_id?: number; compare_ids?: number[] }) =>
+  assistant: (data: { message: string; conversation_id?: number; property_id?: number }) =>
     request<AssistantResponse>("/ai/assistant", { method: "POST", body: JSON.stringify(data) }),
   search: (data: { query: string; limit?: number; user_filters?: Record<string, string | number | string[]> }) =>
     request<DiscoverySearchResponse>("/ai/search", { method: "POST", body: JSON.stringify(data) }),

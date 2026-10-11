@@ -14,7 +14,7 @@
  *   request cache      → identical signature reuses results without any
  *                        duplicate upstream request
  *
- * Saved properties and compare selections are deliberately NOT part of this
+ * Saved properties are deliberately NOT part of this
  * state: they live in their own providers, so clearing a search never touches
  * them.
  */
@@ -82,7 +82,7 @@ interface SearchContextValue {
   runSearch: () => Promise<void>;
   /** Re-search with the current filters (used by filter changes). */
   refreshSearch: () => Promise<void>;
-  /** Reset query + filters + results (never touches saved/compare state). */
+  /** Reset query + filters + results (never touches saved state). */
   clearSearch: () => void;
   signature: string;
   /** Internal: the Search page pushes the live URL query string here. */

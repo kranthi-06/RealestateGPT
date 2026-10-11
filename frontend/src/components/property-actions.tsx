@@ -1,25 +1,21 @@
 "use client";
 
 /**
- * Save / Compare actions for a property.
+ * Save actions for a property.
  *
  * Every property surface (search results, saved list, AI recommendations,
- * compare columns) uses this component so the behaviour, the loading state and
+ * results and assistant recommendations) uses this component so the behaviour, the loading state and
  * the error reporting are identical everywhere.
  */
 
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Heart, GitCompare, Check, Loader2 } from "lucide-react";
+import { Heart, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
-import { MAX_COMPARE, useCompare } from "@/lib/compare-context";
 import { useSaved } from "@/lib/saved-context";
 import {
   notify,
-  notifyCompareAdded,
-  notifyCompareFull,
-  notifyCompareRemoved,
   notifySaved,
   notifySaveFailed,
   notifyUnsaved,
@@ -42,12 +38,10 @@ export function PropertyActions({
 }: PropertyActionsProps) {
   const { isAuthenticated } = useAuth();
   const { isSaved, toggleSaved } = useSaved();
-  const compare = useCompare();
   const router = useRouter();
-  const [pending, setPending] = useState<"save" | "compare" | null>(null);
+  const [pending, setPending] = useState<"save" | null>(null);
 
   const saved = isSaved(propertyId);
-  const comparing = compare.has(propertyId);
 
   const onSave = useCallback(
     async (event: React.MouseEvent) => {
@@ -83,27 +77,6 @@ export function PropertyActions({
     [isAuthenticated, pending, router, title, toggleSaved, propertyId]
   );
 
-  const onCompare = useCallback(
-    (event: React.MouseEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (comparing) {
-        compare.remove(propertyId);
-        notifyCompareRemoved();
-        return;
-      }
-      if (compare.isFull) {
-        notifyCompareFull(MAX_COMPARE);
-        return;
-      }
-      compare.add(propertyId);
-      notifyCompareAdded(title);
-    },
-    [compare, comparing, propertyId, title]
-  );
-
-  // If not authenticated, onSave redirects to /auth/login while onCompare works locally.
-
   if (variant === "icon") {
     return (
       <div className={cn("flex items-center gap-1.5", className)}>
@@ -126,18 +99,6 @@ export function PropertyActions({
             />
           )}
         </button>
-        <button
-          type="button"
-          onClick={onCompare}
-          aria-label={comparing ? `Remove ${title ?? "property"} from comparison` : `Add ${title ?? "property"} to comparison`}
-          aria-pressed={comparing}
-          className={cn(
-            "flex size-8 items-center justify-center rounded-full bg-white/90 shadow-sm backdrop-blur-sm transition-transform hover:scale-110 dark:bg-black/50",
-            comparing && "bg-primary text-primary-foreground"
-          )}
-        >
-          {comparing ? <Check className="size-3.5" /> : <GitCompare className="size-3.5" />}
-        </button>
       </div>
     );
   }
@@ -159,16 +120,6 @@ export function PropertyActions({
             <Heart className={cn("size-4", saved && "fill-red-500 text-red-500")} />
           )}
         </Button>
-        <Button
-          variant={comparing ? "default" : "outline"}
-          size="icon"
-          className="size-8"
-          onClick={onCompare}
-          aria-label={comparing ? `Remove ${title ?? "property"} from comparison` : `Add ${title ?? "property"} to comparison`}
-          aria-pressed={comparing}
-        >
-          {comparing ? <Check className="size-3.5" /> : <GitCompare className="size-3.5" />}
-        </Button>
       </div>
     );
   }
@@ -189,16 +140,6 @@ export function PropertyActions({
           <Heart className={cn("size-3.5", saved && "fill-current")} />
         )}
         {saved ? "Saved" : "Save"}
-      </Button>
-      <Button
-        variant={comparing ? "default" : "outline"}
-        size="sm"
-        className="h-8 gap-1.5"
-        onClick={onCompare}
-        aria-pressed={comparing}
-      >
-        {comparing ? <Check className="size-3.5" /> : <GitCompare className="size-3.5" />}
-        {comparing ? "In Compare" : "Add to Compare"}
       </Button>
     </div>
   );

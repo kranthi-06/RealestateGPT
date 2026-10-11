@@ -119,7 +119,8 @@ class Settings(BaseSettings):
     # independently optional: a missing key disables that fallback without
     # affecting the others or any unrelated feature.
     GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "gemini-2.0-flash"
+    # gemini-2.0-flash is retired; use the currently supported fallback model.
+    GEMINI_MODEL: str = "gemini-2.5-flash"
     GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_MODEL: str = "gpt-4o-mini"

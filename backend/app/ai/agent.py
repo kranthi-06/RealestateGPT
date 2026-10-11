@@ -86,7 +86,7 @@ class GroqToolCallingAgent:
         search_payload: dict | None = None
         total_provider_ms = 0.0
         provider_used = "unknown"
-        for _ in range(settings.MAX_AGENT_STEPS):
+        for step in range(settings.MAX_AGENT_STEPS):
             completion = gateway.generate_with_tools(messages, self.registry.definitions())
             total_provider_ms += completion["latency_ms"]
             provider_used = completion.get("provider", provider_used)
@@ -111,14 +111,19 @@ class GroqToolCallingAgent:
                 # Only verified-catalogue tools feed the renderable result set.
                 if name in {"search_properties", "get_property"} and isinstance(result, dict):
                     search_payload = result
-                elif name == "compare_properties" and isinstance(result, dict):
-                    search_payload = search_payload or {"results": [], "total": 0, "parsed": None}
-                    search_payload["comparison"] = result.get("comparison", [])
                 records.append(ToolCallRecord(tool=name, input=self._safe_input(arguments), output_summary=self._summary(name, result)))
                 messages.append({"role": "tool", "tool_call_id": call.get("id"), "name": name,
                                  "content": _bounded_tool_payload(result)})
         else:
-            raise AIValidationError("The AI agent reached its maximum steps")
+            # The model has already had the bounded number of opportunities to
+            # gather verified context. Do not turn a completed, grounded tool
+            # pass into a user-visible 422 merely because it asked for one more
+            # tool; move directly to the structured final-answer pass instead.
+            logger.info("agent_step_limit_reached steps=%s tools=%s", step + 1, len(records))
+            messages.append({
+                "role": "system",
+                "content": "Tool calls are complete. Use the verified tool results already provided and produce the final answer now.",
+            })
         # The final answer must be a raw JSON object. The model sometimes leaks
         # a second `<tool_call>` here; strip tool-call context and retry once
         # with a stricter schema when Groq rejects the JSON shape.

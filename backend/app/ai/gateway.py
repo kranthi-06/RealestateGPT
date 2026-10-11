@@ -234,6 +234,13 @@ class AIGateway:
                         messages, tools, max_tokens=max_tokens, structured=structured,
                         model=model,
                     )
+                # Providers occasionally return a 200 response with no visible
+                # text (for example after exhausting a thinking-token budget).
+                # A tool call is a valid empty-content response; anything else
+                # must be retried and then allowed to fall through to another
+                # configured provider rather than becoming a fabricated success.
+                if not result.message.content.strip() and not result.message.tool_calls:
+                    raise ValueError("AI provider returned an empty response")
             except Exception as exc:  # noqa: BLE001
                 status = _status_of(exc)
                 health = self._registry.metrics.health(name)

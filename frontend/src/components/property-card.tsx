@@ -11,7 +11,6 @@ import {
   CheckCircle2,
   Star,
   Clock,
-  ArrowRight,
   ExternalLink,
   Brain,
 } from "lucide-react";
@@ -24,8 +23,6 @@ import { PropertyActions } from "@/components/property-actions";
 interface PropertyCardProps {
   property: Property;
   variant?: "list" | "grid" | "compact" | "list-row";
-  onCompareToggle?: (id: number) => void;
-  isCompareSelected?: boolean;
   showDistance?: boolean;
   distanceKm?: number;
   nearbyFacilities?: string[];
@@ -46,8 +43,6 @@ const propertyTypeLabels: Record<string, string> = {
 export default function PropertyCard({
   property,
   variant = "list",
-  onCompareToggle,
-  isCompareSelected,
   showDistance = false,
   distanceKm,
   nearbyFacilities,
@@ -62,8 +57,6 @@ export default function PropertyCard({
         distanceKm={distanceKm}
         nearbyFacilities={nearbyFacilities}
         aiScore={aiScore}
-        onCompareToggle={onCompareToggle}
-        isCompareSelected={isCompareSelected}
       />
     );
   }
@@ -127,7 +120,7 @@ export default function PropertyCard({
                 </Badge>
               )}
             </div>
-            {/* Save + Compare actions */}
+            {/* Saved-property action */}
             <div className="absolute right-2 top-2">
               <PropertyActions propertyId={property.id} title={property.title} variant="icon" />
             </div>
@@ -288,9 +281,6 @@ export default function PropertyCard({
             </div>
             <div className="flex items-center gap-1">
               <PropertyActions propertyId={property.id} title={property.title} variant="compact" />
-              {onCompareToggle && (
-                <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-              )}
             </div>
           </div>
         </div>

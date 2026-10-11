@@ -2,7 +2,6 @@
 
 import { useState, useCallback, useEffect, useRef, Suspense } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,11 +30,8 @@ import {
   LayoutList,
   LayoutGrid,
   Navigation,
-  ArrowRight,
 } from "lucide-react";
 import type { Property, SearchIntent } from "@/lib/types";
-import { MAX_COMPARE, useCompare } from "@/lib/compare-context";
-import { notifyCompareAdded, notifyCompareFull } from "@/lib/notify";
 import { useSearchState, useSyncUrlSearch, type SortKey } from "@/lib/search-context";
 
 type LocState = "idle" | "pending" | "granted" | "denied" | "timeout" | "unsupported";
@@ -266,19 +262,14 @@ function sortedProperties(items: Property[], sort: SortKey): Property[] {
 
 function VerifiedSections({
   sections,
-  onCompareToggle,
-  compareIds,
   viewMode,
   sort,
 }: {
   sections: ReturnType<typeof useSearchState>["state"]["sections"];
-  onCompareToggle: (id: number) => void;
-  compareIds: number[];
   viewMode: "list" | "grid";
   sort: SortKey;
 }) {
   if (!sections || sections.length === 0) return null;
-  const selected = new Set(compareIds);
   return (
     <div className="space-y-8">
       {sections.map((section, idx) => {
@@ -302,8 +293,6 @@ function VerifiedSections({
                     key={property.id}
                     property={property}
                     variant="grid"
-                    onCompareToggle={onCompareToggle}
-                    isCompareSelected={selected.has(property.id)}
                   />
                 ))}
               </div>
@@ -314,8 +303,6 @@ function VerifiedSections({
                     key={property.id}
                     property={property}
                     variant="list"
-                    onCompareToggle={onCompareToggle}
-                    isCompareSelected={selected.has(property.id)}
                   />
                 ))}
               </div>
@@ -346,7 +333,6 @@ function SearchPageContent() {
 
   const [locState, setLocState] = useState<LocState>("idle");
   const locationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const compare = useCompare();
 
   const filters = state.filters;
   const includeWeb = state.includeWeb;
@@ -391,22 +377,6 @@ function SearchPageContent() {
       q, city, listing_type, property_type,
     }));
   }, [search]);
-
-  const toggleCompare = useCallback(
-    (id: number) => {
-      if (compare.has(id)) {
-        compare.remove(id);
-        return;
-      }
-      if (compare.isFull) {
-        notifyCompareFull(MAX_COMPARE);
-        return;
-      }
-      compare.add(id);
-      notifyCompareAdded();
-    },
-    [compare]
-  );
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -500,26 +470,6 @@ function SearchPageContent() {
             <span className="text-muted-foreground/70"> · bounded web discovery, labeled separately</span>
           </label>
         </div>
-
-        {/* Compare selection summary: the persistent bar lives in the layout. */}
-        {compare.ids.length > 0 && (
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card px-3 py-2 text-sm">
-            <div className="flex items-center gap-2">
-              <Badge variant="default" className="tabular-nums px-2 py-0.5 text-[11px]">
-                {compare.ids.length}
-              </Badge>
-              <span>
-                propert{compare.ids.length === 1 ? "y" : "ies"} selected for comparison
-              </span>
-            </div>
-            <Link href={`/compare?ids=${compare.ids.join(",")}`}>
-              <Button size="sm" className="h-8 gap-1" disabled={compare.ids.length < 2}>
-                Open comparison
-                <ArrowRight className="h-3.5 w-3.5" />
-              </Button>
-            </Link>
-          </div>
-        )}
 
         {/* Results */}
         <main className="min-w-0">
@@ -620,8 +570,6 @@ function SearchPageContent() {
                     />
                     <VerifiedSections
                       sections={state.sections}
-                      onCompareToggle={toggleCompare}
-                      compareIds={compare.ids}
                       viewMode={viewMode}
                       sort={sort}
                     />

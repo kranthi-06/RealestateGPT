@@ -128,7 +128,6 @@ class AssistantRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     conversation_id: Optional[int] = None
     property_id: Optional[int] = None      # contextual: "is this worth buying?"
-    compare_ids: Optional[List[int]] = None  # contextual: "which is best?"
     limit: int = Field(8, ge=1, le=20)
 
 
