@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth-context";
-import { ApiError } from "@/lib/api";
+import { ApiError, savedApi } from "@/lib/api";
+import { notifySaved } from "@/lib/notify";
 import { Building2, Loader2, Eye, EyeOff, ShieldCheck, UserRound } from "lucide-react";
 
 export default function LoginPage() {
@@ -40,7 +41,28 @@ export default function LoginPage() {
         setError("This account does not have administrator access.");
         return;
       }
-      router.push(loginRole === "admin" ? "/admin" : nextPath());
+      // Execute any pending property save initiated before login
+      let hasPendingSave = false;
+      if (typeof window !== "undefined") {
+        const pendingSave = sessionStorage.getItem("regpt_pending_save_id");
+        if (pendingSave) {
+          sessionStorage.removeItem("regpt_pending_save_id");
+          try {
+            await savedApi.saveProperty(Number(pendingSave));
+            notifySaved("Property");
+            hasPendingSave = true;
+          } catch {
+            // Ignored if invalid
+          }
+        }
+      }
+      if (loginRole === "admin") {
+        router.push("/admin");
+      } else if (hasPendingSave) {
+        router.push("/saved");
+      } else {
+        router.push(nextPath());
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Login failed";
       if (err instanceof ApiError && err.status === 429) {

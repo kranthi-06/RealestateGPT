@@ -235,18 +235,8 @@ export default function PropertyCard({
               </div>
 
               {/* Actions */}
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
-                >
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </Button>
+              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                <PropertyActions propertyId={property.id} title={property.title} variant="buttons" />
               </div>
             </div>
           </div>
@@ -357,6 +347,9 @@ export default function PropertyCard({
             {property.bedrooms != null && <span className="flex items-center gap-1"><BedDouble className="w-3.5 h-3.5" />{getBedroomLabel(property.bedrooms)}</span>}
             {property.bathrooms != null && <span className="flex items-center gap-1"><Bath className="w-3.5 h-3.5" />{property.bathrooms} ba</span>}
             {property.area_sqft != null && <span className="flex items-center gap-1"><Maximize2 className="w-3.5 h-3.5" />{formatArea(property.area_sqft)}</span>}
+          </div>
+          <div className="mt-3 pt-2 border-t border-border/40 flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
+            <PropertyActions propertyId={property.id} title={property.title} variant="buttons" />
           </div>
         </div>
       </article>

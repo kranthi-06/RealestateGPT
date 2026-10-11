@@ -187,15 +187,15 @@ export function PropertyListRow({
             )}
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
             {showSave && (
               <PropertyActions
                 propertyId={property.id}
                 title={property.title}
-                variant="compact"
+                variant="buttons"
               />
             )}
-            <Button asChild size="sm" className="gap-1">
+            <Button asChild size="sm" className="gap-1 h-8">
               <Link href={`/properties/${property.id}`}>
                 View Details
                 <ArrowRight className="h-3.5 w-3.5" />

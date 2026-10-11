@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import type { User } from "@/lib/types";
-import { authApi } from "@/lib/api";
+import { authApi, getStoredToken, setStoredToken, ApiError } from "@/lib/api";
 
 interface AuthContextType {
   user: User | null;
@@ -21,11 +21,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   /**
-   * Session restoration uses the HttpOnly session cookie set by the backend.
-   *
-   * The JWT is intentionally NOT kept in localStorage: anything readable from
-   * JavaScript is exfiltrable by an XSS bug. The cookie is HttpOnly, so the
-   * browser attaches it and script cannot read it.
+   * Session restoration combines the HttpOnly session cookie and
+   * the persistent client bearer token for resilient cross-environment auth.
    */
   useEffect(() => {
     let cancelled = false;
@@ -35,8 +32,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .then((profile) => {
           if (!cancelled) setUser(profile);
         })
-        .catch(() => {
-          if (!cancelled) setUser(null);
+        .catch((err) => {
+          if (!cancelled) {
+            if (err instanceof ApiError && err.status === 401) {
+              setStoredToken(null);
+            }
+            setUser(null);
+          }
         })
         .finally(() => {
           if (!cancelled) setIsLoading(false);
@@ -49,6 +51,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const response = await authApi.login({ email, password });
+    if (response.access_token) {
+      setStoredToken(response.access_token);
+    }
     setUser(response.user);
     return response.user;
   }, []);
@@ -59,16 +64,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       full_name: fullName,
       password,
     });
+    if (response.access_token) {
+      setStoredToken(response.access_token);
+    }
     setUser(response.user);
   }, []);
 
   const logout = useCallback(async () => {
-    // Clear the HttpOnly cookie server-side first, then drop local state.
     try {
       await authApi.logout();
     } catch {
       // Even if the request fails, drop local state so the UI signs out.
     } finally {
+      setStoredToken(null);
       setUser(null);
     }
   }, []);

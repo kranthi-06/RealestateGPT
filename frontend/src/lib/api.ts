@@ -15,6 +15,7 @@ import type {
   WorkerStatus,
   WorkerRun,
   WebDiscoveryDetail,
+  WebDiscoveryCard,
   UnifiedSearchRequest,
   UnifiedSearchResponse,
   AdminStats,
@@ -53,22 +54,40 @@ export class ApiError extends Error {
   }
 }
 
-function getToken(): string | null {
+const TOKEN_STORAGE_KEY = "regpt_access_token";
+
+export function getStoredToken(): string | null {
   if (typeof window === "undefined") return null;
-  return null;
+  try {
+    return localStorage.getItem(TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredToken(token: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (token) {
+      localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage errors in restricted contexts
+  }
 }
 
 async function request<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = getToken();
+  const token = getStoredToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
-  // A bearer token is only attached when one is explicitly supplied. The browser
-  // session uses the HttpOnly cookie below, so no token is ever stored in JS.
+  // Send the Bearer token whenever available, complementing the HttpOnly session cookie
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
@@ -213,6 +232,9 @@ export const savedApi = {
 
   deleteSavedSearch: (id: number) =>
     request<{ message: string }>(`/saved/searches/${id}`, { method: "DELETE" }),
+
+  getSavedDiscoveries: (limit = 50) =>
+    request<WebDiscoveryCard[]>(`/saved/discoveries?limit=${limit}`),
 };
 
 // â”€â”€â”€ Comparisons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

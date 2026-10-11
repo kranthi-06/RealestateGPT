@@ -28,6 +28,11 @@ export function isLoopbackApiBase(base: string): boolean {
 }
 
 export function resolveApiBase(): string {
+  // In the browser during production, always use same-origin relative base so
+  // cookies, proxies, and custom domains function seamlessly without cross-origin issues.
+  if (typeof window !== "undefined" && process.env.NODE_ENV === "production") {
+    return SAME_ORIGIN_API_BASE;
+  }
   const configured = (process.env.NEXT_PUBLIC_API_URL || "").trim();
   if (configured && (!isLoopbackApiBase(configured) || process.env.NODE_ENV !== "production")) {
     return configured.replace(/\/+$/, "");

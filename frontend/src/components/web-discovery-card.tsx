@@ -14,6 +14,8 @@ import type { WebDiscoveryCard as WebDiscoveryCardData } from "@/lib/types";
 import { formatPrice, getBedroomLabel } from "@/lib/format";
 import { discoveryApi } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { notify } from "@/lib/notify";
+import { useRouter } from "next/navigation";
 import { useState, useCallback } from "react";
 
 /**
@@ -35,6 +37,7 @@ export default function WebDiscoveryCard({
   onSaveToggle?: () => void;
 }) {
   const { isAuthenticated } = useAuth();
+  const router = useRouter();
   const [isSaved, setIsSaved] = useState(discovery.saved || false);
   const [savingInProgress, setSavingInProgress] = useState(false);
 
@@ -42,24 +45,31 @@ export default function WebDiscoveryCard({
     async (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      if (!isAuthenticated || savingInProgress) return;
+      if (!isAuthenticated) {
+        notify("Please sign in to save discovered listings", { type: "info" });
+        router.push("/auth/login?next=/saved");
+        return;
+      }
+      if (savingInProgress) return;
       setSavingInProgress(true);
       try {
         if (isSaved) {
           await discoveryApi.unsave(discovery.id);
           setIsSaved(false);
+          notify("Removed from saved discoveries", { type: "info" });
         } else {
           await discoveryApi.save(discovery.id);
           setIsSaved(true);
+          notify("Saved to your discoveries", { type: "success" });
         }
         onSaveToggle?.();
       } catch {
-        // preserve previous state
+        notify("Could not update saved status", { type: "error" });
       } finally {
         setSavingInProgress(false);
       }
     },
-    [isAuthenticated, isSaved, discovery.id, savingInProgress, onSaveToggle]
+    [isAuthenticated, savingInProgress, isSaved, discovery.id, onSaveToggle, notify, router]
   );
 
   const sourceLabel =

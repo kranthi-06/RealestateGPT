@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { useCompare } from "@/lib/compare-context";
+import { useSaved } from "@/lib/saved-context";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -37,7 +39,7 @@ const navItems = [
   { href: "/explore", label: "Explore", icon: Map, exact: false },
   { href: "/assistant", label: "AI Assistant", icon: Sparkles, exact: false, auth: true },
   { href: "/compare", label: "Compare", icon: GitCompare, exact: false },
-  { href: "/saved", label: "Saved", icon: Heart, exact: false, auth: true },
+  { href: "/saved", label: "Saved", icon: Heart, exact: false },
 ];
 
 const moreItems = [
@@ -48,6 +50,8 @@ const moreItems = [
 
 export default function Navbar() {
   const { user, isAuthenticated, logout } = useAuth();
+  const compare = useCompare();
+  const saved = useSaved();
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
 
@@ -88,6 +92,16 @@ export default function Navbar() {
                 >
                   <item.icon className="size-4" />
                   {item.label}
+                  {item.href === "/compare" && compare.ids.length > 0 && (
+                    <span className="ml-1 rounded-full bg-primary/20 text-primary px-1.5 py-0.5 text-[10px] font-bold leading-none">
+                      {compare.ids.length}
+                    </span>
+                  )}
+                  {item.href === "/saved" && saved.savedIds.size > 0 && (
+                    <span className="ml-1 rounded-full bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400 px-1.5 py-0.5 text-[10px] font-bold leading-none">
+                      {saved.savedIds.size}
+                    </span>
+                  )}
                 </Link>
               );
             })}
@@ -219,6 +233,16 @@ export default function Navbar() {
                 >
                   <item.icon className="size-5" />
                   {item.label}
+                  {item.href === "/compare" && compare.ids.length > 0 && (
+                    <span className="ml-auto rounded-full bg-primary/20 text-primary px-2 py-0.5 text-xs font-bold leading-none">
+                      {compare.ids.length}
+                    </span>
+                  )}
+                  {item.href === "/saved" && saved.savedIds.size > 0 && (
+                    <span className="ml-auto rounded-full bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400 px-2 py-0.5 text-xs font-bold leading-none">
+                      {saved.savedIds.size}
+                    </span>
+                  )}
                 </Link>
               );
             })}

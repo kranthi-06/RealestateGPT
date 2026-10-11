@@ -12,12 +12,14 @@ import {
   RefreshCw,
   ArrowUpDown,
   X,
+  Globe2,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
-import { savedApi } from "@/lib/api";
-import type { SavedPropertyItem, SavedSearch, Property } from "@/lib/types";
+import { savedApi, discoveryApi } from "@/lib/api";
+import type { SavedPropertyItem, SavedSearch, Property, WebDiscoveryCard as WebDiscoveryCardType } from "@/lib/types";
 import { PropertyListRow } from "@/components/property-list-row";
 import PropertyCard from "@/components/property-card";
+import WebDiscoveryCard from "@/components/web-discovery-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,11 +48,13 @@ export default function SavedPage() {
   const compare = useCompare();
 
   const [savedProperties, setSavedProperties] = useState<SavedPropertyItem[]>([]);
+  const [savedDiscoveries, setSavedDiscoveries] = useState<WebDiscoveryCardType[]>([]);
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [discoveriesLoading, setDiscoveriesLoading] = useState(true);
   const [searchesLoading, setSearchesLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"properties" | "searches">("properties");
+  const [activeTab, setActiveTab] = useState<"properties" | "discoveries" | "searches">("properties");
 
   // Search / filter / sort state for the saved list.
   const [query, setQuery] = useState("");
@@ -68,6 +72,18 @@ export default function SavedPage() {
       setError("Your shortlist could not be retrieved. Your saved properties have not been changed.");
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const fetchSavedDiscoveries = useCallback(async () => {
+    try {
+      setDiscoveriesLoading(true);
+      const data = await savedApi.getSavedDiscoveries();
+      setSavedDiscoveries(data);
+    } catch {
+      setSavedDiscoveries([]);
+    } finally {
+      setDiscoveriesLoading(false);
     }
   }, []);
 
@@ -89,10 +105,11 @@ export default function SavedPage() {
     if (!isAuthenticated) return;
     const id = window.setTimeout(() => {
       void fetchSavedProperties();
+      void fetchSavedDiscoveries();
       void fetchSavedSearches();
     }, 0);
     return () => window.clearTimeout(id);
-  }, [isAuthenticated, fetchSavedProperties, fetchSavedSearches]);
+  }, [isAuthenticated, fetchSavedProperties, fetchSavedDiscoveries, fetchSavedSearches]);
 
   // A save/unsave anywhere in the app refreshes this list so the two never
   // disagree — the exact bug where a freshly saved property was missing.
@@ -249,19 +266,34 @@ export default function SavedPage() {
             Your personal workspace — properties and searches you want to revisit.
           </p>
         </div>
-        <Button variant="outline" onClick={() => void fetchSavedProperties()} className="gap-2">
+        <Button
+          variant="outline"
+          onClick={() => {
+            void fetchSavedProperties();
+            void fetchSavedDiscoveries();
+            void fetchSavedSearches();
+          }}
+          className="gap-2"
+        >
           <RefreshCw className="size-3.5" />
           Refresh
         </Button>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "properties" | "discoveries" | "searches")} className="w-full">
+        <TabsList className="grid w-full grid-cols-1 sm:grid-cols-3">
           <TabsTrigger value="properties">
             <Heart className="mr-2 h-4 w-4" />
             Saved Properties
             <span className="ml-2 rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">
               {savedProperties.length}
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="discoveries">
+            <Globe2 className="mr-2 h-4 w-4" />
+            Web Discoveries
+            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
+              {savedDiscoveries.length}
             </span>
           </TabsTrigger>
           <TabsTrigger value="searches">
@@ -418,6 +450,33 @@ export default function SavedPage() {
                     <Trash2 className="size-3.5" />
                   </button>
                 </div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="discoveries" className="mt-6">
+          {discoveriesLoading ? (
+            <div className="space-y-4">
+              {[...Array(3)].map((_, i) => (
+                <Skeleton key={i} className="h-44 rounded-xl" />
+              ))}
+            </div>
+          ) : savedDiscoveries.length === 0 ? (
+            <EmptyState
+              title="No saved web discoveries yet."
+              description="Browse web-discovered real estate listings with live links and save the most interesting ones here."
+              actionHref="/search"
+              actionLabel="Discover listings"
+            />
+          ) : (
+            <div className="space-y-4">
+              {savedDiscoveries.map((discovery) => (
+                <WebDiscoveryCard
+                  key={discovery.id}
+                  discovery={discovery}
+                  onSaveToggle={() => void fetchSavedDiscoveries()}
+                />
               ))}
             </div>
           )}

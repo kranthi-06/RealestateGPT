@@ -16,6 +16,8 @@ import { useAuth } from "@/lib/auth-context";
 import { MAX_COMPARE, useCompare } from "@/lib/compare-context";
 import { useSaved } from "@/lib/saved-context";
 import {
+  notify,
+  notifyCompareAdded,
   notifyCompareFull,
   notifyCompareRemoved,
   notifySaved,
@@ -52,7 +54,20 @@ export function PropertyActions({
       event.preventDefault();
       event.stopPropagation();
       if (!isAuthenticated || pending) {
-        if (!isAuthenticated) router.push("/auth/login");
+        if (!isAuthenticated) {
+          notify("Sign in required", {
+            description: "Please sign in to save properties to your shortlist.",
+            type: "info",
+          });
+          if (typeof window !== "undefined") {
+            try {
+              sessionStorage.setItem("regpt_pending_save_id", String(propertyId));
+            } catch {
+              // Ignore session storage errors
+            }
+          }
+          router.push("/auth/login?next=/saved");
+        }
         return;
       }
       setPending("save");
@@ -82,8 +97,9 @@ export function PropertyActions({
         return;
       }
       compare.add(propertyId);
+      notifyCompareAdded(title);
     },
-    [compare, comparing, propertyId]
+    [compare, comparing, propertyId, title]
   );
 
   // If not authenticated, onSave redirects to /auth/login while onCompare works locally.
@@ -182,7 +198,7 @@ export function PropertyActions({
         aria-pressed={comparing}
       >
         {comparing ? <Check className="size-3.5" /> : <GitCompare className="size-3.5" />}
-        {comparing ? "Comparing" : "Compare"}
+        {comparing ? "In Compare" : "Add to Compare"}
       </Button>
     </div>
   );
